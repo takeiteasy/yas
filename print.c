@@ -42,6 +42,29 @@ void print_expr(Atom atom)
 	case AtomType_Continuation:
 		printf("#<CONTINUATION>");
 		break;
+	case AtomType_Float:
+		printf("%g", atom.value.floatval);
+		break;
+	case AtomType_String:
+		putchar('"');
+		for (char *s = atom.value.string; *s; s++) {
+			if (*s == '"' || *s == '\\')
+				putchar('\\');
+			putchar(*s);
+		}
+		putchar('"');
+		break;
+	case AtomType_Vector:
+		printf("#(");
+		for (size_t i = 0; i < atom.value.vector->size; i++) {
+			if (i > 0) putchar(' ');
+			print_expr(atom.value.vector->data[i]);
+		}
+		putchar(')');
+		break;
+	case AtomType_Hash:
+		printf("#<HASH:%zu>", atom.value.hash->size);
+		break;
 	}
 }
 

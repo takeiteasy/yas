@@ -68,6 +68,143 @@ Atom make_builtin(Builtin fn)
 	return a;
 }
 
+Atom make_float(double x)
+{
+	Atom a;
+	a.type = AtomType_Float;
+	a.value.floatval = x;
+	return a;
+}
+
+Atom make_string(const char *s)
+{
+	Atom a;
+	a.type = AtomType_String;
+	a.value.string = strdup(s);
+	return a;
+}
+
+Atom make_string_n(const char *s, size_t len)
+{
+	Atom a;
+	a.type = AtomType_String;
+	a.value.string = malloc(len + 1);
+	memcpy(a.value.string, s, len);
+	a.value.string[len] = '\0';
+	return a;
+}
+
+Atom make_vector(size_t size, Atom fill)
+{
+	Atom a;
+	struct Vector *v = malloc(sizeof(struct Vector));
+	v->size = size;
+	v->capacity = size > 0 ? size : 4;
+	v->data = malloc(sizeof(Atom) * v->capacity);
+	for (size_t i = 0; i < size; i++) {
+		v->data[i] = fill;
+	}
+	a.type = AtomType_Vector;
+	a.value.vector = v;
+	return a;
+}
+
+Atom make_hash(void)
+{
+	Atom a;
+	struct Hash *h = malloc(sizeof(struct Hash));
+	h->size = 0;
+	h->capacity = 16;
+	h->keys = malloc(sizeof(Atom) * h->capacity);
+	h->values = malloc(sizeof(Atom) * h->capacity);
+	a.type = AtomType_Hash;
+	a.value.hash = h;
+	return a;
+}
+
+/* Vector operations */
+Atom vector_ref(Atom vec, size_t index)
+{
+	return vec.value.vector->data[index];
+}
+
+void vector_set(Atom vec, size_t index, Atom value)
+{
+	vec.value.vector->data[index] = value;
+}
+
+size_t vector_length(Atom vec)
+{
+	return vec.value.vector->size;
+}
+
+/* Hash operations - linear probing for simplicity */
+static int atom_equal(Atom a, Atom b)
+{
+	if (a.type != b.type) return 0;
+	switch (a.type) {
+	case AtomType_Nil: return 1;
+	case AtomType_Symbol: return a.value.symbol == b.value.symbol;
+	case AtomType_Integer: return a.value.integer == b.value.integer;
+	case AtomType_Float: return a.value.floatval == b.value.floatval;
+	case AtomType_String: return strcmp(a.value.string, b.value.string) == 0;
+	default: return a.value.pair == b.value.pair;
+	}
+}
+
+Atom hash_ref(Atom hash, Atom key, Atom default_val)
+{
+	struct Hash *h = hash.value.hash;
+	for (size_t i = 0; i < h->size; i++) {
+		if (atom_equal(h->keys[i], key))
+			return h->values[i];
+	}
+	return default_val;
+}
+
+void hash_set(Atom hash, Atom key, Atom value)
+{
+	struct Hash *h = hash.value.hash;
+	/* Check if key exists */
+	for (size_t i = 0; i < h->size; i++) {
+		if (atom_equal(h->keys[i], key)) {
+			h->values[i] = value;
+			return;
+		}
+	}
+	/* Add new key */
+	if (h->size >= h->capacity) {
+		h->capacity *= 2;
+		h->keys = realloc(h->keys, sizeof(Atom) * h->capacity);
+		h->values = realloc(h->values, sizeof(Atom) * h->capacity);
+	}
+	h->keys[h->size] = key;
+	h->values[h->size] = value;
+	h->size++;
+}
+
+int hash_remove(Atom hash, Atom key)
+{
+	struct Hash *h = hash.value.hash;
+	for (size_t i = 0; i < h->size; i++) {
+		if (atom_equal(h->keys[i], key)) {
+			/* Move last element to this position */
+			h->size--;
+			if (i < h->size) {
+				h->keys[i] = h->keys[h->size];
+				h->values[i] = h->values[h->size];
+			}
+			return 1;
+		}
+	}
+	return 0;
+}
+
+size_t hash_size(Atom hash)
+{
+	return hash.value.hash->size;
+}
+
 int listp(Atom expr)
 {
 	while (!nilp(expr)) {

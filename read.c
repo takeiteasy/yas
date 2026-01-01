@@ -83,7 +83,7 @@ static int lex(const char *str, const char **start, const char **end,
                const char *source, const char *filename, ErrorContext *err)
 {
 	const char *ws = " \t\n";
-	const char *delim = "(); \t\n";
+	const char *delim = "(); \t\n\"";
 	const char *prefix = "()'`";
 
 	str += strspn(str, ws);
@@ -98,6 +98,10 @@ static int lex(const char *str, const char **start, const char **end,
 
 	if (strchr(prefix, str[0]) != NULL)
 		*end = str + 1;
+	else if (str[0] == '"')
+		*end = str + 1;  /* String opening quote */
+	else if (str[0] == '#' && str[1] == '(')
+		*end = str + 2;  /* Vector literal #( */
 	else if (str[0] == ',')
 		*end = str + (str[1] == '@' ? 2 : 1);
 	else if (str[0] == ';') {
@@ -120,12 +124,32 @@ static int parse_simple(const char *start, const char *end, Atom *result,
 {
 	char *buf, *p;
 
-	/* Is it an integer? */
-	long val = strtol(start, &p, 10);
-	if (p == end) {
-		result->type = AtomType_Integer;
-		result->value.integer = val;
-		return Error_OK;
+	/* Check if it looks like a number (starts with digit, or - followed by digit) */
+	int is_number = isdigit(start[0]) || 
+		(start[0] == '-' && end - start > 1 && isdigit(start[1])) ||
+		(start[0] == '.' && end - start > 1 && isdigit(start[1]));
+
+	if (is_number) {
+		/* Check if it's a float (contains .) */
+		int has_dot = 0;
+		for (const char *c = start; c < end; c++) {
+			if (*c == '.') { has_dot = 1; break; }
+		}
+		
+		if (has_dot) {
+			double fval = strtod(start, &p);
+			if (p == end) {
+				*result = make_float(fval);
+				return Error_OK;
+			}
+		} else {
+			long val = strtol(start, &p, 10);
+			if (p == end) {
+				result->type = AtomType_Integer;
+				result->value.integer = val;
+				return Error_OK;
+			}
+		}
 	}
 
 	/* NIL or symbol */
@@ -259,6 +283,69 @@ static int read_expr_internal(const char *input, const char **end, Atom *result,
 			          "Expected expression after unquote");
 		}
 		return e;
+	} else if (token[0] == '"') {
+		/* String literal */
+		const char *str_start = *end;
+		const char *p = str_start;
+		size_t len = 0;
+		
+		/* Count length and find end */
+		while (*p && *p != '"') {
+			if (*p == '\\' && p[1]) p++;
+			p++;
+			len++;
+		}
+		if (!*p) {
+			set_error(err, Error_Syntax, source, token, filename,
+			          "Unterminated string");
+			return Error_Syntax;
+		}
+		
+		/* Build string with escape handling */
+		char *buf = malloc(len + 1);
+		char *dst = buf;
+		p = str_start;
+		while (*p != '"') {
+			if (*p == '\\') {
+				p++;
+				switch (*p) {
+				case 'n': *dst++ = '\n'; break;
+				case 't': *dst++ = '\t'; break;
+				case 'r': *dst++ = '\r'; break;
+				case '\\': *dst++ = '\\'; break;
+				case '"': *dst++ = '"'; break;
+				default: *dst++ = *p; break;
+				}
+			} else {
+				*dst++ = *p;
+			}
+			p++;
+		}
+		*dst = '\0';
+		*end = p + 1;  /* Skip closing quote */
+		
+		result->type = AtomType_String;
+		result->value.string = buf;
+		return Error_OK;
+	} else if (token[0] == '#' && token[1] == '(') {
+		/* Vector literal #(1 2 3) */
+		Atom list_result;
+		e = read_list(*end, end, &list_result, source, filename, err);
+		if (e) return e;
+		
+		/* Count list length */
+		size_t len = 0;
+		Atom p = list_result;
+		while (!nilp(p)) { len++; p = cdr(p); }
+		
+		/* Create vector from list */
+		*result = make_vector(len, nil);
+		p = list_result;
+		for (size_t i = 0; i < len; i++) {
+			vector_set(*result, i, car(p));
+			p = cdr(p);
+		}
+		return Error_OK;
 	} else {
 		return parse_simple(token, *end, result, source, filename, err);
 	}

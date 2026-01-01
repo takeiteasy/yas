@@ -90,6 +90,21 @@ int main(int argc, char **argv)
 	env_define(env, make_sym("EQ?"), make_builtin(builtin_eq));
 	env_define(env, make_sym("PAIR?"), make_builtin(builtin_pairp));
 	env_define(env, make_sym("PROCEDURE?"), make_builtin(builtin_procp));
+	
+	/* New type builtins */
+	env_define(env, make_sym("FLOAT?"), make_builtin(builtin_floatp));
+	env_define(env, make_sym("STRING?"), make_builtin(builtin_stringp));
+	env_define(env, make_sym("VECTOR?"), make_builtin(builtin_vectorp));
+	env_define(env, make_sym("HASH?"), make_builtin(builtin_hashp));
+	env_define(env, make_sym("LENGTH"), make_builtin(builtin_length));
+	env_define(env, make_sym("CONCAT"), make_builtin(builtin_concat));
+	env_define(env, make_sym("MAKE-VECTOR"), make_builtin(builtin_make_vector));
+	env_define(env, make_sym("VECTOR-REF"), make_builtin(builtin_vector_ref));
+	env_define(env, make_sym("VECTOR-SET!"), make_builtin(builtin_vector_set));
+	env_define(env, make_sym("MAKE-HASH"), make_builtin(builtin_make_hash));
+	env_define(env, make_sym("HASH-REF"), make_builtin(builtin_hash_ref));
+	env_define(env, make_sym("HASH-SET!"), make_builtin(builtin_hash_set));
+	env_define(env, make_sym("HASH-REMOVE!"), make_builtin(builtin_hash_remove));
 
 	load_file(env, "library.lisp");
 

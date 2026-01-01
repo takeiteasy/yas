@@ -171,8 +171,8 @@
            (append (list proc)
                    (map cdr arg-lists)))))
 
-(define (length list)
-  (foldl (lambda (count x) (+ count 1)) 0 list))
+
+;; length is now a C builtin that works on lists, strings, vectors, and hashes
 
 (define (list-ref x k) (car (list-tail x k)))
 

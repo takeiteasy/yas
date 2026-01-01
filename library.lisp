@@ -196,3 +196,13 @@
 (define (not x) (if x nil t))
 
 (define (null? x) (not x))
+
+;;
+;; Macro expansion
+;;
+
+(define (macroexpand form)
+  (let ((expanded (macroexpand-1 form)))
+    (if (eq? expanded form)
+        form
+        (macroexpand expanded))))

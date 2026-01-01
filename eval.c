@@ -239,6 +239,28 @@ int eval_do_return(Atom *stack, Atom *expr, Atom *env, Atom *result)
 			*expr = nilp(*result) ? car(cdr(args)) : car(args);
 			*stack = car(*stack);
 			return Error_OK;
+		} else if (strcmp(op.value.symbol, "MACROEXPAND-1") == 0) {
+			/* result contains the evaluated form */
+			Atom form = *result;
+			Atom original_env = list_get(*stack, 1);
+			*stack = car(*stack);
+			
+			/* If form is (sym ...) where sym is bound to a macro, expand */
+			if (form.type == AtomType_Pair && car(form).type == AtomType_Symbol) {
+				Atom macro_op;
+				if (env_get(original_env, car(form), &macro_op) == Error_OK
+				    && macro_op.type == AtomType_Macro) {
+					/* Apply macro: bind args, eval body */
+					*stack = make_frame(*stack, original_env, nil);
+					macro_op.type = AtomType_Closure;
+					list_set(*stack, 2, macro_op);
+					list_set(*stack, 4, cdr(form));
+					return eval_do_bind(stack, expr, env);
+				}
+			}
+			/* Not a macro call, return unchanged */
+			*expr = cons(make_sym("QUOTE"), cons(form, nil));
+			return Error_OK;
 		} else {
 			goto store_arg;
 		}
@@ -375,6 +397,14 @@ int eval_expr(Atom expr, Atom env, Atom *result)
 					list_set(stack, 2, op);
 					list_set(stack, 4, car(args));
 					expr = car(cdr(args));
+					continue;
+				} else if (strcmp(op.value.symbol, "MACROEXPAND-1") == 0) {
+					if (nilp(args) || !nilp(cdr(args)))
+						return Error_Args;
+					/* Evaluate the argument to get the form */
+					stack = make_frame(stack, env, nil);
+					list_set(stack, 2, op);
+					expr = car(args);
 					continue;
 				} else {
 					goto push;

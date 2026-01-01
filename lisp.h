@@ -35,7 +35,8 @@ struct Atom {
 		AtomType_Integer,
 		AtomType_Builtin,
 		AtomType_Closure,
-		AtomType_Macro
+		AtomType_Macro,
+		AtomType_Continuation
 	} type;
 
 	union {

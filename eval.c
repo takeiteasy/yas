@@ -1,6 +1,9 @@
 #include "lisp.h"
 #include <string.h>
 
+/* Forward declaration */
+static int eval_do_return(Atom *stack, Atom *expr, Atom *env, Atom *result);
+
 Atom env_create(Atom parent)
 {
 	return cons(parent, nil);
@@ -187,6 +190,19 @@ int eval_do_apply(Atom *stack, Atom *expr, Atom *env, Atom *result)
 		*stack = car(*stack);
 		*expr = cons(op, args);
 		return Error_OK;
+	} else if (op.type == AtomType_Continuation) {
+		/* Invoke continuation: replace stack, return value */
+		if (nilp(args) || !nilp(cdr(args)))
+			return Error_Args;
+		
+		/* Restore the captured stack */
+		stack->type = AtomType_Pair;
+		stack->value.pair = op.value.pair;
+		*result = car(args);
+		
+		if (nilp(*stack))
+			return Error_OK;  /* Will exit main loop */
+		return eval_do_return(stack, expr, env, result);
 	} else if (op.type != AtomType_Closure) {
 		return Error_Type;
 	}
@@ -261,6 +277,21 @@ int eval_do_return(Atom *stack, Atom *expr, Atom *env, Atom *result)
 			/* Not a macro call, return unchanged */
 			*expr = cons(make_sym("QUOTE"), cons(form, nil));
 			return Error_OK;
+		} else if (strcmp(op.value.symbol, "CALL/CC") == 0) {
+			/* result is the function to call with continuation */
+			Atom fn = *result;
+			Atom cont;
+			
+			/* Pop CALL/CC frame and capture remaining stack as continuation */
+			*stack = car(*stack);
+			cont.type = AtomType_Continuation;
+			cont.value.pair = (*stack).value.pair;
+			
+			/* Apply fn to the continuation */
+			*stack = make_frame(*stack, *env, nil);
+			list_set(*stack, 2, fn);
+			list_set(*stack, 4, cons(cont, nil));
+			return eval_do_bind(stack, expr, env);
 		} else {
 			goto store_arg;
 		}
@@ -402,6 +433,14 @@ int eval_expr(Atom expr, Atom env, Atom *result)
 					if (nilp(args) || !nilp(cdr(args)))
 						return Error_Args;
 					/* Evaluate the argument to get the form */
+					stack = make_frame(stack, env, nil);
+					list_set(stack, 2, op);
+					expr = car(args);
+					continue;
+				} else if (strcmp(op.value.symbol, "CALL/CC") == 0) {
+					if (nilp(args) || !nilp(cdr(args)))
+						return Error_Args;
+					/* Evaluate the function argument */
 					stack = make_frame(stack, env, nil);
 					list_set(stack, 2, op);
 					expr = car(args);

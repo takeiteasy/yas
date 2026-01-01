@@ -39,6 +39,9 @@ void print_expr(Atom atom)
 	case AtomType_Macro:
 		printf("#<MACRO:%p>", atom.value.pair);
 		break;
+	case AtomType_Continuation:
+		printf("#<CONTINUATION>");
+		break;
 	}
 }
 

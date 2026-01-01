@@ -1,6 +1,7 @@
 #include "lisp.h"
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include <readline/readline.h>
 
 char *slurp(const char *path)
@@ -36,11 +37,27 @@ void load_file(Atom env, const char *path)
 	if (text) {
 		const char *p = text;
 		Atom expr;
-		while (read_expr(p, &p, &expr) == Error_OK) {
+		ErrorContext err = {0};
+		err.pos.filename = path;
+		err.pos.source = text;
+
+		while (1) {
+			err.code = Error_OK;
+			err.message[0] = '\0';
+
+			Error read_err = read_expr(p, &p, &expr, &err);
+			if (read_err) {
+				if (err.message[0] != '\0') {
+					/* Real error, not just end of file */
+					error_print(&err);
+				}
+				break;
+			}
+
 			Atom result;
-			Error err = eval_expr(expr, env, &result);
-			if (err) {
-				printf("Error in expression:\n\t");
+			Error eval_err = eval_expr(expr, env, &result);
+			if (eval_err) {
+				printf("Error evaluating expression:\n\t");
 				print_expr(expr);
 				putchar('\n');
 			} else {
@@ -78,16 +95,25 @@ int main(int argc, char **argv)
 
 	/* Main loop */
 	while ((input = readline("> ")) != NULL) {
+		ErrorContext err = {0};
+		err.pos.filename = "<stdin>";
+		err.pos.source = input;
+
 		const char *p = input;
-		Error err;
+		Error read_err;
 		Atom expr, result;
 
-		err = read_expr(p, &p, &expr);		
+		read_err = read_expr(p, &p, &expr, &err);
 
-		if (!err)
-			err = eval_expr(expr, env, &result);
+		if (read_err) {
+			error_print(&err);
+			free(input);
+			continue;
+		}
 
-		switch (err) {
+		Error eval_err = eval_expr(expr, env, &result);
+
+		switch (eval_err) {
 		case Error_OK:
 			print_expr(result);
 			putchar('\n');
@@ -111,4 +137,3 @@ int main(int argc, char **argv)
 
 	return 0;
 }
-

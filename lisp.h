@@ -6,6 +6,23 @@ typedef enum {
 	Error_Type
 } Error;
 
+/* Reader position tracking */
+typedef struct {
+	const char *filename;     /* Source filename (or "<stdin>") */
+	const char *source;       /* Original source string start */
+	int line;                 /* Current line (1-indexed) */
+	int column;               /* Current column (1-indexed) */
+} ReaderPos;
+
+/* Error context for detailed messages */
+#define ERROR_MSG_MAX 256
+
+typedef struct {
+	Error code;
+	ReaderPos pos;
+	char message[ERROR_MSG_MAX];
+} ErrorContext;
+
 struct Atom;
 
 typedef int (*Builtin)(struct Atom args, struct Atom *result);
@@ -43,7 +60,9 @@ static const Atom nil = { AtomType_Nil };
 
 /* READER */
 
-int read_expr(const char *input, const char **end, Atom *result);
+int read_expr(const char *input, const char **end, Atom *result, ErrorContext *err);
+void error_print(ErrorContext *err);
+
 
 /* PRINTER */
 

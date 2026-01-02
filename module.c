@@ -69,6 +69,41 @@ static void create_base_library(void) {
 	reg_builtin(env, exports, "GET-METATABLE", builtin_get_metatable);
 	reg_builtin(env, exports, "PRINT", builtin_print);
 	
+	/* I/O builtins */
+	reg_builtin(env, exports, "OPEN-INPUT-FILE", builtin_open_input_file);
+	reg_builtin(env, exports, "OPEN-OUTPUT-FILE", builtin_open_output_file);
+	reg_builtin(env, exports, "CLOSE-PORT", builtin_close_port);
+	reg_builtin(env, exports, "PORT?", builtin_portp);
+	reg_builtin(env, exports, "INPUT-PORT?", builtin_input_portp);
+	reg_builtin(env, exports, "OUTPUT-PORT?", builtin_output_portp);
+	reg_builtin(env, exports, "PORT-OPEN?", builtin_port_openp);
+	reg_builtin(env, exports, "READ-CHAR", builtin_read_char);
+	reg_builtin(env, exports, "READ-LINE", builtin_read_line);
+	reg_builtin(env, exports, "READ-ALL", builtin_read_all);
+	reg_builtin(env, exports, "READ-BYTE", builtin_read_byte);
+	reg_builtin(env, exports, "READ-BYTES", builtin_read_bytes);
+	reg_builtin(env, exports, "WRITE-CHAR", builtin_write_char);
+	reg_builtin(env, exports, "WRITE-STRING", builtin_write_string);
+	reg_builtin(env, exports, "WRITE-BYTE", builtin_write_byte);
+	reg_builtin(env, exports, "WRITE-BYTES", builtin_write_bytes);
+	reg_builtin(env, exports, "NEWLINE", builtin_newline);
+	reg_builtin(env, exports, "FLUSH-PORT", builtin_flush_port);
+	reg_builtin(env, exports, "FILE-EXISTS?", builtin_file_exists);
+	
+	/* Bytevector builtins */
+	reg_builtin(env, exports, "MAKE-BYTEVECTOR", builtin_make_bytevector);
+	reg_builtin(env, exports, "BYTEVECTOR?", builtin_bytevectorp);
+	reg_builtin(env, exports, "BYTEVECTOR-LENGTH", builtin_bytevector_length);
+	reg_builtin(env, exports, "BYTEVECTOR-U8-REF", builtin_bytevector_u8_ref);
+	reg_builtin(env, exports, "BYTEVECTOR-U8-SET!", builtin_bytevector_u8_set);
+	reg_builtin(env, exports, "BYTEVECTOR->STRING", builtin_bytevector_to_string);
+	reg_builtin(env, exports, "STRING->BYTEVECTOR", builtin_string_to_bytevector);
+	
+	/* Sandbox scheme builtins */
+	reg_builtin(env, exports, "IO-SANDBOX-ALLOW!", builtin_io_sandbox_allow);
+	reg_builtin(env, exports, "IO-SANDBOX-DENY!", builtin_io_sandbox_deny);
+	reg_builtin(env, exports, "IO-SANDBOX-MODE", builtin_io_sandbox_mode);
+	
 	reg_sym(env, exports, "T", make_sym("T"));
 	
 	Atom key = make_string("gold/primitives");

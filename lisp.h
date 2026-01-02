@@ -29,6 +29,8 @@ typedef struct {
 struct Atom;
 struct Vector;
 struct Hash;
+struct Port;
+struct Bytevector;
 
 typedef int (*Builtin)(struct Atom args, struct Atom *result);
 
@@ -42,6 +44,8 @@ struct Atom {
 		AtomType_String,
 		AtomType_Vector,
 		AtomType_Hash,
+		AtomType_Port,
+		AtomType_Bytevector,
 		AtomType_Builtin,
 		AtomType_Closure,
 		AtomType_Macro,
@@ -56,6 +60,8 @@ struct Atom {
 		char *string;
 		struct Vector *vector;
 		struct Hash *hash;
+		struct Port *port;
+		struct Bytevector *bytevector;
 		Builtin builtin;
 	} value;
 };
@@ -76,6 +82,20 @@ struct Hash {
 	size_t size;
 	size_t capacity;
 	struct Hash *metatable;  /* Metatable for operator overloading */
+};
+
+struct Port {
+	void *handle;           /* FILE* or custom provider handle */
+	char *path;
+	int is_input;
+	int is_binary;
+	int is_open;
+	int provider_id;        /* 0 = stdio, >0 = custom provider */
+};
+
+struct Bytevector {
+	unsigned char *data;
+	size_t size;
 };
 
 typedef struct Atom Atom;
@@ -202,3 +222,89 @@ int module_import(Atom args, Atom env, Atom *result); /* File loading */
 int eval_file(const char *path, Atom env, Atom *result, int case_insensitive);
 int eval_source(const char *text, const char *path, Atom env, Atom *result);
 void load_file(Atom env, const char *path);
+
+/* ============================================================
+ * I/O SANDBOX SYSTEM
+ * ============================================================ */
+
+/* Sandbox modes */
+typedef enum {
+	IO_SANDBOX_UNRESTRICTED,  /* Default: no restrictions */
+	IO_SANDBOX_WHITELIST,     /* Only allowed paths work */
+	IO_SANDBOX_BLACKLIST,     /* All paths except denied work */
+	IO_SANDBOX_DISABLED       /* All I/O operations fail */
+} IOSandboxMode;
+
+/* Virtual filesystem provider callbacks */
+typedef struct {
+	const char *prefix;       /* e.g., "asset://" or "zip://" */
+	void *userdata;
+	/* Open file, return handle (NULL on failure) */
+	void *(*open)(const char *path, int is_input, int is_binary, void *userdata);
+	/* Close file */
+	void (*close)(void *handle, void *userdata);
+	/* Read up to n bytes, return bytes read (-1 on error) */
+	long (*read)(void *handle, void *buf, size_t n, void *userdata);
+	/* Write n bytes, return bytes written (-1 on error) */
+	long (*write)(void *handle, const void *buf, size_t n, void *userdata);
+	/* Check if file exists (0 = no, 1 = yes) */
+	int (*exists)(const char *path, void *userdata);
+} IOProvider;
+
+/* Sandbox C API (for embedding) */
+void io_sandbox_init(IOSandboxMode mode);
+IOSandboxMode io_sandbox_get_mode(void);
+void io_sandbox_allow_path(const char *pattern);
+void io_sandbox_deny_path(const char *pattern);
+void io_sandbox_clear(void);
+int  io_sandbox_check_path(const char *path, int writing);
+
+/* Provider system (for virtual filesystems) */
+int  io_register_provider(IOProvider *provider);
+void io_unregister_provider(const char *prefix);
+
+/* Port operations */
+Atom make_port(void *handle, const char *path, int is_input, int is_binary, int provider_id);
+void port_close(Atom port);
+
+/* Bytevector operations */
+Atom make_bytevector(size_t size);
+Atom make_bytevector_from_data(const unsigned char *data, size_t size);
+unsigned char bytevector_ref(Atom bv, size_t index);
+void bytevector_set(Atom bv, size_t index, unsigned char value);
+size_t bytevector_length(Atom bv);
+
+/* Port builtins */
+int builtin_open_input_file(Atom args, Atom *result);
+int builtin_open_output_file(Atom args, Atom *result);
+int builtin_close_port(Atom args, Atom *result);
+int builtin_portp(Atom args, Atom *result);
+int builtin_input_portp(Atom args, Atom *result);
+int builtin_output_portp(Atom args, Atom *result);
+int builtin_port_openp(Atom args, Atom *result);
+int builtin_read_char(Atom args, Atom *result);
+int builtin_read_line(Atom args, Atom *result);
+int builtin_read_all(Atom args, Atom *result);
+int builtin_read_byte(Atom args, Atom *result);
+int builtin_read_bytes(Atom args, Atom *result);
+int builtin_write_char(Atom args, Atom *result);
+int builtin_write_string(Atom args, Atom *result);
+int builtin_write_byte(Atom args, Atom *result);
+int builtin_write_bytes(Atom args, Atom *result);
+int builtin_newline(Atom args, Atom *result);
+int builtin_flush_port(Atom args, Atom *result);
+int builtin_file_exists(Atom args, Atom *result);
+
+/* Bytevector builtins */
+int builtin_make_bytevector(Atom args, Atom *result);
+int builtin_bytevectorp(Atom args, Atom *result);
+int builtin_bytevector_length(Atom args, Atom *result);
+int builtin_bytevector_u8_ref(Atom args, Atom *result);
+int builtin_bytevector_u8_set(Atom args, Atom *result);
+int builtin_bytevector_to_string(Atom args, Atom *result);
+int builtin_string_to_bytevector(Atom args, Atom *result);
+
+/* Sandbox scheme builtins */
+int builtin_io_sandbox_allow(Atom args, Atom *result);
+int builtin_io_sandbox_deny(Atom args, Atom *result);
+int builtin_io_sandbox_mode(Atom args, Atom *result);

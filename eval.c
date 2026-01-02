@@ -626,6 +626,7 @@ int eval_expr(Atom expr, Atom env, Atom *result)
 					
 					if (err == Error_Exception) {
 						/* Exception thrown */
+						int caught = 0;
 						Atom p = rest;
 						while (!nilp(p)) {
 							Atom clause = car(p);
@@ -686,6 +687,7 @@ int eval_expr(Atom expr, Atom env, Atom *result)
 									}
 									*result = last_res;
 									caught = 1;
+									(void)caught; /* suppress warning */
 									break;
 								} else {
 									/* Restore exception state for next iteration */

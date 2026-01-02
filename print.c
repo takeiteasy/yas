@@ -65,6 +65,15 @@ void print_expr(Atom atom)
 	case AtomType_Hash:
 		printf("#<HASH:%zu>", atom.value.hash->size);
 		break;
+	case AtomType_Port:
+		printf("#<PORT %s %s%s>",
+			atom.value.port->is_input ? "input" : "output",
+			atom.value.port->path,
+			atom.value.port->is_open ? "" : " (closed)");
+		break;
+	case AtomType_Bytevector:
+		printf("#<BYTEVECTOR:%zu>", atom.value.bytevector->size);
+		break;
 	}
 }
 

@@ -506,3 +506,48 @@ int builtin_error(Atom args, Atom *result)
 	ctx_exception = car(args);
 	return Error_Exception;
 }
+
+/* Metatable operations */
+int builtin_set_metatable(Atom args, Atom *result)
+{
+	if (nilp(args) || nilp(cdr(args)) || !nilp(cdr(cdr(args))))
+		return raise_error("args-error", "set-metatable!: expected 2 arguments");
+	
+	Atom hash = car(args);
+	Atom mt = car(cdr(args));
+	
+	if (hash.type != AtomType_Hash)
+		return raise_error("type-error", "set-metatable!: first argument must be hash");
+	
+	if (!nilp(mt) && mt.type != AtomType_Hash)
+		return raise_error("type-error", "set-metatable!: second argument must be hash or nil");
+	
+	if (nilp(mt)) {
+		hash.value.hash->metatable = NULL;
+	} else {
+		hash.value.hash->metatable = mt.value.hash;
+	}
+	
+	*result = hash;
+	return Error_OK;
+}
+
+int builtin_get_metatable(Atom args, Atom *result)
+{
+	if (nilp(args) || !nilp(cdr(args)))
+		return raise_error("args-error", "get-metatable: expected 1 argument");
+	
+	Atom hash = car(args);
+	
+	if (hash.type != AtomType_Hash)
+		return raise_error("type-error", "get-metatable: argument must be hash");
+	
+	if (hash.value.hash->metatable) {
+		result->type = AtomType_Hash;
+		result->value.hash = hash.value.hash->metatable;
+	} else {
+		*result = nil;
+	}
+	
+	return Error_OK;
+}

@@ -108,6 +108,10 @@ int main(int argc, char **argv)
 	env_define(env, make_sym("THROW"), make_builtin(builtin_throw));
 	env_define(env, make_sym("ERROR"), make_builtin(builtin_error));
 
+	/* Metatable builtins */
+	env_define(env, make_sym("SET-METATABLE!"), make_builtin(builtin_set_metatable));
+	env_define(env, make_sym("GET-METATABLE"), make_builtin(builtin_get_metatable));
+
 	load_file(env, "library.gl");
 
 	/* Main loop */

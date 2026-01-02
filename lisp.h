@@ -75,6 +75,7 @@ struct Hash {
 	struct Atom *values;
 	size_t size;
 	size_t capacity;
+	struct Hash *metatable;  /* Metatable for operator overloading */
 };
 
 typedef struct Atom Atom;

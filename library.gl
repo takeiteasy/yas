@@ -209,3 +209,13 @@
     (if (eq? expanded form)
         form
         (macroexpand expanded))))
+
+;;
+;; Metatables
+;;
+
+(define (callable? obj)
+  (or (procedure? obj)
+      (and (hash? obj) 
+           (let ((mt (get-metatable obj)))
+             (and mt (hash-ref mt (quote __call) nil))))))

@@ -190,6 +190,97 @@ int eval_do_apply(Atom *stack, Atom *expr, Atom *env, Atom *result)
 	}
 
 	if (op.type == AtomType_Builtin) {
+		/* Check for arithmetic metamethods on hash arguments */
+		if (!nilp(args) && !nilp(cdr(args))) {
+			Atom a = car(args);
+			Atom b = car(cdr(args));
+			const char *mm_name = NULL;
+			
+			/* Determine which metamethod to check based on builtin */
+			if (op.value.builtin == builtin_add) mm_name = "add";
+			else if (op.value.builtin == builtin_subtract) mm_name = "sub";
+			else if (op.value.builtin == builtin_multiply) mm_name = "mul";
+			else if (op.value.builtin == builtin_divide) mm_name = "div";
+			else if (op.value.builtin == builtin_numeq) mm_name = "eq";
+			else if (op.value.builtin == builtin_less) mm_name = "lt";
+			
+			if (mm_name) {
+				Atom hash_arg = nil;
+				Atom other_arg = nil;
+				
+				/* Check first operand, then second for metamethod */
+				if (a.type == AtomType_Hash && has_metamethod(a, mm_name)) {
+					hash_arg = a;
+					other_arg = b;
+				} else if (b.type == AtomType_Hash && has_metamethod(b, mm_name)) {
+					hash_arg = b;
+					other_arg = a;
+				}
+				
+				if (!nilp(hash_arg)) {
+					/* Redirect to metamethod: (metamethod self other) */
+					Atom mm_fn = get_metamethod(hash_arg, mm_name);
+					args = list_create(2, hash_arg, other_arg);
+					list_set(*stack, 2, mm_fn);
+					list_set(*stack, 4, args);
+					
+					if (mm_fn.type == AtomType_Builtin) {
+						*stack = car(*stack);
+						*expr = cons(mm_fn, args);
+						return Error_OK;
+					} else if (mm_fn.type == AtomType_Closure) {
+						return eval_do_bind(stack, expr, env);
+					} else {
+						return Error_Type;
+					}
+				}
+			}
+		}
+		
+		/* Check for __get on hash-ref or __set on hash-set! */
+		if (op.value.builtin == builtin_hash_ref && !nilp(args)) {
+			Atom hash = car(args);
+			if (hash.type == AtomType_Hash && has_metamethod(hash, "get")) {
+				Atom key = !nilp(cdr(args)) ? car(cdr(args)) : nil;
+				/* Check if key exists in hash first - only call __get if missing */
+				Atom existing = hash_ref(hash, key, nil);
+				if (nilp(existing)) {
+					Atom mm_fn = get_metamethod(hash, "get");
+					args = list_create(2, hash, key);
+					list_set(*stack, 2, mm_fn);
+					list_set(*stack, 4, args);
+					
+					if (mm_fn.type == AtomType_Closure) {
+						return eval_do_bind(stack, expr, env);
+					} else if (mm_fn.type == AtomType_Builtin) {
+						*stack = car(*stack);
+						*expr = cons(mm_fn, args);
+						return Error_OK;
+					}
+				}
+			}
+		}
+		
+		if (op.value.builtin == builtin_hash_set && !nilp(args)) {
+			Atom hash = car(args);
+			if (hash.type == AtomType_Hash && has_metamethod(hash, "set")) {
+				Atom key = !nilp(cdr(args)) ? car(cdr(args)) : nil;
+				Atom val = !nilp(cdr(cdr(args))) ? car(cdr(cdr(args))) : nil;
+				Atom mm_fn = get_metamethod(hash, "set");
+				args = list_create(3, hash, key, val);
+				list_set(*stack, 2, mm_fn);
+				list_set(*stack, 4, args);
+				
+				if (mm_fn.type == AtomType_Closure) {
+					return eval_do_bind(stack, expr, env);
+				} else if (mm_fn.type == AtomType_Builtin) {
+					*stack = car(*stack);
+					*expr = cons(mm_fn, args);
+					return Error_OK;
+				}
+			}
+		}
+		
 		*stack = car(*stack);
 		*expr = cons(op, args);
 		return Error_OK;
@@ -206,6 +297,42 @@ int eval_do_apply(Atom *stack, Atom *expr, Atom *env, Atom *result)
 		if (nilp(*stack))
 			return Error_OK;  /* Will exit main loop */
 		return eval_do_return(stack, expr, env, result);
+	} else if (op.type == AtomType_Hash && has_metamethod(op, "call")) {
+		/* Hash has __call metamethod - invoke it with (self . args) */
+		Atom call_fn = get_metamethod(op, "call");
+		args = cons(op, args);  /* Prepend hash as first arg (self) */
+		list_set(*stack, 2, call_fn);
+		list_set(*stack, 4, args);
+		
+		/* Handle based on metamethod type */
+		if (call_fn.type == AtomType_Builtin) {
+			*stack = car(*stack);
+			*expr = cons(call_fn, args);
+			return Error_OK;
+		} else if (call_fn.type == AtomType_Closure) {
+			return eval_do_bind(stack, expr, env);
+		} else {
+			return Error_Type;
+		}
+	} else if (op.type == AtomType_Hash && has_metamethod(op, "missing")) {
+		/* Hash has __missing metamethod - for Ruby-style method dispatch */
+		/* args = (method-name arg1 arg2 ...) 
+		   Call: (__missing self args)  
+		   which is (__missing self (method-name arg1 arg2 ...)) */
+		Atom missing_fn = get_metamethod(op, "missing");
+		Atom new_args = list_create(2, op, args);
+		list_set(*stack, 2, missing_fn);
+		list_set(*stack, 4, new_args);
+		
+		if (missing_fn.type == AtomType_Builtin) {
+			*stack = car(*stack);
+			*expr = cons(missing_fn, new_args);
+			return Error_OK;
+		} else if (missing_fn.type == AtomType_Closure) {
+			return eval_do_bind(stack, expr, env);
+		} else {
+			return Error_Type;
+		}
 	} else if (op.type != AtomType_Closure) {
 		return Error_Type;
 	}

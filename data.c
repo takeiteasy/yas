@@ -1,6 +1,7 @@
 #include "lisp.h"
 #include <stdarg.h>
 #include <stddef.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -117,6 +118,7 @@ Atom make_hash(void)
 	h->capacity = 16;
 	h->keys = malloc(sizeof(Atom) * h->capacity);
 	h->values = malloc(sizeof(Atom) * h->capacity);
+	h->metatable = NULL;
 	a.type = AtomType_Hash;
 	a.value.hash = h;
 	return a;
@@ -203,6 +205,33 @@ int hash_remove(Atom hash, Atom key)
 size_t hash_size(Atom hash)
 {
 	return hash.value.hash->size;
+}
+
+/* Metatable operations */
+Atom get_metamethod(Atom hash, const char *name)
+{
+	struct Hash *h = hash.value.hash;
+	if (!h->metatable) return nil;
+	
+	/* Build symbol name with __ prefix (uppercase to match reader) */
+	char sym_name[64];
+	snprintf(sym_name, sizeof(sym_name), "__%s", name);
+	/* Convert to uppercase */
+	for (char *p = sym_name; *p; p++) {
+		if (*p >= 'a' && *p <= 'z') *p -= 32;
+	}
+	Atom key = make_sym(sym_name);
+	
+	/* Look up in metatable */
+	Atom mt;
+	mt.type = AtomType_Hash;
+	mt.value.hash = h->metatable;
+	return hash_ref(mt, key, nil);
+}
+
+int has_metamethod(Atom hash, const char *name)
+{
+	return !nilp(get_metamethod(hash, name));
 }
 
 int listp(Atom expr)

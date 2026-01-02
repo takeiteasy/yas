@@ -1,6 +1,7 @@
 #include "lisp.h"
 #include <string.h>
 #include <stdio.h>
+#include <stdlib.h>
 
 /* Forward declaration */
 static int eval_do_return(Atom *stack, Atom *expr, Atom *env, Atom *result);
@@ -49,6 +50,97 @@ int env_get(Atom env, Atom symbol, Atom *result)
 }
 
 Atom ctx_exception = { AtomType_Nil };
+
+/* Current file being evaluated (for relative include paths) */
+const char *current_file_path = NULL;
+
+/* Resolve a path relative to the current file */
+static char *resolve_include_path(const char *include_path)
+{
+	/* If absolute path or no current file, use as-is */
+	if (include_path[0] == '/' || !current_file_path) {
+		char *result = malloc(strlen(include_path) + 1);
+		strcpy(result, include_path);
+		return result;
+	}
+	
+	/* Find directory of current file */
+	const char *last_slash = strrchr(current_file_path, '/');
+	if (!last_slash) {
+		/* Current file has no directory component */
+		char *result = malloc(strlen(include_path) + 1);
+		strcpy(result, include_path);
+		return result;
+	}
+	
+	/* Build path: directory + "/" + include_path */
+	size_t dir_len = last_slash - current_file_path + 1;
+	size_t total_len = dir_len + strlen(include_path) + 1;
+	char *result = malloc(total_len);
+	strncpy(result, current_file_path, dir_len);
+	result[dir_len] = '\0';
+	strcat(result, include_path);
+	return result;
+}
+
+/* Helper to evaluate include - reads file, parses, evaluates all exprs */
+/* Evaluate source string */
+int eval_source(const char *text, const char *path, Atom env, Atom *result)
+{
+	const char *saved_path = current_file_path;
+	current_file_path = path;
+	
+	const char *p = text;
+	Atom expr;
+	ErrorContext err = {0};
+	err.pos.filename = path;
+	err.pos.source = text;
+	*result = nil;
+	
+	while (1) {
+		err.code = Error_OK;
+		err.message[0] = '\0';
+		
+		Error read_err = read_expr(p, &p, &expr, &err);
+		if (read_err) {
+			if (err.message[0] != '\0') {
+				error_print(&err);
+				current_file_path = saved_path;
+				return Error_Syntax;
+			}
+			break;  /* End of file */
+		}
+		
+		Atom ignore;
+		Error eval_err = eval_expr(expr, env, &ignore);
+		if (eval_err) {
+			current_file_path = saved_path;
+			return eval_err;
+		}
+		*result = ignore; // result is last expr
+	}
+	
+	current_file_path = saved_path;
+	return Error_OK;
+}
+
+/* Helper to evaluate include - reads file, parses, evaluates all exprs */
+int eval_file(const char *path, Atom env, Atom *result, int case_insensitive)
+{
+	char *resolved = resolve_include_path(path);
+	char *text = slurp(resolved);
+	
+	if (!text) {
+		free(resolved);
+		return raise_error("file", "Cannot open file for include");
+	}
+	
+	int err = eval_source(text, resolved, env, result);
+	
+	free(text);
+	free(resolved);
+	return err;
+}
 
 int env_set(Atom env, Atom symbol, Atom value)
 {
@@ -694,6 +786,34 @@ int eval_expr(Atom expr, Atom env, Atom *result)
 					list_set(stack, 2, op);
 					expr = car(args);
 					continue;
+				} else if (strcmp(op.value.symbol, "INCLUDE") == 0 ||
+				           strcmp(op.value.symbol, "INCLUDE-CI") == 0) {
+					/* (include "file.gl" ...) - textual file inclusion */
+					if (nilp(args))
+						return Error_Args;
+					
+					int case_insensitive = (strcmp(op.value.symbol, "INCLUDE-CI") == 0);
+					
+					/* Process each file argument */
+					Atom file_list = args;
+					while (!nilp(file_list)) {
+						Atom file_arg = car(file_list);
+						if (file_arg.type != AtomType_String)
+							return Error_Type;
+						
+						err = eval_file(file_arg.value.string, env, result, case_insensitive);
+						if (err)
+							return err;
+						
+						file_list = cdr(file_list);
+					}
+					/* result is set to the last expression evaluated */
+				} else if (strcmp(op.value.symbol, "DEFINE-LIBRARY") == 0) {
+					err = module_define_library(args, result);
+					if (err) return err;
+				} else if (strcmp(op.value.symbol, "IMPORT") == 0) {
+					err = module_import(args, env, result);
+					if (err) return err;
 				} else {
 					goto push;
 				}

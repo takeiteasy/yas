@@ -180,3 +180,25 @@ int builtin_hash_remove(Atom args, Atom *result);
 /* Metatable builtins */
 int builtin_set_metatable(Atom args, Atom *result);
 int builtin_get_metatable(Atom args, Atom *result);
+
+/* Output builtins */
+int builtin_print(Atom args, Atom *result);
+
+/* File I/O */
+char *slurp(const char *path);
+
+/* Include tracking for relative paths */
+extern const char *current_file_path;
+
+/* Module system */
+extern Atom library_registry;
+void module_init(void);
+Atom library_load(Atom name_parts);
+char *library_name_to_string(Atom name_parts);
+
+/* Module special forms */
+int module_define_library(Atom args, Atom *result);
+int module_import(Atom args, Atom env, Atom *result); /* File loading */
+int eval_file(const char *path, Atom env, Atom *result, int case_insensitive);
+int eval_source(const char *text, const char *path, Atom env, Atom *result);
+void load_file(Atom env, const char *path);

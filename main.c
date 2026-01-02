@@ -76,43 +76,20 @@ int main(int argc, char **argv)
 
 	env = env_create(nil);
 
-	/* Set up the initial environment */
-	env_define(env, make_sym("CAR"), make_builtin(builtin_car));
-	env_define(env, make_sym("CDR"), make_builtin(builtin_cdr));
-	env_define(env, make_sym("CONS"), make_builtin(builtin_cons));
-	env_define(env, make_sym("+"), make_builtin(builtin_add));
-	env_define(env, make_sym("-"), make_builtin(builtin_subtract));
-	env_define(env, make_sym("*"), make_builtin(builtin_multiply));
-	env_define(env, make_sym("/"), make_builtin(builtin_divide));
-	env_define(env, make_sym("T"), make_sym("T"));
-	env_define(env, make_sym("="), make_builtin(builtin_numeq));
-	env_define(env, make_sym("<"), make_builtin(builtin_less));
-	env_define(env, make_sym("EQ?"), make_builtin(builtin_eq));
-	env_define(env, make_sym("PAIR?"), make_builtin(builtin_pairp));
-	env_define(env, make_sym("PROCEDURE?"), make_builtin(builtin_procp));
-	env_define(env, make_sym("FLOAT?"), make_builtin(builtin_floatp));
-	env_define(env, make_sym("STRING?"), make_builtin(builtin_stringp));
-	env_define(env, make_sym("VECTOR?"), make_builtin(builtin_vectorp));
-	env_define(env, make_sym("HASH?"), make_builtin(builtin_hashp));
-	env_define(env, make_sym("LENGTH"), make_builtin(builtin_length));
-	env_define(env, make_sym("CONCAT"), make_builtin(builtin_concat));
-	env_define(env, make_sym("MAKE-VECTOR"), make_builtin(builtin_make_vector));
-	env_define(env, make_sym("VECTOR-REF"), make_builtin(builtin_vector_ref));
-	env_define(env, make_sym("VECTOR-SET!"), make_builtin(builtin_vector_set));
-	env_define(env, make_sym("MAKE-HASH"), make_builtin(builtin_make_hash));
-	env_define(env, make_sym("HASH-REF"), make_builtin(builtin_hash_ref));
-	env_define(env, make_sym("HASH-SET!"), make_builtin(builtin_hash_set));
-	env_define(env, make_sym("HASH-REMOVE!"), make_builtin(builtin_hash_remove));
+	/* Import (gold base) */
+	module_init();
+	Atom gold_base = list_create(2, make_sym("GOLD"), make_sym("BASE"));
+	Atom import_args = list_create(1, gold_base);
+	Atom ignore;
+	module_import(import_args, env, &ignore);
 
-	/* Exception builtins */
-	env_define(env, make_sym("THROW"), make_builtin(builtin_throw));
-	env_define(env, make_sym("ERROR"), make_builtin(builtin_error));
+	if (argc > 1) {
+		for (int i = 1; i < argc; i++)
+			load_file(env, argv[i]);
+		return 0;
+	}
 
-	/* Metatable builtins */
-	env_define(env, make_sym("SET-METATABLE!"), make_builtin(builtin_set_metatable));
-	env_define(env, make_sym("GET-METATABLE"), make_builtin(builtin_get_metatable));
-
-	load_file(env, "library.gl");
+	printf("(gold repl v0.0.1 :)\n\n");
 
 	/* Main loop */
 	while ((input = readline("> ")) != NULL) {
@@ -123,6 +100,18 @@ int main(int argc, char **argv)
 		const char *p = input;
 		Error read_err;
 		Atom expr, result;
+
+		if (input[0] == '\0') {
+			free(input);
+			continue;
+		} else if (input[0] == '/') {
+			const char *iinput = input + 1;
+			if (strncmp(iinput, "exit", 4) == 0 ||
+				strncmp(iinput, "quit", 4) == 0) {
+				free(input);
+				return 0;
+			}
+		}
 
 		read_err = read_expr(p, &p, &expr, &err);
 

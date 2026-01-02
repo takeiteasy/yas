@@ -1,6 +1,7 @@
 #include "lisp.h"
 #include <stdlib.h>
 #include <string.h>
+#include <stdio.h>
 
 int raise_error(const char *type, const char *msg)
 {
@@ -549,5 +550,25 @@ int builtin_get_metatable(Atom args, Atom *result)
 		*result = nil;
 	}
 	
+	return Error_OK;
+}
+
+int builtin_print(Atom args, Atom *result)
+{
+	if (nilp(args)) {
+		putchar('\n');
+		*result = nil;
+		return Error_OK;
+	}
+
+	while (!nilp(args)) {
+		print_expr(car(args));
+		if (!nilp(cdr(args)))
+			putchar(' ');
+		args = cdr(args);
+	}
+	putchar('\n');
+	
+	*result = nil;
 	return Error_OK;
 }

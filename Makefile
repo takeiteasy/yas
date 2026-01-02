@@ -10,7 +10,12 @@ gold: $(objects)
 
 $(objects): $(wildcard *.h)
 
+stdlib.h: embed.py $(wildcard std/gold/*.gl)
+	python3 embed.py $@ $(wildcard std/gold/*.gl)
+
+module.o: stdlib.h
+
 .PHONY: clean
 clean:
-	$(RM) *.o gold 
+	$(RM) *.o gold stdlib.h 
 

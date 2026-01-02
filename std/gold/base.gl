@@ -108,8 +108,7 @@
     (define (quotient a b) (/ a b))
     (define (remainder a b) (- a (* b (quotient a b))))
     (define (zero? x) (= x 0))
-    ;; modulo missing in library.gl? I'll use remainder logic or add proper modulo if I can.
-    (define (modulo a b) (remainder a b)) ;; Placeholder
+    (define (modulo a b) (remainder a b))
 
     ;; List functions
     (define (for-each proc . arg-lists)
@@ -136,6 +135,4 @@
       (or (procedure? obj)
           (and (hash? obj) 
                (let ((mt (get-metatable obj)))
-                 (and mt (hash-ref mt (quote __call) nil))))))
-  )
-)
+                 (and mt (hash-ref mt (quote __call) nil))))))))

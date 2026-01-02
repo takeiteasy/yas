@@ -627,8 +627,6 @@ int eval_expr(Atom expr, Atom env, Atom *result)
 					if (err == Error_Exception) {
 						/* Exception thrown */
 						Atom p = rest;
-						int caught = 0;
-						
 						while (!nilp(p)) {
 							Atom clause = car(p);
 							if (clause.type == AtomType_Pair && car(clause).type == AtomType_Symbol &&

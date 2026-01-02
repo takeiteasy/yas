@@ -117,8 +117,7 @@ static const char stdlib_src_0[] =
 "    (define (quotient a b) (/ a b))\n"
 "    (define (remainder a b) (- a (* b (quotient a b))))\n"
 "    (define (zero? x) (= x 0))\n"
-"    ;; modulo missing in library.gl? I'll use remainder logic or add proper modulo if I can.\n"
-"    (define (modulo a b) (remainder a b)) ;; Placeholder\n"
+"    (define (modulo a b) (remainder a b))\n"
 "\n"
 "    ;; List functions\n"
 "    (define (for-each proc . arg-lists)\n"
@@ -145,9 +144,7 @@ static const char stdlib_src_0[] =
 "      (or (procedure? obj)\n"
 "          (and (hash? obj) \n"
 "               (let ((mt (get-metatable obj)))\n"
-"                 (and mt (hash-ref mt (quote __call) nil))))))\n"
-"  )\n"
-")\n";
+"                 (and mt (hash-ref mt (quote __call) nil))))))))\n";
 
 static const StdlibFile stdlib_files[] = {
     { "gold/base", stdlib_src_0 },

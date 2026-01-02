@@ -1,0 +1,115 @@
+(import (gold base))
+(import (t test))
+
+(print "Running Gold Test Suite...")
+
+(test "Arithmetic"
+  (check (+ 1 2) 3)
+  (check (- 5 2) 3)
+  (check (* 3 4) 12)
+  (check (/ 10 2) 5)
+  (check (modulo 10 3) 1))
+
+(test "Lists"
+  (check (car '(1 2)) 1)
+  (check (cdr '(1 2)) '(2))
+  (check (cons 1 2) '(1 . 2))
+  (check (list 1 2 3) '(1 2 3))
+  (check (append '(1) '(2)) '(1 2))
+  (check (reverse '(1 2 3)) '(3 2 1)))
+
+(test "Control Flow"
+  (check (if t 1 2) 1)
+  (check (if nil 1 2) 2)
+  (check (cond (nil 1) (t 2)) 2)
+  ;; when/unless return nil or result
+  (check (when t 1) 1)
+  (check (unless nil 1) 1))
+
+(test "Vectors"
+  (let ((v (make-vector 3 0)))
+    (check (vector? v) t)
+    (check (length v) 3)
+    (vector-set! v 0 10)
+    (check (vector-ref v 0) 10)
+    (check v #(10 0 0))))
+
+(test "Hash Tables"
+  (let ((h (make-hash)))
+    (check (hash? h) t)
+    (hash-set! h 'foo 123)
+    (check (hash-ref h 'foo) 123)
+    (check (hash-ref h 'bar 404) 404)
+    (hash-remove! h 'foo)
+    (check (hash-ref h 'foo 'missing) 'missing)))
+
+(test "Lambdas and Closures"
+  (let ((add1 (lambda (x) (+ x 1))))
+    (check (add1 5) 6))
+  (let ((counter (let ((count 0)) (lambda () (set! count (+ count 1)) count))))
+    (check (counter) 1)
+    (check (counter) 2)))
+
+(test "Metatables"
+  (let ((h (make-hash))
+        (mt (make-hash)))
+    
+    (hash-set! h 'val 10)
+    (set-metatable! h mt)
+
+    ;; Test __add operator
+    (hash-set! mt '__add (lambda (self other) 
+                            (+ (hash-ref self 'val) other)))
+    (check (+ h 5) 15)
+
+    ;; Test __call
+    (hash-set! mt '__call (lambda (self . args)
+                            (cons 'called args)))
+    (check (h 1 2) '(called 1 2))
+    
+    ;; Remove __call to test __missing (otherwise __call takes precedence)
+    (hash-remove! mt '__call) 
+
+    ;; Test __missing
+    (hash-set! mt '__missing (lambda (self key)
+                               (list 'missing key)))
+    (check (h 'unknown) '(missing (unknown)))))
+
+(test "call/cc"
+  (check (call/cc (lambda (k) (k 42))) 42)
+  (check (+ 1 (call/cc (lambda (k) (+ 2 (k 3))))) 4)
+  
+  (let ((saved-k nil))
+     (call/cc (lambda (k) (set! saved-k k)))
+     (if saved-k
+         (let ((k saved-k))
+           (set! saved-k nil)
+           (k 100))
+         nil)
+     (check t t)) )
+
+(test "Exceptions"
+  (check (try
+           (error "oops")
+           (catch e e))
+         "oops")
+
+  (check (try
+            (throw 'my-error)
+            (catch e e))
+          'my-error)
+
+  (check (try
+           10
+           (catch e 20))
+         10)
+
+  ;; finally
+  (let ((side-effect 0))
+    (try
+      (throw 'err)
+      (catch e nil)
+      (finally (set! side-effect 1)))
+    (check side-effect 1)))
+
+(run-tests)

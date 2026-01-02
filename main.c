@@ -57,7 +57,21 @@ void load_file(Atom env, const char *path)
 			Atom result;
 			Error eval_err = eval_expr(expr, env, &result);
 			if (eval_err) {
-				printf("Error evaluating expression:\n\t");
+				printf("Error evaluating expression:\n");
+				switch (eval_err) {
+				case Error_Syntax: puts("Syntax error"); break;
+				case Error_Unbound: puts("Symbol not bound"); break;
+				case Error_Args: puts("Wrong number of arguments"); break;
+				case Error_Type: puts("Wrong type"); break;
+				case Error_Exception:
+					printf("Uncaught exception: ");
+					print_expr(ctx_exception);
+					putchar('\n');
+					break;
+				default:
+					printf("Unknown error %d\n", eval_err);
+				}
+				printf("\t");
 				print_expr(expr);
 				putchar('\n');
 			} else {

@@ -1,0 +1,57 @@
+(define-library (t test)
+  (import (gold base))
+  (export check test run-tests *passes* *fails* *current-test-name* equal? set-test-name! report-success report-failure)
+  (begin
+    (define *passes* 0)
+    (define *fails* 0)
+    (define *current-test-name* "unknown")
+
+    (define (set-test-name! name)
+      (set! *current-test-name* name))
+
+    (define (report-success expr expected)
+     (print "  [PASS]" expr "=>" expected)
+     (set! *passes* (+ *passes* 1)))
+
+    (define (report-failure expr expected actual)
+     (print "  [FAIL]" "Expected:" expected "Got:" actual "in" expr)
+     (set! *fails* (+ *fails* 1)))
+
+    (defmacro (check expr expected)
+      `(let ((val ,expr) (exp ,expected))
+         (if (equal? val exp)
+             (report-success ',expr exp)
+             (report-failure ',expr exp val))))
+
+    (define (equal? a b)
+      (cond
+        ((eq? a b) t)
+        ((and (pair? a) (pair? b))
+         (and (equal? (car a) (car b))
+              (equal? (cdr a) (cdr b))))
+        ((and (vector? a) (vector? b))
+         (let ((len (vector-length a)))
+           (and (= len (vector-length b))
+                (let loop ((idx 0))
+                  (if (< idx len)
+                      (if (equal? (vector-ref a idx) (vector-ref b idx))
+                          (loop (+ idx 1))
+                          nil)
+                      t)))))
+         ;; Atom equality fallback
+         (t nil)))
+
+    (defmacro (test name . body)
+      `(begin
+         (print "Test:" ,name)
+         (set-test-name! ,name)
+         ,@body))
+
+    (define (run-tests)
+      (print "---------------------------------------------------")
+      (print "Test Results:")
+      (print "Passed:" *passes*)
+      (print "Failed:" *fails*)
+      (if (> *fails* 0)
+          (print "SOME TESTS FAILED")
+          (print "ALL TESTS PASSED")))))

@@ -94,6 +94,9 @@
 (defmacro (when test . body)
   `(if ,test (begin ,@body) nil))
 
+(defmacro (assert condition . args)
+  `(unless ,condition (error ,(if args (car args) "Assertion failed"))))
+
 ;;
 ;; Numeric functions
 ;;

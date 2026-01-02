@@ -5,7 +5,8 @@ typedef enum {
 	Error_Syntax,
 	Error_Unbound,
 	Error_Args,
-	Error_Type
+	Error_Type,
+	Error_Exception
 } Error;
 
 /* Reader position tracking */
@@ -94,6 +95,14 @@ void error_print(ErrorContext *err);
 
 void print_expr(Atom atom);
 
+/* Exceptions */
+extern Atom ctx_exception;
+
+int builtin_throw(Atom args, Atom *result);
+int builtin_error(Atom args, Atom *result);
+
+int raise_error(const char *type, const char *msg);
+
 /* EVALUATOR */
 
 Atom env_create(Atom parent);
@@ -133,6 +142,10 @@ void hash_set(Atom hash, Atom key, Atom value);
 int hash_remove(Atom hash, Atom key);
 size_t hash_size(Atom hash);
 
+/* Metatable operations */
+Atom get_metamethod(Atom hash, const char *name);
+int has_metamethod(Atom hash, const char *name);
+
 /* BUILTINS */
 
 int builtin_car(Atom args, Atom *result);
@@ -163,3 +176,6 @@ int builtin_hash_ref(Atom args, Atom *result);
 int builtin_hash_set(Atom args, Atom *result);
 int builtin_hash_remove(Atom args, Atom *result);
 
+/* Metatable builtins */
+int builtin_set_metatable(Atom args, Atom *result);
+int builtin_get_metatable(Atom args, Atom *result);

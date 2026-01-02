@@ -1,5 +1,6 @@
 #include "lisp.h"
 #include <string.h>
+#include <stdio.h>
 
 /* Forward declaration */
 static int eval_do_return(Atom *stack, Atom *expr, Atom *env, Atom *result);
@@ -46,6 +47,8 @@ int env_get(Atom env, Atom symbol, Atom *result)
 
 	return env_get(parent, symbol, result);
 }
+
+Atom ctx_exception = { AtomType_Nil };
 
 int env_set(Atom env, Atom symbol, Atom value)
 {
@@ -330,6 +333,7 @@ int eval_expr(Atom expr, Atom env, Atom *result)
 			gc_mark(expr);
 			gc_mark(env);
 			gc_mark(stack);
+			gc_mark(ctx_exception);
 			gc();
 			count = 0;
 		}
@@ -391,6 +395,124 @@ int eval_expr(Atom expr, Atom env, Atom *result)
 					list_set(stack, 2, op);
 					expr = car(args);
 					continue;
+				} else if (strcmp(op.value.symbol, "TRY") == 0) {
+					if (nilp(args)) return Error_Args;
+					
+					Atom try_expr = car(args);
+					Atom rest = cdr(args);
+					
+					/* Evaluate try block recursively to catch error */
+					/* We recurse here because TRY establishes a dynamic handler boundary */
+					err = eval_expr(try_expr, env, result);
+					
+					if (err == Error_Exception) {
+						/* Exception thrown */
+						Atom p = rest;
+						int caught = 0;
+						
+						while (!nilp(p)) {
+							Atom clause = car(p);
+							if (clause.type == AtomType_Pair && car(clause).type == AtomType_Symbol &&
+								strcmp(car(clause).value.symbol, "CATCH") == 0) {
+								
+								/* (CATCH var_decl . body) */
+								Atom catch_args = cdr(clause);
+								if (nilp(catch_args)) { err = Error_Syntax; break; }
+								
+								Atom var_decl = car(catch_args);
+								Atom catch_body = cdr(catch_args);
+								
+								Atom var = nil;
+								Atom pred = nil;
+								
+								/* Parse var declaration: sym or (sym pred) */
+								if (var_decl.type == AtomType_Symbol) {
+									var = var_decl;
+								} else if (var_decl.type == AtomType_Pair) {
+									if (nilp(var_decl) || nilp(cdr(var_decl))) { err = Error_Syntax; break; }
+									var = car(var_decl);
+									pred = car(cdr(var_decl));
+									if (var.type != AtomType_Symbol) { err = Error_Type; break; } /* Var must be symbol */
+								} else {
+									err = Error_Syntax;
+									break;
+								}
+								
+								/* Bind exception for predicate check and body */
+								Atom catch_env = env_create(env);
+								env_define(catch_env, var, ctx_exception);
+								
+								int match = 1;
+								if (!nilp(pred)) {
+									/* Check predicate: (pred var) */
+									Atom pred_expr = cons(pred, cons(var, nil));
+									Atom pred_res;
+									Error pred_err = eval_expr(pred_expr, catch_env, &pred_res);
+									
+									if (pred_err) {
+										/* Error evaluating predicate? Propagate it unless it's an exception? */
+										/* If predicate throws, we probably abort catch logic and propagate that error */
+										err = pred_err;
+										break; 
+									}
+									
+									if (nilp(pred_res)) match = 0;
+								}
+								
+								if (match) {
+									/* Execute body */
+									Atom last_res = nil;
+									while (!nilp(catch_body)) {
+										err = eval_expr(car(catch_body), catch_env, &last_res);
+										if (err) break; /* Exception inside catch? */
+										catch_body = cdr(catch_body);
+									}
+									*result = last_res;
+									caught = 1;
+									break;
+								} else {
+									/* Restore exception state for next iteration */
+									err = Error_Exception;
+								}
+							}
+							p = cdr(p);
+						}
+						
+						/* If not caught, err remains Error_Exception (or Syntax error from loop break) */
+					}
+					
+					/* Save error state (either original exception if not caught, or new error from catch, or OK) */
+					Error saved_err = err;
+					
+					/* Execute FINALLY */
+					Atom p = rest;
+					while (!nilp(p)) {
+						Atom clause = car(p);
+						if (clause.type == AtomType_Pair && car(clause).type == AtomType_Symbol &&
+							strcmp(car(clause).value.symbol, "FINALLY") == 0) {
+							
+							/* (FINALLY . body) */
+							Atom final_body = cdr(clause);
+							Atom ignored;
+							while (!nilp(final_body)) {
+								Error final_err = eval_expr(car(final_body), env, &ignored);
+								if (final_err) {
+									/* Exception in finally overrides previous */
+									saved_err = final_err;
+									break;
+								}
+								final_body = cdr(final_body);
+							}
+							break;
+						}
+						p = cdr(p);
+					}
+					
+					err = saved_err; 
+					
+					/* Result is set if err==OK. */
+					/* If err!=OK, we will break/return error. */
+					if (err) break;
 				} else if (strcmp(op.value.symbol, "DEFMACRO") == 0) {
 					Atom name, macro;
 

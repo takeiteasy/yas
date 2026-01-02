@@ -108,7 +108,7 @@ int main(int argc, char **argv)
 	env_define(env, make_sym("THROW"), make_builtin(builtin_throw));
 	env_define(env, make_sym("ERROR"), make_builtin(builtin_error));
 
-	load_file(env, "library.lisp");
+	load_file(env, "library.gl");
 
 	/* Main loop */
 	while ((input = readline("> ")) != NULL) {

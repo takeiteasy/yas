@@ -5,12 +5,12 @@ LDFLAGS=-lreadline
 
 objects=$(sources:.c=.o)
 
-lisp: $(objects)
+gold: $(objects)
 	$(CC) $(CFLAGS) -o $@ $^ $(LDFLAGS)
 
 $(objects): $(wildcard *.h)
 
 .PHONY: clean
 clean:
-	$(RM) *.o lisp
+	$(RM) *.o gold 
 

@@ -39,7 +39,7 @@
 
 ;; Test sandbox configuration
 (print "\nSandbox config test:")
-(io-sandbox-mode 'whitelist)
+(io-sandbox-mode 'restricted-deny)
 (print (io-sandbox-mode))
 (io-sandbox-allow! "/tmp/*")
 

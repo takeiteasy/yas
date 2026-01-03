@@ -77,6 +77,14 @@ Atom make_float(double x)
 	return a;
 }
 
+Atom make_char(int32_t codepoint)
+{
+	Atom a;
+	a.type = AtomType_Char;
+	a.value.character = codepoint;
+	return a;
+}
+
 Atom make_string(const char *s)
 {
 	Atom a;
@@ -352,5 +360,60 @@ void gc()
 		a->mark = 0;
 		a = a->next;
 	}
+}
+
+/* Port operations */
+Atom make_port(void *handle, const char *path, int is_input, int is_binary, int provider_id)
+{
+	Atom a;
+	struct Port *p = malloc(sizeof(struct Port));
+	p->handle = handle;
+	p->path = strdup(path);
+	p->is_input = is_input;
+	p->is_binary = is_binary;
+	p->is_open = 1;
+	p->provider_id = provider_id;
+	a.type = AtomType_Port;
+	a.value.port = p;
+	return a;
+}
+
+/* Bytevector operations */
+Atom make_bytevector(size_t size)
+{
+	Atom a;
+	struct Bytevector *bv = malloc(sizeof(struct Bytevector));
+	bv->size = size;
+	bv->data = calloc(size, 1);
+	a.type = AtomType_Bytevector;
+	a.value.bytevector = bv;
+	return a;
+}
+
+Atom make_bytevector_from_data(const unsigned char *data, size_t size)
+{
+	Atom a;
+	struct Bytevector *bv = malloc(sizeof(struct Bytevector));
+	bv->size = size;
+	bv->data = malloc(size);
+	memcpy(bv->data, data, size);
+	a.type = AtomType_Bytevector;
+	a.value.bytevector = bv;
+	return a;
+}
+
+unsigned char bytevector_ref(Atom bv, size_t index)
+{
+	return bv.value.bytevector->data[index];
+}
+
+void bytevector_set(Atom bv, size_t index, unsigned char value)
+{
+	bv.value.bytevector->data[index] = value;
+}
+
+size_t bytevector_length(Atom bv)
+{
+	return bv.value.bytevector->size;
 }
 

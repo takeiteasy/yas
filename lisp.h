@@ -1,4 +1,5 @@
 #include <stddef.h>
+#include <stdint.h>
 
 typedef enum {
 	Error_OK = 0,
@@ -49,7 +50,9 @@ struct Atom {
 		AtomType_Builtin,
 		AtomType_Closure,
 		AtomType_Macro,
-		AtomType_Continuation
+		AtomType_Continuation,
+		AtomType_Char,
+		AtomType_Keyword
 	} type;
 
 	union {
@@ -63,6 +66,7 @@ struct Atom {
 		struct Port *port;
 		struct Bytevector *bytevector;
 		Builtin builtin;
+		int32_t character;  /* Unicode codepoint */
 	} value;
 };
 
@@ -137,6 +141,7 @@ int eval_expr(Atom expr, Atom env, Atom *result);
 Atom cons(Atom car_val, Atom cdr_val);
 Atom make_int(long x);
 Atom make_float(double x);
+Atom make_char(int32_t codepoint);
 Atom make_string(const char *s);
 Atom make_string_n(const char *s, size_t len);
 Atom make_vector(size_t size, Atom fill);
@@ -230,8 +235,7 @@ void load_file(Atom env, const char *path);
 /* Sandbox modes */
 typedef enum {
 	IO_SANDBOX_UNRESTRICTED,  /* Default: no restrictions */
-	IO_SANDBOX_WHITELIST,     /* Only allowed paths work */
-	IO_SANDBOX_BLACKLIST,     /* All paths except denied work */
+	IO_SANDBOX_RESTRICTED,    /* Allow/deny lists apply; default_allow controls unmatched */
 	IO_SANDBOX_DISABLED       /* All I/O operations fail */
 } IOSandboxMode;
 
@@ -256,6 +260,8 @@ void io_sandbox_init(IOSandboxMode mode);
 IOSandboxMode io_sandbox_get_mode(void);
 void io_sandbox_allow_path(const char *pattern);
 void io_sandbox_deny_path(const char *pattern);
+void io_sandbox_set_default(int allow);  /* Set default for unmatched paths in RESTRICTED mode */
+int  io_sandbox_get_default(void);
 void io_sandbox_clear(void);
 int  io_sandbox_check_path(const char *path, int writing);
 
@@ -266,6 +272,12 @@ void io_unregister_provider(const char *prefix);
 /* Port operations */
 Atom make_port(void *handle, const char *path, int is_input, int is_binary, int provider_id);
 void port_close(Atom port);
+Atom io_open_file(const char *path, int is_input, int is_binary);
+long port_read(struct Port *p, void *buf, size_t n);
+long port_write(struct Port *p, const void *buf, size_t n);
+int  port_getc(struct Port *p);
+void port_flush(struct Port *p);
+int  io_file_exists(const char *path);
 
 /* Bytevector operations */
 Atom make_bytevector(size_t size);
@@ -308,3 +320,27 @@ int builtin_string_to_bytevector(Atom args, Atom *result);
 int builtin_io_sandbox_allow(Atom args, Atom *result);
 int builtin_io_sandbox_deny(Atom args, Atom *result);
 int builtin_io_sandbox_mode(Atom args, Atom *result);
+
+/* Character builtins */
+int builtin_charp(Atom args, Atom *result);
+int builtin_char_to_integer(Atom args, Atom *result);
+int builtin_integer_to_char(Atom args, Atom *result);
+int builtin_char_eq(Atom args, Atom *result);
+int builtin_char_lt(Atom args, Atom *result);
+
+/* String/Bytes encoding builtins */
+int builtin_string_to_bytes(Atom args, Atom *result);
+int builtin_bytes_to_string(Atom args, Atom *result);
+int builtin_string_ref(Atom args, Atom *result);
+int builtin_string_byte_length(Atom args, Atom *result);
+
+/* Decode a single UTF-8 character, return bytes consumed (0 on end/error) */
+int utf8_decode(const char *s, int32_t *cp);
+/* Encode a codepoint to UTF-8, return bytes written (1-4) */
+int utf8_encode(int32_t cp, char *out);
+/* Count codepoints in UTF-8 string */
+size_t utf8_strlen(const char *s);
+/* Get codepoint at index, returns -1 if out of bounds */
+int32_t utf8_codepoint_at(const char *s, size_t index);
+/* Get pointer to codepoint at index, returns NULL if out of bounds */
+const char *utf8_index_ptr(const char *s, size_t index);

@@ -102,6 +102,22 @@ static int lex(const char *str, const char **start, const char **end,
 		*end = str + 1;  /* String opening quote */
 	else if (str[0] == '#' && str[1] == '(')
 		*end = str + 2;  /* Vector literal #( */
+	else if (str[0] == '#' && str[1] == '\\') {
+		/* Character literal #\x or #\newline etc */
+		const char *p = str + 2;
+		if (*p == 'x' || *p == 'u' || *p == 'U') {
+			/* Hex/unicode escape - read hex digits */
+			p++;
+			while (isxdigit(*p)) p++;
+		} else if (isalpha(*p)) {
+			/* Named char or single char */
+			while (isalpha(*p)) p++;
+		} else if (*p) {
+			/* Single character */
+			p++;
+		}
+		*end = p;
+	}
 	else if (str[0] == ',')
 		*end = str + (str[1] == '@' ? 2 : 1);
 	else if (str[0] == ';') {
@@ -345,6 +361,69 @@ static int read_expr_internal(const char *input, const char **end, Atom *result,
 			vector_set(*result, i, car(p));
 			p = cdr(p);
 		}
+		return Error_OK;
+	} else if (token[0] == '#' && token[1] == '\\') {
+		/* Character literal */
+		const char *start = token + 2;
+		size_t len = *end - start;
+		int32_t cp;
+		
+		if (len == 0) {
+			set_error(err, Error_Syntax, source, token, filename,
+			          "Empty character literal");
+			return Error_Syntax;
+		}
+		
+		/* Named characters */
+		if (len == 7 && strncmp(start, "newline", 7) == 0) {
+			cp = '\n';
+		} else if (len == 5 && strncmp(start, "space", 5) == 0) {
+			cp = ' ';
+		} else if (len == 3 && strncmp(start, "tab", 3) == 0) {
+			cp = '\t';
+		} else if (len == 6 && strncmp(start, "return", 6) == 0) {
+			cp = '\r';
+		} else if (start[0] == 'x' && len > 1) {
+			/* Hex escape #\xNN */
+			char *endp;
+			cp = strtol(start + 1, &endp, 16);
+			if (endp != *end) {
+				set_error(err, Error_Syntax, source, token, filename,
+				          "Invalid hex character literal");
+				return Error_Syntax;
+			}
+		} else if (start[0] == 'u' && len == 5) {
+			/* Unicode escape #\uNNNN */
+			char *endp;
+			cp = strtol(start + 1, &endp, 16);
+			if (endp != *end) {
+				set_error(err, Error_Syntax, source, token, filename,
+				          "Invalid unicode character literal");
+				return Error_Syntax;
+			}
+		} else if (start[0] == 'U' && len == 9) {
+			/* Unicode escape #\UNNNNNNNN */
+			char *endp;
+			cp = strtol(start + 1, &endp, 16);
+			if (endp != *end) {
+				set_error(err, Error_Syntax, source, token, filename,
+				          "Invalid unicode character literal");
+				return Error_Syntax;
+			}
+		} else if (len == 1) {
+			/* Single character */
+			cp = (unsigned char)start[0];
+		} else {
+			/* Try UTF-8 decode for multi-byte chars like #\λ */
+			int n = utf8_decode(start, &cp);
+			if (n != (int)len) {
+				set_error(err, Error_Syntax, source, token, filename,
+				          "Unknown character name");
+				return Error_Syntax;
+			}
+		}
+		
+		*result = make_char(cp);
 		return Error_OK;
 	} else {
 		return parse_simple(token, *end, result, source, filename, err);

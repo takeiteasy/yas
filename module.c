@@ -104,6 +104,19 @@ static void create_base_library(void) {
 	reg_builtin(env, exports, "IO-SANDBOX-DENY!", builtin_io_sandbox_deny);
 	reg_builtin(env, exports, "IO-SANDBOX-MODE", builtin_io_sandbox_mode);
 	
+	/* Character builtins */
+	reg_builtin(env, exports, "CHAR?", builtin_charp);
+	reg_builtin(env, exports, "CHAR->INTEGER", builtin_char_to_integer);
+	reg_builtin(env, exports, "INTEGER->CHAR", builtin_integer_to_char);
+	reg_builtin(env, exports, "CHAR=?", builtin_char_eq);
+	reg_builtin(env, exports, "CHAR<?", builtin_char_lt);
+	
+	/* String/Bytes encoding builtins */
+	reg_builtin(env, exports, "STRING->BYTES", builtin_string_to_bytes);
+	reg_builtin(env, exports, "BYTES->STRING", builtin_bytes_to_string);
+	reg_builtin(env, exports, "STRING-REF", builtin_string_ref);
+	reg_builtin(env, exports, "STRING-BYTE-LENGTH", builtin_string_byte_length);
+	
 	reg_sym(env, exports, "T", make_sym("T"));
 	
 	Atom key = make_string("gold/primitives");

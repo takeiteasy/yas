@@ -1,0 +1,49 @@
+;; UTF-8 tests for Gold Scheme
+
+(import (gold primitives))
+
+;; Character type tests
+(print "Testing character type...")
+(assert (char? #\a) "char? should return true for character")
+(assert (not (char? "a")) "char? should return false for string")
+(assert (= (char->integer #\a) 97) "char->integer #\\a should be 97")
+(assert (= (char->integer #\newline) 10) "char->integer #\\newline should be 10")
+(assert (char=? #\a #\a) "char=? should work")
+(assert (char<? #\a #\b) "char<? should work")
+(assert (char=? (integer->char 65) #\A) "integer->char 65 should be #\\A")
+(print "Character type tests passed!")
+
+;; String length tests (UTF-8 aware)
+(print "Testing UTF-8 string length...")
+(assert (= (length "hello") 5) "ASCII length should be 5")
+(assert (= (length "日本語") 3) "Japanese 3-char string should have length 3")
+(assert (= (length "λ") 1) "Lambda should have length 1")
+(assert (= (length "café") 4) "cafe with accent should have length 4")
+(print "UTF-8 string length tests passed!")
+
+;; String-ref tests
+(print "Testing string-ref...")
+(assert (char=? (string-ref "hello" 0) #\h) "string-ref at 0")
+(assert (char=? (string-ref "hello" 4) #\o) "string-ref at 4")
+(assert (char=? (string-ref "λx.x" 0) #\x3BB) "string-ref Unicode at 0")
+(print "String-ref tests passed!")
+
+;; String-byte-length tests
+(print "Testing string-byte-length...")
+(assert (= (string-byte-length "hello") 5) "ASCII byte length")
+(assert (= (string-byte-length "日本語") 9) "Japanese 3-char = 9 bytes")
+(assert (= (string-byte-length "λ") 2) "Lambda = 2 bytes")
+(print "String-byte-length tests passed!")
+
+;; Encoding tests
+(print "Testing string<->bytes encoding...")
+(let ((bv (string->bytes "hello" "utf-8")))
+  (assert (= (bytevector-length bv) 5) "UTF-8 bytes for ASCII"))
+
+(let ((bv (string->bytes "日本語" "utf-8")))
+  (assert (= (bytevector-length bv) 9) "UTF-8 bytes for Japanese"))
+
+(print "Encoding tests passed!")
+
+(print "")
+(print "All UTF-8 tests passed!")

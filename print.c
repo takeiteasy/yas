@@ -74,6 +74,22 @@ void print_expr(Atom atom)
 	case AtomType_Bytevector:
 		printf("#<BYTEVECTOR:%zu>", atom.value.bytevector->size);
 		break;
+	case AtomType_Char: {
+		int32_t cp = atom.value.character;
+		if (cp == '\n')
+			printf("#\\newline");
+		else if (cp == ' ')
+			printf("#\\space");
+		else if (cp == '\t')
+			printf("#\\tab");
+		else if (cp == '\r')
+			printf("#\\return");
+		else if (cp < 0x80 && cp >= 0x21 && cp <= 0x7E)
+			printf("#\\%c", (char)cp);
+		else
+			printf("#\\x%X", cp);
+		break;
+	}
 	}
 }
 

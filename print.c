@@ -4,6 +4,7 @@
 void print_expr(Atom atom)
 {
 	switch (atom.type) {
+	default:
 	case AtomType_Nil:
 		printf("NIL");
 		break;
@@ -90,6 +91,8 @@ void print_expr(Atom atom)
 			printf("#\\x%X", cp);
 		break;
 	}
+	case AtomType_Keyword:
+		printf(":%s", atom.value.keyword);
+		break;
 	}
 }
-

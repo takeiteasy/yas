@@ -169,14 +169,30 @@ int make_closure(Atom env, Atom args, Atom body, Atom *result)
 	if (!listp(body))
 		return Error_Syntax;
 
-	/* Check argument names are all symbols */
+	/* Check argument names are valid:
+	 * - Symbol (regular arg or rest)
+	 * - Keyword (keyword arg marker)
+	 * - Pair with symbol car ([name default])
+	 */
 	p = args;
 	while (!nilp(p)) {
 		if (p.type == AtomType_Symbol)
-			break;
-		else if (p.type != AtomType_Pair
-				|| car(p).type != AtomType_Symbol)
+			break; /* Rest arg */
+		if (p.type != AtomType_Pair)
 			return Error_Type;
+		
+		Atom arg_spec = car(p);
+		if (arg_spec.type == AtomType_Symbol) {
+			/* Regular arg */
+		} else if (arg_spec.type == AtomType_Keyword) {
+			/* Keyword marker - ok */
+		} else if (arg_spec.type == AtomType_Pair) {
+			/* [name default] - check that car is symbol */
+			if (car(arg_spec).type != AtomType_Symbol)
+				return Error_Type;
+		} else {
+			return Error_Type;
+		}
 		p = cdr(p);
 	}
 
@@ -232,22 +248,118 @@ int eval_do_bind(Atom *stack, Atom *expr, Atom *env)
 	list_set(*stack, 1, *env);
 	list_set(*stack, 5, body);
 
-	/* Bind the arguments */
+	/* Bind the arguments
+	 * Supports:
+	 * - Regular: x
+	 * - Optional with default: [x default]
+	 * - Keyword: :key [var default]
+	 * - Rest: . rest
+	 */
+	int in_keywords = 0;
 	while (!nilp(arg_names)) {
+		/* Rest argument (symbol at end) */
 		if (arg_names.type == AtomType_Symbol) {
 			env_define(*env, arg_names, args);
 			args = nil;
 			break;
 		}
 
-		if (nilp(args))
-			return Error_Args;
-		env_define(*env, car(arg_names), car(args));
-		arg_names = cdr(arg_names);
-		args = cdr(args);
+		Atom arg_spec = car(arg_names);
+
+		/* Keyword marker - next items are keyword args */
+		if (arg_spec.type == AtomType_Keyword) {
+			in_keywords = 1;
+			/* Find matching keyword in args and get its value */
+			Atom kw = arg_spec;
+			arg_names = cdr(arg_names);
+			if (nilp(arg_names)) return Error_Syntax; /* keyword without var spec */
+			
+			Atom var_spec = car(arg_names);
+			Atom var_name, default_val = nil;
+			
+			/* Parse [name default] or just name */
+			if (var_spec.type == AtomType_Symbol) {
+				var_name = var_spec;
+			} else if (var_spec.type == AtomType_Pair) {
+				var_name = car(var_spec);
+				if (!nilp(cdr(var_spec)))
+					default_val = car(cdr(var_spec));
+			} else {
+				return Error_Syntax;
+			}
+			
+			/* Search for keyword in call args */
+			Atom found_val = nil;
+			int found = 0;
+			Atom search = args;
+			Atom prev = nil;
+			while (!nilp(search)) {
+				if (car(search).type == AtomType_Keyword &&
+				    car(search).value.keyword == kw.value.keyword) {
+					/* Found keyword, next is value */
+					if (nilp(cdr(search))) return Error_Args;
+					found_val = car(cdr(search));
+					found = 1;
+					/* Remove kw and value from args list */
+					if (nilp(prev)) {
+						args = cdr(cdr(search));
+					} else {
+						cdr(prev) = cdr(cdr(search));
+					}
+					break;
+				}
+				prev = search;
+				search = cdr(search);
+			}
+			
+			if (found) {
+				env_define(*env, var_name, found_val);
+			} else {
+				env_define(*env, var_name, default_val);
+			}
+			
+			arg_names = cdr(arg_names);
+			continue;
+		}
+
+		/* Optional argument with default: [name default] */
+		if (arg_spec.type == AtomType_Pair && !in_keywords) {
+			Atom var_name = car(arg_spec);
+			Atom default_val = nil;
+			if (!nilp(cdr(arg_spec)))
+				default_val = car(cdr(arg_spec));
+			
+			if (nilp(args) || car(args).type == AtomType_Keyword) {
+				/* No more positional args, use default */
+				env_define(*env, var_name, default_val);
+			} else {
+				env_define(*env, var_name, car(args));
+				args = cdr(args);
+			}
+			arg_names = cdr(arg_names);
+			continue;
+		}
+
+		/* Regular positional argument */
+		if (arg_spec.type == AtomType_Symbol) {
+			if (nilp(args))
+				return Error_Args;
+			env_define(*env, arg_spec, car(args));
+			args = cdr(args);
+			arg_names = cdr(arg_names);
+			continue;
+		}
+
+		return Error_Syntax;
 	}
-	if (!nilp(args))
-		return Error_Args;
+	
+	/* Check for leftover positional args (keywords are allowed to remain) */
+	while (!nilp(args)) {
+		if (car(args).type != AtomType_Keyword)
+			return Error_Args;
+		args = cdr(args);
+		if (!nilp(args)) args = cdr(args); /* Skip value too */
+	}
 
 	list_set(*stack, 4, nil);
 
@@ -329,12 +441,12 @@ int eval_do_apply(Atom *stack, Atom *expr, Atom *env, Atom *result)
 			}
 		}
 		
-		/* Check for __get on hash-ref or __set on hash-set! */
+		/* Check for ~get on hash-ref or ~set on hash-set! */
 		if (op.value.builtin == builtin_hash_ref && !nilp(args)) {
 			Atom hash = car(args);
 			if (hash.type == AtomType_Hash && has_metamethod(hash, "get")) {
 				Atom key = !nilp(cdr(args)) ? car(cdr(args)) : nil;
-				/* Check if key exists in hash first - only call __get if missing */
+				/* Check if key exists in hash first - only call ~get if missing */
 				Atom existing = hash_ref(hash, key, nil);
 				if (nilp(existing)) {
 					Atom mm_fn = get_metamethod(hash, "get");
@@ -390,7 +502,7 @@ int eval_do_apply(Atom *stack, Atom *expr, Atom *env, Atom *result)
 			return Error_OK;  /* Will exit main loop */
 		return eval_do_return(stack, expr, env, result);
 	} else if (op.type == AtomType_Hash && has_metamethod(op, "call")) {
-		/* Hash has __call metamethod - invoke it with (self . args) */
+		/* Hash has ~call metamethod - invoke it with (self . args) */
 		Atom call_fn = get_metamethod(op, "call");
 		args = cons(op, args);  /* Prepend hash as first arg (self) */
 		list_set(*stack, 2, call_fn);
@@ -407,10 +519,10 @@ int eval_do_apply(Atom *stack, Atom *expr, Atom *env, Atom *result)
 			return Error_Type;
 		}
 	} else if (op.type == AtomType_Hash && has_metamethod(op, "missing")) {
-		/* Hash has __missing metamethod - for Ruby-style method dispatch */
+		/* Hash has ~missing metamethod - for Ruby-style method dispatch */
 		/* args = (method-name arg1 arg2 ...) 
-		   Call: (__missing self args)  
-		   which is (__missing self (method-name arg1 arg2 ...)) */
+		   Call: (~missing self args)  
+		   which is (~missing self (method-name arg1 arg2 ...)) */
 		Atom missing_fn = get_metamethod(op, "missing");
 		Atom new_args = list_create(2, op, args);
 		list_set(*stack, 2, missing_fn);

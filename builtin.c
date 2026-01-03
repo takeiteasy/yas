@@ -1,5 +1,4 @@
 #include "lisp.h"
-#include "utf8.h"
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
@@ -76,11 +75,17 @@ int builtin_eq(Atom args, Atom *result)
 		case AtomType_Symbol:
 			eq = (a.value.symbol == b.value.symbol);
 			break;
+		case AtomType_Keyword:
+			eq = (a.value.keyword == b.value.keyword);
+			break;
 		case AtomType_Integer:
 			eq = (a.value.integer == b.value.integer);
 			break;
 		case AtomType_Builtin:
 			eq = (a.value.builtin == b.value.builtin);
+			break;
+		default:
+			eq = 0;
 			break;
 		}
 	} else {
@@ -313,6 +318,21 @@ int builtin_string_ref(Atom args, Atom *result) {
 		return raise_error("args-error", "string-ref: index out of bounds");
 	
 	*result = make_char(cp);
+	return Error_OK;
+}
+
+/* (string=? s1 s2) */
+int builtin_string_eq(Atom args, Atom *result) {
+	if (nilp(args) || nilp(cdr(args)) || !nilp(cdr(cdr(args))))
+		return raise_error("args-error", "string=?: expected 2 arguments");
+	
+	Atom a = car(args);
+	Atom b = car(cdr(args));
+	
+	if (a.type != AtomType_String || b.type != AtomType_String)
+		return raise_error("type-error", "string=?: arguments must be strings");
+	
+	*result = (strcmp(a.value.string, b.value.string) == 0) ? make_sym("T") : nil;
 	return Error_OK;
 }
 
@@ -1210,8 +1230,6 @@ int builtin_char_lt(Atom args, Atom *result) {
  * STRING/BYTES ENCODING BUILTINS
  * ============================================================ */
 
-#include "utf8.h"
-
 /* (string->bytes str [encoding]) - Convert string to bytevector */
 int builtin_string_to_bytes(Atom args, Atom *result) {
 	if (nilp(args) || car(args).type != AtomType_String)
@@ -1302,5 +1320,47 @@ int builtin_bytes_to_string(Atom args, Atom *result) {
 		return raise_error("value-error", "bytes->string: unknown encoding (use utf-8, ascii, or latin-1)");
 	}
 	
+	return Error_OK;
+}
+
+/* ============================================================
+ * KEYWORD BUILTINS
+ * ============================================================ */
+
+/* (keyword? obj) */
+int builtin_keywordp(Atom args, Atom *result)
+{
+	if (nilp(args) || !nilp(cdr(args)))
+		return raise_error("args-error", "keyword?: expected 1 argument");
+	*result = car(args).type == AtomType_Keyword ? make_sym("T") : nil;
+	return Error_OK;
+}
+
+/* (keyword->string kw) */
+int builtin_keyword_to_string(Atom args, Atom *result)
+{
+	if (nilp(args) || !nilp(cdr(args)))
+		return raise_error("args-error", "keyword->string: expected 1 argument");
+	if (car(args).type != AtomType_Keyword)
+		return raise_error("type-error", "keyword->string: argument must be keyword");
+	*result = make_string(car(args).value.keyword);
+	return Error_OK;
+}
+
+/* (string->keyword str) */
+int builtin_string_to_keyword(Atom args, Atom *result)
+{
+	if (nilp(args) || !nilp(cdr(args)))
+		return raise_error("args-error", "string->keyword: expected 1 argument");
+	if (car(args).type != AtomType_String)
+		return raise_error("type-error", "string->keyword: argument must be string");
+	
+	/* Convert to uppercase for consistency */
+	char *buf = strdup(car(args).value.string);
+	for (char *p = buf; *p; p++) {
+		if (*p >= 'a' && *p <= 'z') *p -= 32;
+	}
+	*result = make_keyword(buf);
+	free(buf);
 	return Error_OK;
 }

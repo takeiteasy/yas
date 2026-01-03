@@ -168,6 +168,19 @@ static int parse_simple(const char *start, const char *end, Atom *result,
 		}
 	}
 
+	/* Check for keyword (starts with :) */
+	if (start[0] == ':' && end - start > 1) {
+		buf = malloc(end - start);
+		p = buf;
+		start++;  /* Skip the colon */
+		while (start != end)
+			*p++ = toupper(*start), ++start;
+		*p = '\0';
+		*result = make_keyword(buf);
+		free(buf);
+		return Error_OK;
+	}
+
 	/* NIL or symbol */
 	buf = malloc(end - start + 1);
 	p = buf;

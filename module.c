@@ -115,7 +115,13 @@ static void create_base_library(void) {
 	reg_builtin(env, exports, "STRING->BYTES", builtin_string_to_bytes);
 	reg_builtin(env, exports, "BYTES->STRING", builtin_bytes_to_string);
 	reg_builtin(env, exports, "STRING-REF", builtin_string_ref);
+	reg_builtin(env, exports, "STRING=?", builtin_string_eq);
 	reg_builtin(env, exports, "STRING-BYTE-LENGTH", builtin_string_byte_length);
+	
+	/* Keyword builtins */
+	reg_builtin(env, exports, "KEYWORD?", builtin_keywordp);
+	reg_builtin(env, exports, "KEYWORD->STRING", builtin_keyword_to_string);
+	reg_builtin(env, exports, "STRING->KEYWORD", builtin_string_to_keyword);
 	
 	reg_sym(env, exports, "T", make_sym("T"));
 	

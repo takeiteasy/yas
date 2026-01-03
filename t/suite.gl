@@ -57,21 +57,21 @@
     (hash-set! h 'val 10)
     (set-metatable! h mt)
 
-    ;; Test __add operator
-    (hash-set! mt '__add (lambda (self other) 
+    ;; Test ~add operator
+    (hash-set! mt '~add (lambda (self other) 
                             (+ (hash-ref self 'val) other)))
     (check (+ h 5) 15)
 
-    ;; Test __call
-    (hash-set! mt '__call (lambda (self . args)
+    ;; Test ~call
+    (hash-set! mt '~call (lambda (self . args)
                             (cons 'called args)))
     (check (h 1 2) '(called 1 2))
     
-    ;; Remove __call to test __missing (otherwise __call takes precedence)
-    (hash-remove! mt '__call) 
+    ;; Remove ~call to test ~missing (otherwise ~call takes precedence)
+    (hash-remove! mt '~call) 
 
-    ;; Test __missing
-    (hash-set! mt '__missing (lambda (self key)
+    ;; Test ~missing
+    (hash-set! mt '~missing (lambda (self key)
                                (list 'missing key)))
     (check (h 'unknown) '(missing (unknown)))))
 

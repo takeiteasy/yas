@@ -67,6 +67,7 @@ struct Atom {
 		struct Bytevector *bytevector;
 		Builtin builtin;
 		int32_t character;  /* Unicode codepoint */
+		const char *keyword;  /* Interned keyword name (without :) */
 	} value;
 };
 
@@ -147,6 +148,7 @@ Atom make_string_n(const char *s, size_t len);
 Atom make_vector(size_t size, Atom fill);
 Atom make_hash(void);
 Atom make_sym(const char *s);
+Atom make_keyword(const char *s);
 Atom make_builtin(Builtin fn);
 int listp(Atom expr);
 Atom copy_list(Atom list);
@@ -332,7 +334,13 @@ int builtin_char_lt(Atom args, Atom *result);
 int builtin_string_to_bytes(Atom args, Atom *result);
 int builtin_bytes_to_string(Atom args, Atom *result);
 int builtin_string_ref(Atom args, Atom *result);
+int builtin_string_eq(Atom args, Atom *result);
 int builtin_string_byte_length(Atom args, Atom *result);
+
+/* Keyword builtins */
+int builtin_keywordp(Atom args, Atom *result);
+int builtin_keyword_to_string(Atom args, Atom *result);
+int builtin_string_to_keyword(Atom args, Atom *result);
 
 /* Decode a single UTF-8 character, return bytes consumed (0 on end/error) */
 int utf8_decode(const char *s, int32_t *cp);

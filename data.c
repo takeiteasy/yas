@@ -7,7 +7,7 @@
 
 struct Allocation {
 	struct Pair pair;
-	int mark : 1;
+	unsigned int mark : 1;
 	struct Allocation *next;
 };
 
@@ -57,6 +57,27 @@ Atom make_sym(const char *s)
 	a.type = AtomType_Symbol;
 	a.value.symbol = strdup(s);
 	sym_table = cons(a, sym_table);
+
+	return a;
+}
+
+static Atom kw_table = { AtomType_Nil };
+
+Atom make_keyword(const char *s)
+{
+	Atom a, p;
+
+	p = kw_table;
+	while (!nilp(p)) {
+		a = car(p);
+		if (strcmp(a.value.keyword, s) == 0)
+			return a;
+		p = cdr(p);
+	}
+
+	a.type = AtomType_Keyword;
+	a.value.keyword = strdup(s);
+	kw_table = cons(a, kw_table);
 
 	return a;
 }
@@ -155,6 +176,7 @@ static int atom_equal(Atom a, Atom b)
 	switch (a.type) {
 	case AtomType_Nil: return 1;
 	case AtomType_Symbol: return a.value.symbol == b.value.symbol;
+	case AtomType_Keyword: return a.value.keyword == b.value.keyword;
 	case AtomType_Integer: return a.value.integer == b.value.integer;
 	case AtomType_Float: return a.value.floatval == b.value.floatval;
 	case AtomType_String: return strcmp(a.value.string, b.value.string) == 0;
@@ -221,9 +243,9 @@ Atom get_metamethod(Atom hash, const char *name)
 	struct Hash *h = hash.value.hash;
 	if (!h->metatable) return nil;
 	
-	/* Build symbol name with __ prefix (uppercase to match reader) */
+	/* Build symbol name with ~ prefix (uppercase to match reader) */
 	char sym_name[64];
-	snprintf(sym_name, sizeof(sym_name), "__%s", name);
+	snprintf(sym_name, sizeof(sym_name), "~%s", name);
 	/* Convert to uppercase */
 	for (char *p = sym_name; *p; p++) {
 		if (*p >= 'a' && *p <= 'z') *p -= 32;
@@ -341,6 +363,7 @@ void gc()
 	struct Allocation *a, **p;
 
 	gc_mark(sym_table);
+	gc_mark(kw_table);
 
 	/* Free unmarked allocations */
 	p = &global_allocations;

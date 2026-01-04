@@ -4,6 +4,17 @@
 #include <stdlib.h>
 
 /* Forward declaration */
+
+struct EvalRoot {
+	Atom *expr;
+	Atom *env;
+	Atom *stack;
+	struct EvalRoot *prev;
+};
+
+static struct EvalRoot *eval_roots = NULL;
+static int eval_vm(Atom expr, Atom env, Atom *result, struct EvalRoot *root);
+
 static int eval_do_return(Atom *stack, Atom *expr, Atom *env, Atom *result);
 
 Atom env_create(Atom parent)
@@ -664,15 +675,36 @@ int eval_do_return(Atom *stack, Atom *expr, Atom *env, Atom *result)
 
 int eval_expr(Atom expr, Atom env, Atom *result)
 {
+	struct EvalRoot root;
+	root.prev = eval_roots;
+	eval_roots = &root;
+
+	int err = eval_vm(expr, env, result, &root);
+
+	eval_roots = root.prev;
+	return err;
+}
+
+static int eval_vm(Atom expr, Atom env, Atom *result, struct EvalRoot *root)
+{
 	static int count = 0;
 	Error err = Error_OK;
 	Atom stack = nil;
+	
+	root->expr = &expr;
+	root->env = &env;
+	root->stack = &stack;
 
 	do {
 		if (++count == 100000) {
-			gc_mark(expr);
-			gc_mark(env);
-			gc_mark(stack);
+			struct EvalRoot *r = eval_roots;
+			while (r) {
+				gc_mark(*r->expr);
+				gc_mark(*r->env);
+				if (!nilp(*r->stack)) gc_mark(*r->stack);
+				r = r->prev;
+			}
+			
 			gc_mark(ctx_exception);
 			gc();
 			count = 0;
@@ -745,7 +777,18 @@ int eval_expr(Atom expr, Atom env, Atom *result)
 					/* We recurse here because TRY establishes a dynamic handler boundary */
 					err = eval_expr(try_expr, env, result);
 					
-					if (err == Error_Exception) {
+					if (err != Error_OK) {
+						/* Exception thrown or runtime error */
+						if (nilp(ctx_exception)) {
+							/* Convert code to exception string if not already set */
+							const char *msg = "Unknown Error";
+							if (err == Error_Unbound) msg = "Symbol not bound";
+							else if (err == Error_Args) msg = "Argument error";
+							else if (err == Error_Type) msg = "Type error";
+							else if (err == Error_Syntax) msg = "Syntax error";
+							
+							ctx_exception = make_string(msg);
+						}
 						/* Exception thrown */
 						int caught = 0;
 						Atom p = rest;

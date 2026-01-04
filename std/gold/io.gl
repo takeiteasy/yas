@@ -1,5 +1,5 @@
 (define-library (gold io)
-  (import (gold base) (gold primitives))
+  (import (gold base))
   (export 
     ;; Core port operations
     open-input-file open-output-file close-port
@@ -25,8 +25,7 @@
     ;; High-level convenience functions
     call-with-input-file call-with-output-file
     with-input-from-file with-output-to-file
-    read-file write-file
-  )
+    read-file write-file)
   (begin
     ;; High-level file I/O with automatic resource management
     (define (call-with-input-file path proc)
@@ -55,5 +54,4 @@
     (define (write-file path content)
       (call-with-output-file path 
         (lambda (port) 
-          (write-string content port))))
-  ))
+          (write-string content port))))))

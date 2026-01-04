@@ -593,44 +593,55 @@ int builtin_hashp(Atom args, Atom *result)
 	return Error_OK;
 }
 
-/* Length - works on lists, strings, vectors, hashes */
-int builtin_length(Atom args, Atom *result)
+/* (string-length str) */
+int builtin_string_length(Atom args, Atom *result)
 {
-	Atom a;
+	if (nilp(args) || !nilp(cdr(args)))
+		return raise_error("args-error", "string-length: expected 1 argument");
+	Atom a = car(args);
+	if (a.type != AtomType_String)
+		return raise_error("type-error", "string-length: expected string");
+	*result = make_int(utf8_strlen(a.value.string));
+	return Error_OK;
+}
+
+/* (vector-length vec) */
+int builtin_vector_length(Atom args, Atom *result)
+{
+	if (nilp(args) || !nilp(cdr(args)))
+		return raise_error("args-error", "vector-length: expected 1 argument");
+	Atom a = car(args);
+	if (a.type != AtomType_Vector)
+		return raise_error("type-error", "vector-length: expected vector");
+	*result = make_int(vector_length(a));
+	return Error_OK;
+}
+
+/* (hash-length hash) */
+int builtin_hash_length(Atom args, Atom *result)
+{
+	if (nilp(args) || !nilp(cdr(args)))
+		return raise_error("args-error", "hash-length: expected 1 argument");
+	Atom a = car(args);
+	if (a.type != AtomType_Hash)
+		return raise_error("type-error", "hash-length: expected hash");
+	*result = make_int(hash_size(a));
+	return Error_OK;
+}
+
+/* (length list) */
+int builtin_list_length(Atom args, Atom *result)
+{
 	if (nilp(args) || !nilp(cdr(args)))
 		return raise_error("args-error", "length: expected 1 argument");
-	
-	a = car(args);
-	
-	switch (a.type) {
-	case AtomType_Nil:
-		*result = make_int(0);
-		break;
-	case AtomType_Pair: {
-		long len = 0;
-		while (!nilp(a)) {
-			if (a.type != AtomType_Pair) return raise_error("type-error", "length: improper list");
-			len++;
-			a = cdr(a);
-		}
-		*result = make_int(len);
-		break;
+	Atom a = car(args);
+	long len = 0;
+	while (!nilp(a)) {
+		if (a.type != AtomType_Pair) return raise_error("type-error", "length: improper list");
+		len++;
+		a = cdr(a);
 	}
-	case AtomType_String:
-		*result = make_int(utf8_strlen(a.value.string));
-		break;
-	case AtomType_Vector:
-		*result = make_int(vector_length(a));
-		break;
-	case AtomType_Hash:
-		*result = make_int(hash_size(a));
-		break;
-	case AtomType_Bytevector:
-		*result = make_int(bytevector_length(a));
-		break;
-	default:
-		return raise_error("type-error", "length: not a sequence");
-	}
+	*result = make_int(len);
 	return Error_OK;
 }
 
@@ -683,77 +694,96 @@ int builtin_string_byte_length(Atom args, Atom *result) {
 	return Error_OK;
 }
 
-/* Concat - works on lists, strings, vectors */
-int builtin_concat(Atom args, Atom *result)
+/* (string-append s1 s2 ...) */
+int builtin_string_append(Atom args, Atom *result)
 {
-	if (nilp(args))
-		return raise_error("args-error", "concat: expected at least 1 argument");
-	
-	Atom first = car(args);
-	
-	if (first.type == AtomType_String) {
-		/* String concatenation */
-		size_t total_len = 0;
-		Atom p = args;
-		while (!nilp(p)) {
-			if (car(p).type != AtomType_String)
-				return raise_error("type-error", "concat: arguments must be strings");
-			total_len += strlen(car(p).value.string);
-			p = cdr(p);
-		}
-		char *buf = malloc(total_len + 1);
-		buf[0] = '\0';
-		p = args;
-		while (!nilp(p)) {
-			strcat(buf, car(p).value.string);
-			p = cdr(p);
-		}
-		result->type = AtomType_String;
-		result->value.string = buf;
-	} else if (first.type == AtomType_Pair || first.type == AtomType_Nil) {
-		/* List concatenation */
-		Atom head = nil, tail = nil;
-		Atom p = args;
-		while (!nilp(p)) {
-			Atom list = car(p);
-			while (!nilp(list)) {
-				if (list.type != AtomType_Pair)
-					return raise_error("type-error", "concat: arguments must be lists");
-				Atom new_cons = cons(car(list), nil);
-				if (nilp(head)) {
-					head = tail = new_cons;
-				} else {
-					cdr(tail) = new_cons;
-					tail = new_cons;
-				}
-				list = cdr(list);
-			}
-			p = cdr(p);
-		}
-		*result = head;
-	} else if (first.type == AtomType_Vector) {
-		/* Vector concatenation */
-		size_t total_len = 0;
-		Atom p = args;
-		while (!nilp(p)) {
-			if (car(p).type != AtomType_Vector)
-				return raise_error("type-error", "concat: arguments must be vectors");
-			total_len += vector_length(car(p));
-			p = cdr(p);
-		}
-		*result = make_vector(total_len, nil);
-		size_t idx = 0;
-		p = args;
-		while (!nilp(p)) {
-			Atom v = car(p);
-			for (size_t i = 0; i < vector_length(v); i++) {
-				vector_set(*result, idx++, vector_ref(v, i));
-			}
-			p = cdr(p);
-		}
-	} else {
-		return raise_error("type-error", "concat: first argument must be string, list or vector");
+	size_t total_len = 0;
+	Atom p = args;
+	while (!nilp(p)) {
+		if (car(p).type != AtomType_String)
+			return raise_error("type-error", "string-append: arguments must be strings");
+		total_len += strlen(car(p).value.string);
+		p = cdr(p);
 	}
+	char *buf = malloc(total_len + 1);
+	buf[0] = '\0';
+	p = args;
+	while (!nilp(p)) {
+		strcat(buf, car(p).value.string);
+		p = cdr(p);
+	}
+	result->type = AtomType_String;
+	result->value.string = buf;
+	return Error_OK;
+}
+
+/* (append l1 l2 ...) */
+int builtin_list_append(Atom args, Atom *result)
+{
+	Atom head = nil, tail = nil;
+	Atom p = args;
+	while (!nilp(p)) {
+		Atom list = car(p);
+		while (!nilp(list)) {
+			if (list.type != AtomType_Pair)
+				return raise_error("type-error", "append: arguments must be lists");
+			Atom new_cons = cons(car(list), nil);
+			if (nilp(head)) {
+				head = tail = new_cons;
+			} else {
+				cdr(tail) = new_cons;
+				tail = new_cons;
+			}
+			list = cdr(list);
+		}
+		p = cdr(p);
+	}
+	*result = head;
+	return Error_OK;
+}
+
+/* (vector-append v1 v2 ...) */
+int builtin_vector_append(Atom args, Atom *result)
+{
+	size_t total_len = 0;
+	Atom p = args;
+	while (!nilp(p)) {
+		if (car(p).type != AtomType_Vector)
+			return raise_error("type-error", "vector-append: arguments must be vectors");
+		total_len += vector_length(car(p));
+		p = cdr(p);
+	}
+	*result = make_vector(total_len, nil);
+	size_t idx = 0;
+	p = args;
+	while (!nilp(p)) {
+		Atom v = car(p);
+		for (size_t i = 0; i < vector_length(v); i++) {
+			vector_set(*result, idx++, vector_ref(v, i));
+		}
+		p = cdr(p);
+	}
+	return Error_OK;
+}
+
+/* (hash-join h1 h2 ...) - merges h2 into h1, but since we are functional-ish, 
+   lets return NEW hash with all contents. Last one wins. */
+int builtin_hash_join(Atom args, Atom *result)
+{
+	Atom new_h = make_hash();
+	Atom p = args;
+	while (!nilp(p)) {
+		Atom h = car(p);
+		if (h.type != AtomType_Hash)
+			return raise_error("type-error", "hash-join: arguments must be hashes");
+		
+		struct Hash *src = h.value.hash;
+		for (size_t i = 0; i < src->size; i++) {
+			hash_set(new_h, src->keys[i], src->values[i]);
+		}
+		p = cdr(p);
+	}
+	*result = new_h;
 	return Error_OK;
 }
 
@@ -2258,6 +2288,24 @@ int builtin_mat4_multiply(Atom args, Atom *result)
 	}
 	
 	*result = r;
+	return Error_OK;
+}
+
+
+/* (mat4 e0 ... e15) - Create mat4 from 16 floats (column-major) */
+int builtin_mat4(Atom args, Atom *result)
+{
+	float vals[16];
+	Atom p = args;
+	for (int i = 0; i < 16; i++) {
+		if (nilp(p)) return raise_error("args-error", "mat4: expected 16 arguments");
+		Atom val = car(p);
+		if (val.type == AtomType_Integer) vals[i] = (float)val.value.integer;
+		else if (val.type == AtomType_Float) vals[i] = (float)val.value.floatval;
+		else return raise_error("type-error", "mat4: expected numbers");
+		p = cdr(p);
+	}
+	*result = make_mat4_from_floats(vals);
 	return Error_OK;
 }
 

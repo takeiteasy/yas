@@ -16,6 +16,24 @@ static const char *search_paths[] = {
 static Atom make_library(Atom name);
 static int process_import_set(Atom import_set, Atom target_env);
 
+/* Unified Native Module System */
+typedef void (*NativeLoader)(void);
+
+typedef struct {
+	const char *name;
+	NativeLoader loader;
+} NativeModule;
+
+/* Forward declarations */
+static Atom make_library(Atom name);
+static int process_import_set(Atom import_set, Atom target_env);
+void load_base_library(void);
+void load_hash_library(void);
+void load_vector_library(void);
+void load_text_library(void);
+void load_io_library(void);
+void load_math_library(void);
+
 /* Helper to register builtins */
 static void reg_builtin(Atom env, Atom exports, const char *name, Builtin fn) {
 	Atom sym = make_sym(name);
@@ -29,15 +47,52 @@ static void reg_sym(Atom env, Atom exports, const char *name, Atom val) {
 	hash_set(exports, sym, sym);
 }
 
-static void create_base_library(void) {
-	/* (gold primitives) */
-	Atom name = list_create(2, make_sym("GOLD"), make_sym("PRIMITIVES"));
+Atom define_native_module(const char *name_str, Atom *out_env, Atom *out_exports) {
+	/* Parse "gold/primitives" -> (GOLD PRIMITIVES) */
+	Atom name = nil;
+	Atom tail = nil;
+	
+	char *s = strdup(name_str);
+	char *token = strtok(s, "/");
+	while (token) {
+		/* Uppercase token */
+		char *p = token;
+		while (*p) {
+			if (*p >= 'a' && *p <= 'z') *p -= 32;
+			p++;
+		}
+		
+		Atom sym = make_sym(token);
+		Atom node = cons(sym, nil);
+		if (nilp(name)) {
+			name = tail = node;
+		} else {
+			cdr(tail) = node;
+			tail = node;
+		}
+		token = strtok(NULL, "/");
+	}
+	free(s);
+	
 	Atom lib = make_library(name);
 	
-	Atom env = hash_ref(lib, make_sym("__env__"), nil);
-	Atom exports = hash_ref(lib, make_sym("__exports__"), nil);
+	*out_env = hash_ref(lib, make_sym("*env*"), nil);
+	*out_exports = hash_ref(lib, make_sym("*exports*"), nil);
 	
-	/* Register everything from main.c */
+	Atom key = make_string(name_str);
+	hash_set(library_registry, key, lib);
+	
+	return lib;
+}
+
+/* Native loaders - merge with Lisp library names */
+void load_base_library(void) {
+	if (nilp(library_registry)) library_registry = make_hash();
+	Atom env, exports;
+	/* unified: registers to "gold/base" */
+	define_native_module("gold/base", &env, &exports);
+	
+	/* Register core primitives */
 	reg_builtin(env, exports, "CAR", builtin_car);
 	reg_builtin(env, exports, "CDR", builtin_cdr);
 	reg_builtin(env, exports, "CONS", builtin_cons);
@@ -53,24 +108,77 @@ static void create_base_library(void) {
 	reg_builtin(env, exports, "FLOAT?", builtin_floatp);
 	reg_builtin(env, exports, "INTEGER?", builtin_integerp);
 	reg_builtin(env, exports, "STRING?", builtin_stringp);
-	reg_builtin(env, exports, "VECTOR?", builtin_vectorp);
+	reg_builtin(env, exports, "THROW", builtin_throw);
+	reg_builtin(env, exports, "ERROR", builtin_error);
+	reg_builtin(env, exports, "PRINT", builtin_print);
+	reg_builtin(env, exports, "LENGTH", builtin_list_length);
+	reg_builtin(env, exports, "APPEND", builtin_list_append);
+	reg_sym(env, exports, "T", make_sym("T"));
+	reg_builtin(env, exports, "PROCEDURE-DOC", builtin_procedure_doc);
+}
+
+void load_hash_library(void) {
+	if (nilp(library_registry)) library_registry = make_hash();
+	Atom env, exports;
+	define_native_module("gold/hash", &env, &exports);	
+	
 	reg_builtin(env, exports, "HASH?", builtin_hashp);
-	reg_builtin(env, exports, "LENGTH", builtin_length);
-	reg_builtin(env, exports, "CONCAT", builtin_concat);
-	reg_builtin(env, exports, "MAKE-VECTOR", builtin_make_vector);
-	reg_builtin(env, exports, "VECTOR-REF", builtin_vector_ref);
-	reg_builtin(env, exports, "VECTOR-SET!", builtin_vector_set);
 	reg_builtin(env, exports, "MAKE-HASH", builtin_make_hash);
 	reg_builtin(env, exports, "HASH-REF", builtin_hash_ref);
 	reg_builtin(env, exports, "HASH-SET!", builtin_hash_set);
 	reg_builtin(env, exports, "HASH-REMOVE!", builtin_hash_remove);
-	reg_builtin(env, exports, "THROW", builtin_throw);
-	reg_builtin(env, exports, "ERROR", builtin_error);
+	reg_builtin(env, exports, "HASH-LENGTH", builtin_hash_length);
+	reg_builtin(env, exports, "HASH-JOIN", builtin_hash_join);
+	
 	reg_builtin(env, exports, "SET-METATABLE!", builtin_set_metatable);
 	reg_builtin(env, exports, "GET-METATABLE", builtin_get_metatable);
-	reg_builtin(env, exports, "PRINT", builtin_print);
 	
-	/* I/O builtins */
+	reg_builtin(env, exports, "SERIALIZE", builtin_serialize);
+	reg_builtin(env, exports, "DESERIALIZE", builtin_deserialize);
+}
+
+void load_vector_library(void) {
+	if (nilp(library_registry)) library_registry = make_hash();
+	Atom env, exports;
+	define_native_module("gold/vector", &env, &exports);
+	
+	reg_builtin(env, exports, "VECTOR?", builtin_vectorp);
+	reg_builtin(env, exports, "MAKE-VECTOR", builtin_make_vector);
+	reg_builtin(env, exports, "VECTOR-REF", builtin_vector_ref);
+	reg_builtin(env, exports, "VECTOR-SET!", builtin_vector_set);
+	reg_builtin(env, exports, "VECTOR-LENGTH", builtin_vector_length);
+	reg_builtin(env, exports, "VECTOR-APPEND", builtin_vector_append);
+}
+
+void load_text_library(void) {
+	if (nilp(library_registry)) library_registry = make_hash();
+	Atom env, exports;
+	define_native_module("gold/text", &env, &exports);
+	
+	reg_builtin(env, exports, "CHAR?", builtin_charp);
+	reg_builtin(env, exports, "CHAR->INTEGER", builtin_char_to_integer);
+	reg_builtin(env, exports, "INTEGER->CHAR", builtin_integer_to_char);
+	reg_builtin(env, exports, "CHAR=?", builtin_char_eq);
+	reg_builtin(env, exports, "CHAR<?", builtin_char_lt);
+	
+	reg_builtin(env, exports, "STRING->BYTES", builtin_string_to_bytes);
+	reg_builtin(env, exports, "BYTES->STRING", builtin_bytes_to_string);
+	reg_builtin(env, exports, "STRING-REF", builtin_string_ref);
+	reg_builtin(env, exports, "STRING=?", builtin_string_eq);
+	reg_builtin(env, exports, "STRING-BYTE-LENGTH", builtin_string_byte_length);
+	reg_builtin(env, exports, "STRING-LENGTH", builtin_string_length);
+	reg_builtin(env, exports, "STRING-APPEND", builtin_string_append);
+	
+	reg_builtin(env, exports, "KEYWORD?", builtin_keywordp);
+	reg_builtin(env, exports, "KEYWORD->STRING", builtin_keyword_to_string);
+	reg_builtin(env, exports, "STRING->KEYWORD", builtin_string_to_keyword);
+}
+
+void load_io_library(void) {
+	if (nilp(library_registry)) library_registry = make_hash();
+	Atom env, exports;
+	define_native_module("gold/io", &env, &exports);
+	
 	reg_builtin(env, exports, "OPEN-INPUT-FILE", builtin_open_input_file);
 	reg_builtin(env, exports, "OPEN-OUTPUT-FILE", builtin_open_output_file);
 	reg_builtin(env, exports, "CLOSE-PORT", builtin_close_port);
@@ -91,7 +199,6 @@ static void create_base_library(void) {
 	reg_builtin(env, exports, "FLUSH-PORT", builtin_flush_port);
 	reg_builtin(env, exports, "FILE-EXISTS?", builtin_file_exists);
 	
-	/* Bytevector builtins */
 	reg_builtin(env, exports, "MAKE-BYTEVECTOR", builtin_make_bytevector);
 	reg_builtin(env, exports, "BYTEVECTOR?", builtin_bytevectorp);
 	reg_builtin(env, exports, "BYTEVECTOR-LENGTH", builtin_bytevector_length);
@@ -100,34 +207,16 @@ static void create_base_library(void) {
 	reg_builtin(env, exports, "BYTEVECTOR->STRING", builtin_bytevector_to_string);
 	reg_builtin(env, exports, "STRING->BYTEVECTOR", builtin_string_to_bytevector);
 	
-	/* Sandbox scheme builtins */
 	reg_builtin(env, exports, "IO-SANDBOX-ALLOW!", builtin_io_sandbox_allow);
 	reg_builtin(env, exports, "IO-SANDBOX-DENY!", builtin_io_sandbox_deny);
 	reg_builtin(env, exports, "IO-SANDBOX-MODE", builtin_io_sandbox_mode);
+}
+
+void load_math_library(void) {
+	if (nilp(library_registry)) library_registry = make_hash();
+	Atom env, exports;
+	define_native_module("gold/math", &env, &exports);
 	
-	/* Character builtins */
-	reg_builtin(env, exports, "CHAR?", builtin_charp);
-	reg_builtin(env, exports, "CHAR->INTEGER", builtin_char_to_integer);
-	reg_builtin(env, exports, "INTEGER->CHAR", builtin_integer_to_char);
-	reg_builtin(env, exports, "CHAR=?", builtin_char_eq);
-	reg_builtin(env, exports, "CHAR<?", builtin_char_lt);
-	
-	/* String/Bytes encoding builtins */
-	reg_builtin(env, exports, "STRING->BYTES", builtin_string_to_bytes);
-	reg_builtin(env, exports, "BYTES->STRING", builtin_bytes_to_string);
-	reg_builtin(env, exports, "STRING-REF", builtin_string_ref);
-	reg_builtin(env, exports, "STRING=?", builtin_string_eq);
-	reg_builtin(env, exports, "STRING-BYTE-LENGTH", builtin_string_byte_length);
-	
-	/* Keyword builtins */
-	reg_builtin(env, exports, "KEYWORD?", builtin_keywordp);
-	reg_builtin(env, exports, "KEYWORD->STRING", builtin_keyword_to_string);
-	reg_builtin(env, exports, "STRING->KEYWORD", builtin_string_to_keyword);
-	
-	/* Procedure introspection */
-	reg_builtin(env, exports, "PROCEDURE-DOC", builtin_procedure_doc);
-	
-	/* SIMD Vector/Matrix builtins */
 	reg_builtin(env, exports, "VEC2?", builtin_vec2p);
 	reg_builtin(env, exports, "VEC3?", builtin_vec3p);
 	reg_builtin(env, exports, "VEC4?", builtin_vec4p);
@@ -136,6 +225,7 @@ static void create_base_library(void) {
 	reg_builtin(env, exports, "VEC3", builtin_vec3);
 	reg_builtin(env, exports, "VEC4", builtin_vec4);
 	reg_builtin(env, exports, "MAT4-IDENTITY", builtin_mat4_identity);
+	reg_builtin(env, exports, "MAT4", builtin_mat4);
 	reg_builtin(env, exports, "VEC-X", builtin_vec_x);
 	reg_builtin(env, exports, "VEC-Y", builtin_vec_y);
 	reg_builtin(env, exports, "VEC-Z", builtin_vec_z);
@@ -145,21 +235,23 @@ static void create_base_library(void) {
 	reg_builtin(env, exports, "MAT4*", builtin_mat4_multiply);
 	reg_builtin(env, exports, "MAT4-TRANSPOSE", builtin_mat4_transpose);
 	reg_builtin(env, exports, "MAT4-INVERSE", builtin_mat4_inverse);
-
-	/* Serialization */
-	reg_builtin(env, exports, "SERIALIZE", builtin_serialize);
-	reg_builtin(env, exports, "DESERIALIZE", builtin_deserialize);
-	
-	reg_sym(env, exports, "T", make_sym("T"));
-	
-	Atom key = make_string("gold/primitives");
-	hash_set(library_registry, key, lib);
 }
 
-void module_init(void)
+static const NativeModule native_modules[] = {
+	{ "gold/base", load_base_library },
+	{ "gold/hash", load_hash_library },
+	{ "gold/vector", load_vector_library },
+	{ "gold/text", load_text_library },
+	{ "gold/io", load_io_library },
+	{ "gold/math", load_math_library },
+	{ NULL, NULL }
+};
+
+void load_all_modules(void)
 {
-	library_registry = make_hash();
-	create_base_library();
+	if (nilp(library_registry)) library_registry = make_hash();
+	for (int i = 0; native_modules[i].name; i++)
+		native_modules[i].loader();
 }
 
 /* Convert (example math) -> "example/math" (lowercase) */
@@ -217,9 +309,9 @@ static char *find_library_file(const char *lib_path)
 /* Create a new library record */
 static Atom make_library(Atom name) {
 	Atom lib = make_hash();
-	hash_set(lib, make_sym("__name__"), name);
-	hash_set(lib, make_sym("__env__"), env_create(nil));
-	hash_set(lib, make_sym("__exports__"), make_hash()); /* exports map: ext->int */
+	hash_set(lib, make_sym("*name*"), name);
+	hash_set(lib, make_sym("*env*"), env_create(nil));
+	hash_set(lib, make_sym("*exports*"), make_hash()); /* exports map: ext->int */
 	return lib;
 }
 
@@ -230,6 +322,8 @@ Atom library_load(Atom name_parts)
 	char *key_str = library_name_to_string(name_parts);
 	if (!key_str) return nil;
 	
+	if (nilp(library_registry)) library_registry = make_hash();
+	
 	Atom key = make_string(key_str);
 	Atom lib = hash_ref(library_registry, key, nil);
 	
@@ -238,18 +332,56 @@ Atom library_load(Atom name_parts)
 		return lib;
 	}
 	
-	/* Check for built-in libraries */
+	/* Unified Loading: Check native modules first */
+	for (int i = 0; native_modules[i].name; i++) {
+		if (strcmp(key_str, native_modules[i].name) == 0) {
+			/* Found native module. Initialize C part first. */
+			native_modules[i].loader();
+			
+			/* Get the library object (created by loader) */
+			lib = hash_ref(library_registry, key, nil);
+			
+			/* Now check for Lisp source in stdlib to merge into this library */
+			for (int j = 0; stdlib_files[j].name; j++) {
+				if (strcmp(key_str, stdlib_files[j].name) == 0) {
+					/* Found Lisp source. Eval into specific lib environment. */
+					Atom ignore;
+					int err = eval_source(stdlib_files[j].source, key_str, env_create(nil), &ignore);
+
+					/* Wait, eval_source evaluates in a FRESH env or passed env?
+					   It passes env.
+					   But (define-library) itself looks up valid registry/library to populate.
+					   So we don't need to pass lib_env. module_define_library handles it.
+					*/
+					
+					/* We might need to handle errors or just proceed */
+					if (err) {
+						printf("Error loading Lisp part of native module %s\n", key_str);
+					}
+					break;
+				}
+			}
+			free(key_str);
+			return lib;
+		}
+	}
+	
+	/* Check for purely Lisp built-in libraries (no C part yet, e.g. math if it was pure scheme) */
 	for (int i = 0; stdlib_files[i].name; i++) {
 		if (strcmp(key_str, stdlib_files[i].name) == 0) {
-			/* Load from embedded source */
+			/* Pure Lisp library */
 			lib = make_library(name_parts);
-			hash_set(library_registry, key, lib);
+			/* We need to set registry BEFORE eval to allow recursive refs if needed? 
+			   Or define-library does it. define-library does it. */
 			
 			Atom ignore;
 			int err = eval_source(stdlib_files[i].source, key_str, env_create(nil), &ignore);
 			
 			free(key_str);
 			if (err) return nil;
+			
+			/* Fetch created lib from registry */
+			lib = hash_ref(library_registry, key, nil);
 			return lib;
 		}
 	}
@@ -301,20 +433,7 @@ static Atom resolve_import_set(Atom set) {
 				while (!nilp(ids)) {
 					Atom id = car(ids);
 					Atom val = hash_ref(child_map, id, nil);
-					/* Only include if found? R7RS says error if not found. */
-					/* hash_ref returns nil if not found. Nil is valid value? 
-					   Actually env stores nil as value. But hash_ref default is nil.
-					   We assume libraries don't export 'nil' binding (unbound).
-					   But nil IS a value. 
-					   We should check existence. hash_ref doesn't strictly distinguish.
-					   But wait, values in env are atoms. nil atom is valid.
-					   For now assume if key exists we get it.
-					   We iterate ids.
-					*/
-					/* Better: iterate child_map keys and check if in ids? No, iterate ids. */
-					/* We risk missing if value is nil (which is valid pair end).
-					   But variables usually hold values.
-					*/
+					
 					hash_set(result, id, val);
 					ids = cdr(ids);
 				}
@@ -324,10 +443,6 @@ static Atom resolve_import_set(Atom set) {
 				Atom child_map = resolve_import_set(car(cdr(set)));
 				if (nilp(child_map)) return nil;
 				
-				/* Copy all except ids */
-				/* Since we don't have hash_copy, we iterate and filter */
-				/* This modifies child_map? NO, we shouldn't modify shared map. */
-				/* We need to create NEW map. */
 				Atom result = make_hash();
 				struct Hash *h = child_map.value.hash;
 				
@@ -404,8 +519,8 @@ static Atom resolve_import_set(Atom set) {
 	Atom lib = library_load(set);
 	if (nilp(lib)) return nil;
 	
-	Atom exports_map = hash_ref(lib, make_sym("__exports__"), nil);
-	Atom lib_env = hash_ref(lib, make_sym("__env__"), nil);
+	Atom exports_map = hash_ref(lib, make_sym("*exports*"), nil);
+	Atom lib_env = hash_ref(lib, make_sym("*env*"), nil);
 	
 	Atom result = make_hash();
 	if (nilp(exports_map) || exports_map.type != AtomType_Hash) return result;
@@ -421,7 +536,7 @@ static Atom resolve_import_set(Atom set) {
 			printf("DEBUG: Failed to resolve export: ");
 			print_expr(internal);
 			printf(" from library ");
-			print_expr(hash_ref(lib, make_sym("__name__"), nil));
+			print_expr(hash_ref(lib, make_sym("*name*"), nil));
 			printf("\n");
 		}
 	}
@@ -473,8 +588,8 @@ int module_define_library(Atom args, Atom *result) {
 		hash_set(library_registry, key, lib);
 	}
 	
-	Atom lib_env = hash_ref(lib, make_sym("__env__"), nil);
-	Atom lib_exports = hash_ref(lib, make_sym("__exports__"), nil);
+	Atom lib_env = hash_ref(lib, make_sym("*env*"), nil);
+	Atom lib_exports = hash_ref(lib, make_sym("*exports*"), nil);
 	
 	Atom decls = cdr(args);
 	while (!nilp(decls)) {

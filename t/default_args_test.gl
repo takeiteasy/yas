@@ -1,11 +1,10 @@
-(import (gold primitives))
-(import (gold base))
+(import (gold base) (gold text))
 
 (print "Testing default arguments:")
 
 ;; Optional positional with default
 (define (greet name (greeting "Hello"))
-  (concat greeting ", " name))
+  (string-append greeting ", " name))
 
 (print "greet 'World' =>" (greet "World"))
 (print "greet 'World' 'Hi' =>" (greet "World" "Hi"))

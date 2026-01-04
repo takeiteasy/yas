@@ -1,3 +1,6 @@
+#ifndef GOLD_LISP_H
+#define GOLD_LISP_H
+
 #include <stddef.h>
 #include <stdint.h>
 
@@ -126,6 +129,8 @@ struct Vector {
 	struct Atom *data;
 	size_t size;
 	size_t capacity;
+	int mark;
+	struct Vector *next;
 };
 
 struct Hash {
@@ -134,6 +139,8 @@ struct Hash {
 	size_t size;
 	size_t capacity;
 	struct Hash *metatable;  /* Metatable for operator overloading */
+	int mark;
+	struct Hash *next;
 };
 
 struct Port {
@@ -247,8 +254,14 @@ int builtin_integerp(Atom args, Atom *result);
 int builtin_stringp(Atom args, Atom *result);
 int builtin_vectorp(Atom args, Atom *result);
 int builtin_hashp(Atom args, Atom *result);
-int builtin_length(Atom args, Atom *result);
-int builtin_concat(Atom args, Atom *result);
+int builtin_string_length(Atom args, Atom *result);
+int builtin_vector_length(Atom args, Atom *result);
+int builtin_hash_length(Atom args, Atom *result);
+int builtin_list_length(Atom args, Atom *result);
+int builtin_string_append(Atom args, Atom *result);
+int builtin_vector_append(Atom args, Atom *result);
+int builtin_list_append(Atom args, Atom *result);
+int builtin_hash_join(Atom args, Atom *result);
 int builtin_make_vector(Atom args, Atom *result);
 int builtin_vector_ref(Atom args, Atom *result);
 int builtin_vector_set(Atom args, Atom *result);
@@ -269,6 +282,7 @@ int builtin_mat4p(Atom args, Atom *result);
 int builtin_vec2(Atom args, Atom *result);
 int builtin_vec3(Atom args, Atom *result);
 int builtin_vec4(Atom args, Atom *result);
+int builtin_mat4(Atom args, Atom *result);
 int builtin_mat4_identity(Atom args, Atom *result);
 int builtin_vec_x(Atom args, Atom *result);
 int builtin_vec_y(Atom args, Atom *result);
@@ -291,7 +305,14 @@ extern const char *current_file_path;
 
 /* Module system */
 extern Atom library_registry;
-void module_init(void);
+void load_all_modules(void);
+void load_base_library(void);
+void load_hash_library(void);
+void load_vector_library(void);
+void load_text_library(void);
+void load_io_library(void);
+void load_math_library(void);
+Atom define_native_module(const char *name_str, Atom *out_env, Atom *out_exports);
 Atom library_load(Atom name_parts);
 char *library_name_to_string(Atom name_parts);
 
@@ -431,3 +452,5 @@ const char *utf8_index_ptr(const char *s, size_t index);
 /* Serialization */
 int builtin_serialize(Atom args, Atom *result);
 int builtin_deserialize(Atom args, Atom *result);
+
+#endif /* GOLD_LISP_H */

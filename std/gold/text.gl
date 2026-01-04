@@ -1,0 +1,12 @@
+(define-library (gold text)
+  (import (gold base))
+  (export
+    ;; String Operations
+    string? string-length string-ref string=? string-append string-byte-length
+    
+    ;; Keyword Operations
+    keyword? keyword->string string->keyword
+    
+    ;; Procedure Documentation
+    procedure-doc)
+  (begin))

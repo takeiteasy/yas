@@ -1,5 +1,5 @@
-(define-library (t test)
-  (import (gold base))
+(define-library (gold test)
+  (import (gold base) (gold math) (gold vector) (gold text))
   (export check test run-tests *passes* *fails* *current-test-name* equal? set-test-name! report-success report-failure)
   (begin
     (define *passes* 0)
@@ -36,8 +36,8 @@
          (and (equal? (car a) (car b))
               (equal? (cdr a) (cdr b))))
         ((and (vector? a) (vector? b))
-         (let ((len (length a)))
-           (and (= len (length b))
+         (let ((len (vector-length a)))
+           (and (= len (vector-length b))
                 (let loop ((idx 0))
                   (if (< idx len)
                       (if (equal? (vector-ref a idx) (vector-ref b idx))
@@ -59,7 +59,10 @@
       `(begin
          (print "Test:" ,name)
          (set-test-name! ,name)
-         ,@body))
+         (try
+           (begin ,@body)
+           (catch e
+             (report-failure (list 'test-block-error ,name) "No Exception" e)))))
 
     (define (run-tests)
       (print "---------------------------------------------------")

@@ -1,5 +1,9 @@
 (import (gold base))
-(import (t test))
+(import (gold math))
+(import (gold hash))
+(import (gold vector))
+(import (gold text))
+(import (gold test))
 
 (print "Running Gold Test Suite...")
 
@@ -29,7 +33,7 @@
 (test "Vectors"
   (let ((v (make-vector 3 0)))
     (check (vector? v) t)
-    (check (length v) 3)
+    (check (vector-length v) 3)
     (vector-set! v 0 10)
     (check (vector-ref v 0) 10)
     (check v #(10 0 0))))

@@ -91,7 +91,6 @@ int main(int argc, char **argv)
 	env = env_create(nil);
 
 	/* Import (gold base) */
-	module_init();
 	Atom gold_base = list_create(2, make_sym("GOLD"), make_sym("BASE"));
 	Atom import_args = list_create(1, gold_base);
 	Atom ignore;

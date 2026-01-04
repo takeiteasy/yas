@@ -1,0 +1,18 @@
+(define-library (gold hash)
+  (import (gold base))
+  (export
+    ;; Basic Hash Operations
+    make-hash hash-ref hash-set! hash-remove! hash-length hash-join hash?
+    
+    ;; Metatables & Reflection
+    set-metatable! get-metatable
+    callable?
+    
+    ;; Serialization
+    serialize deserialize)
+  (begin
+    (define (callable? obj)
+      (or (procedure? obj)
+          (and (hash? obj) 
+               (let ((mt (get-metatable obj)))
+                 (and mt (hash-ref mt (quote ~call) nil))))))))

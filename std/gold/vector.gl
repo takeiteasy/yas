@@ -1,0 +1,5 @@
+(define-library (gold vector)
+  (import (gold base))
+  (export
+    make-vector vector-ref vector-set! vector-length vector-append vector?)
+  (begin))

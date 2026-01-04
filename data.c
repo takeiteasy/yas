@@ -12,6 +12,8 @@ struct Allocation {
 };
 
 struct Allocation *global_allocations = NULL;
+struct Vector *global_vectors = NULL;
+struct Hash *global_hashes = NULL;
 
 Atom cons(Atom car_val, Atom cdr_val)
 {
@@ -136,6 +138,11 @@ Atom make_vector(size_t size, Atom fill)
 	}
 	a.type = AtomType_Vector;
 	a.value.vector = v;
+	
+	v->mark = 0;
+	v->next = global_vectors;
+	global_vectors = v;
+	
 	return a;
 }
 
@@ -150,6 +157,11 @@ Atom make_hash(void)
 	h->metatable = NULL;
 	a.type = AtomType_Hash;
 	a.value.hash = h;
+	
+	h->mark = 0;
+	h->next = global_hashes;
+	global_hashes = h;
+	
 	return a;
 }
 
@@ -340,6 +352,31 @@ void gc_mark(Atom root)
 {
 	struct Allocation *a;
 
+	if (root.type == AtomType_Vector) {
+		if (root.value.vector->mark) return;
+		root.value.vector->mark = 1;
+		for (size_t i = 0; i < root.value.vector->size; i++) {
+			gc_mark(root.value.vector->data[i]);
+		}
+		return;
+	}
+
+	if (root.type == AtomType_Hash) {
+		if (root.value.hash->mark) return;
+		root.value.hash->mark = 1;
+		if (root.value.hash->metatable) {
+			Atom mt; 
+			mt.type = AtomType_Hash; 
+			mt.value.hash = root.value.hash->metatable;
+			gc_mark(mt);
+		}
+		for (size_t i = 0; i < root.value.hash->size; i++) {
+			gc_mark(root.value.hash->keys[i]);
+			gc_mark(root.value.hash->values[i]);
+		}
+		return;
+	}
+
 	if (!(root.type == AtomType_Pair
 		|| root.type == AtomType_Closure
 		|| root.type == AtomType_Macro))
@@ -382,6 +419,35 @@ void gc()
 	while (a != NULL) {
 		a->mark = 0;
 		a = a->next;
+	}
+	
+	/* Sweep Vectors */
+	struct Vector **pv = &global_vectors;
+	while (*pv != NULL) {
+		struct Vector *v = *pv;
+		if (!v->mark) {
+			*pv = v->next;
+			free(v->data);
+			free(v);
+		} else {
+			v->mark = 0;
+			pv = &v->next;
+		}
+	}
+	
+	/* Sweep Hashes */
+	struct Hash **ph = &global_hashes;
+	while (*ph != NULL) {
+		struct Hash *h = *ph;
+		if (!h->mark) {
+			*ph = h->next;
+			free(h->keys);
+			free(h->values);
+			free(h);
+		} else {
+			h->mark = 0;
+			ph = &h->next;
+		}
 	}
 }
 

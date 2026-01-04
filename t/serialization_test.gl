@@ -1,5 +1,7 @@
 (import (gold base))
-(import (t test))
+(import (gold test))
+(import (gold hash))
+(import (gold vector))
 
 (test "Serialization"
   ;; Primitives

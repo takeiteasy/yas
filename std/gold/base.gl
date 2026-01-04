@@ -7,6 +7,13 @@
     hash-remove! throw error set-metatable! get-metatable print t
     keyword? keyword->string string->keyword
     string=? string-ref string-byte-length
+    procedure-doc
+    
+    ;; SIMD Vector/Matrix builtins
+    vec2? vec3? vec4? mat4?
+    vec2 vec3 vec4
+    mat4-identity mat4* mat4-transpose mat4-inverse
+    vec-x vec-y vec-z vec-w vec-ref vec-set!
 
     ;; Definitions from library.gl (wrapped)
     append caar cadr cdar cddr foldl foldr list unary-map map
@@ -14,6 +21,7 @@
     + - * / = < <= > >= abs even? gcd lcm max min negative? odd? positive? quotient remainder zero? modulo
     for-each list-ref list-tail reverse list? not null?
     macroexpand callable?
+    number? integer?
   )
   (begin
     ;; Functions used in macro definitions
@@ -146,4 +154,9 @@
       (or (procedure? obj)
           (and (hash? obj) 
                (let ((mt (get-metatable obj)))
-                 (and mt (hash-ref mt (quote ~call) nil))))))))
+                 (and mt (hash-ref mt (quote ~call) nil))))))
+    
+    ;; number? predicate using builtin integer? and float?
+    (define (number? x)
+      "Check if x is a number (integer or float)"
+      (or (integer? x) (float? x)))))

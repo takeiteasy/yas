@@ -440,3 +440,124 @@ size_t bytevector_length(Atom bv)
 	return bv.value.bytevector->size;
 }
 
+/* SIMD Vector/Matrix constructors */
+Atom make_vec2(float x, float y)
+{
+	Atom a;
+	a.type = AtomType_Vec2;
+	a.value.vec = malloc(sizeof(vec4_t));
+#ifdef SIMD_X86
+	a.value.vec->v = _mm_set_ps(0, 0, y, x);
+#elif defined(SIMD_ARM_NEON)
+	float vals[4] = {x, y, 0, 0};
+	a.value.vec->v = vld1q_f32(vals);
+#elif defined(SIMD_WASM)
+	a.value.vec->v = wasm_f32x4_make(x, y, 0, 0);
+#else
+	a.value.vec->data[0] = x;
+	a.value.vec->data[1] = y;
+	a.value.vec->data[2] = 0;
+	a.value.vec->data[3] = 0;
+#endif
+	return a;
+}
+
+Atom make_vec3(float x, float y, float z)
+{
+	Atom a;
+	a.type = AtomType_Vec3;
+	a.value.vec = malloc(sizeof(vec4_t));
+#ifdef SIMD_X86
+	a.value.vec->v = _mm_set_ps(0, z, y, x);
+#elif defined(SIMD_ARM_NEON)
+	float vals[4] = {x, y, z, 0};
+	a.value.vec->v = vld1q_f32(vals);
+#elif defined(SIMD_WASM)
+	a.value.vec->v = wasm_f32x4_make(x, y, z, 0);
+#else
+	a.value.vec->data[0] = x;
+	a.value.vec->data[1] = y;
+	a.value.vec->data[2] = z;
+	a.value.vec->data[3] = 0;
+#endif
+	return a;
+}
+
+Atom make_vec4(float x, float y, float z, float w)
+{
+	Atom a;
+	a.type = AtomType_Vec4;
+	a.value.vec = malloc(sizeof(vec4_t));
+#ifdef SIMD_X86
+	a.value.vec->v = _mm_set_ps(w, z, y, x);
+#elif defined(SIMD_ARM_NEON)
+	float vals[4] = {x, y, z, w};
+	a.value.vec->v = vld1q_f32(vals);
+#elif defined(SIMD_WASM)
+	a.value.vec->v = wasm_f32x4_make(x, y, z, w);
+#else
+	a.value.vec->data[0] = x;
+	a.value.vec->data[1] = y;
+	a.value.vec->data[2] = z;
+	a.value.vec->data[3] = w;
+#endif
+	return a;
+}
+
+Atom make_mat4_identity(void)
+{
+	Atom a;
+	a.type = AtomType_Mat4;
+	a.value.mat4 = malloc(sizeof(mat4_t));
+	/* Column-major identity matrix */
+	for (int c = 0; c < 4; c++) {
+#ifdef SIMD_X86
+		a.value.mat4->columns[c].v = _mm_set_ps(
+			c == 3 ? 1.0f : 0.0f,
+			c == 2 ? 1.0f : 0.0f,
+			c == 1 ? 1.0f : 0.0f,
+			c == 0 ? 1.0f : 0.0f);
+#elif defined(SIMD_ARM_NEON)
+		float vals[4] = {
+			c == 0 ? 1.0f : 0.0f,
+			c == 1 ? 1.0f : 0.0f,
+			c == 2 ? 1.0f : 0.0f,
+			c == 3 ? 1.0f : 0.0f};
+		a.value.mat4->columns[c].v = vld1q_f32(vals);
+#elif defined(SIMD_WASM)
+		a.value.mat4->columns[c].v = wasm_f32x4_make(
+			c == 0 ? 1.0f : 0.0f,
+			c == 1 ? 1.0f : 0.0f,
+			c == 2 ? 1.0f : 0.0f,
+			c == 3 ? 1.0f : 0.0f);
+#else
+		a.value.mat4->columns[c].data[0] = (c == 0) ? 1.0f : 0.0f;
+		a.value.mat4->columns[c].data[1] = (c == 1) ? 1.0f : 0.0f;
+		a.value.mat4->columns[c].data[2] = (c == 2) ? 1.0f : 0.0f;
+		a.value.mat4->columns[c].data[3] = (c == 3) ? 1.0f : 0.0f;
+#endif
+	}
+	return a;
+}
+
+Atom make_mat4_from_floats(const float *values)
+{
+	Atom a;
+	a.type = AtomType_Mat4;
+	a.value.mat4 = malloc(sizeof(mat4_t));
+	/* Values are column-major: first 4 = column 0, etc. */
+	for (int c = 0; c < 4; c++) {
+#ifdef SIMD_X86
+		a.value.mat4->columns[c].v = _mm_loadu_ps(values + c * 4);
+#elif defined(SIMD_ARM_NEON)
+		a.value.mat4->columns[c].v = vld1q_f32(values + c * 4);
+#elif defined(SIMD_WASM)
+		a.value.mat4->columns[c].v = wasm_v128_load(values + c * 4);
+#else
+		for (int r = 0; r < 4; r++) {
+			a.value.mat4->columns[c].data[r] = values[c * 4 + r];
+		}
+#endif
+	}
+	return a;
+}

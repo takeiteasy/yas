@@ -94,5 +94,80 @@ void print_expr(Atom atom)
 	case AtomType_Keyword:
 		printf(":%s", atom.value.keyword);
 		break;
+	case AtomType_Vec2: {
+#ifdef SIMD_SCALAR
+		printf("#vec(%g %g)", atom.value.vec->data[0], atom.value.vec->data[1]);
+#else
+		float vals[4];
+		#ifdef SIMD_X86
+		_mm_storeu_ps(vals, atom.value.vec->v);
+		#elif defined(SIMD_ARM_NEON)
+		vst1q_f32(vals, atom.value.vec->v);
+		#elif defined(SIMD_WASM)
+		wasm_v128_store(vals, atom.value.vec->v);
+		#endif
+		printf("#vec(%g %g)", vals[0], vals[1]);
+#endif
+		break;
+	}
+	case AtomType_Vec3: {
+#ifdef SIMD_SCALAR
+		printf("#vec(%g %g %g)", atom.value.vec->data[0], atom.value.vec->data[1], atom.value.vec->data[2]);
+#else
+		float vals[4];
+		#ifdef SIMD_X86
+		_mm_storeu_ps(vals, atom.value.vec->v);
+		#elif defined(SIMD_ARM_NEON)
+		vst1q_f32(vals, atom.value.vec->v);
+		#elif defined(SIMD_WASM)
+		wasm_v128_store(vals, atom.value.vec->v);
+		#endif
+		printf("#vec(%g %g %g)", vals[0], vals[1], vals[2]);
+#endif
+		break;
+	}
+	case AtomType_Vec4: {
+#ifdef SIMD_SCALAR
+		printf("#vec(%g %g %g %g)", atom.value.vec->data[0], atom.value.vec->data[1], 
+		       atom.value.vec->data[2], atom.value.vec->data[3]);
+#else
+		float vals[4];
+		#ifdef SIMD_X86
+		_mm_storeu_ps(vals, atom.value.vec->v);
+		#elif defined(SIMD_ARM_NEON)
+		vst1q_f32(vals, atom.value.vec->v);
+		#elif defined(SIMD_WASM)
+		wasm_v128_store(vals, atom.value.vec->v);
+		#endif
+		printf("#vec(%g %g %g %g)", vals[0], vals[1], vals[2], vals[3]);
+#endif
+		break;
+	}
+	case AtomType_Mat4: {
+		printf("#mat(");
+		for (int c = 0; c < 4; c++) {
+#ifdef SIMD_SCALAR
+			for (int r = 0; r < 4; r++) {
+				if (c > 0 || r > 0) printf(" ");
+				printf("%g", atom.value.mat4->columns[c].data[r]);
+			}
+#else
+			float vals[4];
+			#ifdef SIMD_X86
+			_mm_storeu_ps(vals, atom.value.mat4->columns[c].v);
+			#elif defined(SIMD_ARM_NEON)
+			vst1q_f32(vals, atom.value.mat4->columns[c].v);
+			#elif defined(SIMD_WASM)
+			wasm_v128_store(vals, atom.value.mat4->columns[c].v);
+			#endif
+			for (int r = 0; r < 4; r++) {
+				if (c > 0 || r > 0) printf(" ");
+				printf("%g", vals[r]);
+			}
+#endif
+		}
+		printf(")");
+		break;
+	}
 	}
 }

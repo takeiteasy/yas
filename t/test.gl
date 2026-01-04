@@ -26,6 +26,10 @@
     (define (equal? a b)
       (cond
         ((eq? a b) t)
+        ;; Numeric comparison - = handles int/float coercion
+        ((and (or (float? a) (integer? a)) 
+              (or (float? b) (integer? b)))
+         (= a b))
         ((and (string? a) (string? b))
          (string=? a b))
         ((and (pair? a) (pair? b))
@@ -40,6 +44,14 @@
                           (loop (+ idx 1))
                           nil)
                       t)))))
+        ;; SIMD vec comparison
+        ((and (vec2? a) (vec2? b))
+         (and (= (vec-x a) (vec-x b)) (= (vec-y a) (vec-y b))))
+        ((and (vec3? a) (vec3? b))
+         (and (= (vec-x a) (vec-x b)) (= (vec-y a) (vec-y b)) (= (vec-z a) (vec-z b))))
+        ((and (vec4? a) (vec4? b))
+         (and (= (vec-x a) (vec-x b)) (= (vec-y a) (vec-y b))
+              (= (vec-z a) (vec-z b)) (= (vec-w a) (vec-w b))))
          ;; Atom equality fallback
          (t nil)))
 

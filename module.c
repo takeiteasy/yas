@@ -51,6 +51,7 @@ static void create_base_library(void) {
 	reg_builtin(env, exports, "PAIR?", builtin_pairp);
 	reg_builtin(env, exports, "PROCEDURE?", builtin_procp);
 	reg_builtin(env, exports, "FLOAT?", builtin_floatp);
+	reg_builtin(env, exports, "INTEGER?", builtin_integerp);
 	reg_builtin(env, exports, "STRING?", builtin_stringp);
 	reg_builtin(env, exports, "VECTOR?", builtin_vectorp);
 	reg_builtin(env, exports, "HASH?", builtin_hashp);
@@ -122,6 +123,28 @@ static void create_base_library(void) {
 	reg_builtin(env, exports, "KEYWORD?", builtin_keywordp);
 	reg_builtin(env, exports, "KEYWORD->STRING", builtin_keyword_to_string);
 	reg_builtin(env, exports, "STRING->KEYWORD", builtin_string_to_keyword);
+	
+	/* Procedure introspection */
+	reg_builtin(env, exports, "PROCEDURE-DOC", builtin_procedure_doc);
+	
+	/* SIMD Vector/Matrix builtins */
+	reg_builtin(env, exports, "VEC2?", builtin_vec2p);
+	reg_builtin(env, exports, "VEC3?", builtin_vec3p);
+	reg_builtin(env, exports, "VEC4?", builtin_vec4p);
+	reg_builtin(env, exports, "MAT4?", builtin_mat4p);
+	reg_builtin(env, exports, "VEC2", builtin_vec2);
+	reg_builtin(env, exports, "VEC3", builtin_vec3);
+	reg_builtin(env, exports, "VEC4", builtin_vec4);
+	reg_builtin(env, exports, "MAT4-IDENTITY", builtin_mat4_identity);
+	reg_builtin(env, exports, "VEC-X", builtin_vec_x);
+	reg_builtin(env, exports, "VEC-Y", builtin_vec_y);
+	reg_builtin(env, exports, "VEC-Z", builtin_vec_z);
+	reg_builtin(env, exports, "VEC-W", builtin_vec_w);
+	reg_builtin(env, exports, "VEC-REF", builtin_vec_ref);
+	reg_builtin(env, exports, "VEC-SET!", builtin_vec_set);
+	reg_builtin(env, exports, "MAT4*", builtin_mat4_multiply);
+	reg_builtin(env, exports, "MAT4-TRANSPOSE", builtin_mat4_transpose);
+	reg_builtin(env, exports, "MAT4-INVERSE", builtin_mat4_inverse);
 	
 	reg_sym(env, exports, "T", make_sym("T"));
 	

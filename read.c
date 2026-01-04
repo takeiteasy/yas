@@ -102,6 +102,12 @@ static int lex(const char *str, const char **start, const char **end,
 		*end = str + 1;  /* String opening quote */
 	else if (str[0] == '#' && str[1] == '(')
 		*end = str + 2;  /* Vector literal #( */
+	else if (str[0] == '#' && strncmp(str + 1, "vec(", 4) == 0)
+		*end = str + 5;  /* #vec( literal */
+	else if (str[0] == '#' && strncmp(str + 1, "mat(", 4) == 0)
+		*end = str + 5;  /* #mat( literal */
+	else if (str[0] == '#' && strncmp(str + 1, "hash(", 5) == 0)
+		*end = str + 6;  /* #hash( literal */
 	else if (str[0] == '#' && str[1] == '\\') {
 		/* Character literal #\x or #\newline etc */
 		const char *p = str + 2;
@@ -373,6 +379,102 @@ static int read_expr_internal(const char *input, const char **end, Atom *result,
 		for (size_t i = 0; i < len; i++) {
 			vector_set(*result, i, car(p));
 			p = cdr(p);
+		}
+		return Error_OK;
+	} else if (token[0] == '#' && strncmp(token, "#vec(", 5) == 0) {
+		/* SIMD vector literal #vec(1 2) or #vec(1 2 3) or #vec(1 2 3 4) */
+		Atom list_result;
+		e = read_list(*end, end, &list_result, source, filename, err);
+		if (e) return e;
+		
+		/* Count list length and collect floats */
+		size_t len = 0;
+		Atom p = list_result;
+		while (!nilp(p)) { len++; p = cdr(p); }
+		
+		/* Convert list elements to floats */
+		float vals[4] = {0, 0, 0, 0};
+		p = list_result;
+		for (size_t i = 0; i < len && i < 4; i++) {
+			Atom a = car(p);
+			if (a.type == AtomType_Integer)
+				vals[i] = (float)a.value.integer;
+			else if (a.type == AtomType_Float)
+				vals[i] = (float)a.value.floatval;
+			else {
+				set_error(err, Error_Type, source, token, filename,
+				          "#vec elements must be numbers");
+				return Error_Type;
+			}
+			p = cdr(p);
+		}
+		
+		/* Create vec based on element count */
+		if (len == 2)
+			*result = make_vec2(vals[0], vals[1]);
+		else if (len == 3)
+			*result = make_vec3(vals[0], vals[1], vals[2]);
+		else if (len == 4)
+			*result = make_vec4(vals[0], vals[1], vals[2], vals[3]);
+		else {
+			set_error(err, Error_Syntax, source, token, filename,
+			          "#vec requires 2, 3, or 4 elements");
+			return Error_Syntax;
+		}
+		return Error_OK;
+	} else if (token[0] == '#' && strncmp(token, "#mat(", 5) == 0) {
+		/* mat4 literal #mat(m00 m01 ... m33) - 16 column-major floats */
+		Atom list_result;
+		e = read_list(*end, end, &list_result, source, filename, err);
+		if (e) return e;
+		
+		/* Count list length */
+		size_t len = 0;
+		Atom p = list_result;
+		while (!nilp(p)) { len++; p = cdr(p); }
+		
+		if (len != 16) {
+			set_error(err, Error_Syntax, source, token, filename,
+			          "#mat requires exactly 16 elements");
+			return Error_Syntax;
+		}
+		
+		/* Convert elements to floats */
+		float vals[16];
+		p = list_result;
+		for (size_t i = 0; i < 16; i++) {
+			Atom a = car(p);
+			if (a.type == AtomType_Integer)
+				vals[i] = (float)a.value.integer;
+			else if (a.type == AtomType_Float)
+				vals[i] = (float)a.value.floatval;
+			else {
+				set_error(err, Error_Type, source, token, filename,
+				          "#mat elements must be numbers");
+				return Error_Type;
+			}
+			p = cdr(p);
+		}
+		
+		*result = make_mat4_from_floats(vals);
+		return Error_OK;
+	} else if (token[0] == '#' && strncmp(token, "#hash(", 6) == 0) {
+		/* Hash literal #hash(:key val ...) or #hash(sym val ...) */
+		Atom list_result;
+		e = read_list(*end, end, &list_result, source, filename, err);
+		if (e) return e;
+		
+		*result = make_hash();
+		Atom p = list_result;
+		while (!nilp(p) && !nilp(cdr(p))) {
+			Atom key = car(p);
+			Atom val = car(cdr(p));
+			/* Convert keywords to symbols for hash keys */
+			if (key.type == AtomType_Keyword) {
+				key = make_sym(key.value.keyword);
+			}
+			hash_set(*result, key, val);
+			p = cdr(cdr(p));
 		}
 		return Error_OK;
 	} else if (token[0] == '#' && token[1] == '\\') {

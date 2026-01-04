@@ -33,6 +33,131 @@ struct Hash;
 struct Port;
 struct Bytevector;
 
+/* Platform detection */
+#if defined(__wasm__) && defined(__wasm_simd128__)
+#define SIMD_WASM
+#include <wasm_simd128.h>
+#elif defined(__x86_64__) || defined(_M_X64) || defined(__i386__) || defined(_M_IX86)
+#define SIMD_X86
+#include <xmmintrin.h>  /* SSE */
+#elif defined(__ARM_NEON) || defined(__aarch64__)
+#define SIMD_ARM_NEON
+#include <arm_neon.h>
+#else
+#define SIMD_SCALAR
+#endif
+
+typedef struct {
+#ifdef SIMD_X86
+    __m128 v;
+#elif defined(SIMD_ARM_NEON)
+    float32x4_t v;
+#elif defined(SIMD_WASM)
+    v128_t v;
+#else
+    float data[4];
+#endif
+} vec4_t;
+
+typedef vec4_t vec2_t;
+typedef vec4_t vec3_t;
+
+typedef struct {
+	vec4_t m;
+} mat2_t;
+
+typedef struct {
+	vec4_t columns[3];
+} mat3_t;
+
+typedef struct {
+	vec4_t columns[4];
+} mat4_t;
+
+/* Inline SIMD operations */
+static inline vec4_t vec4_splat(float val) {
+    vec4_t result;
+#ifdef SIMD_X86
+    result.v = _mm_set1_ps(val);
+#elif defined(SIMD_ARM_NEON)
+    result.v = vdupq_n_f32(val);
+#elif defined(SIMD_WASM)
+    result.v = wasm_f32x4_splat(val);
+#else
+    result.data[0] = result.data[1] = result.data[2] = result.data[3] = val;
+#endif
+    return result;
+}
+
+static inline void vec4_store(float* ptr, vec4_t v) {
+#ifdef SIMD_X86
+    _mm_storeu_ps(ptr, v.v);
+#elif defined(SIMD_ARM_NEON)
+    vst1q_f32(ptr, v.v);
+#elif defined(SIMD_WASM)
+    wasm_v128_store(ptr, v.v);
+#else
+    ptr[0] = v.data[0]; ptr[1] = v.data[1];
+    ptr[2] = v.data[2]; ptr[3] = v.data[3];
+#endif
+}
+
+static inline vec4_t vec4_add(vec4_t a, vec4_t b) {
+    vec4_t result;
+#ifdef SIMD_X86
+    result.v = _mm_add_ps(a.v, b.v);
+#elif defined(SIMD_ARM_NEON)
+    result.v = vaddq_f32(a.v, b.v);
+#elif defined(SIMD_WASM)
+    result.v = wasm_f32x4_add(a.v, b.v);
+#else
+    for (int i = 0; i < 4; i++) result.data[i] = a.data[i] + b.data[i];
+#endif
+    return result;
+}
+
+static inline vec4_t vec4_sub(vec4_t a, vec4_t b) {
+    vec4_t result;
+#ifdef SIMD_X86
+    result.v = _mm_sub_ps(a.v, b.v);
+#elif defined(SIMD_ARM_NEON)
+    result.v = vsubq_f32(a.v, b.v);
+#elif defined(SIMD_WASM)
+    result.v = wasm_f32x4_sub(a.v, b.v);
+#else
+    for (int i = 0; i < 4; i++) result.data[i] = a.data[i] - b.data[i];
+#endif
+    return result;
+}
+
+static inline vec4_t vec4_mul(vec4_t a, vec4_t b) {
+    vec4_t result;
+#ifdef SIMD_X86
+    result.v = _mm_mul_ps(a.v, b.v);
+#elif defined(SIMD_ARM_NEON)
+    result.v = vmulq_f32(a.v, b.v);
+#elif defined(SIMD_WASM)
+    result.v = wasm_f32x4_mul(a.v, b.v);
+#else
+    for (int i = 0; i < 4; i++) result.data[i] = a.data[i] * b.data[i];
+#endif
+    return result;
+}
+
+static inline vec4_t vec4_div(vec4_t a, vec4_t b) {
+    vec4_t result;
+#ifdef SIMD_X86
+    result.v = _mm_div_ps(a.v, b.v);
+#elif defined(SIMD_ARM_NEON)
+    result.v = vdivq_f32(a.v, b.v);
+#elif defined(SIMD_WASM)
+    result.v = wasm_f32x4_div(a.v, b.v);
+#else
+    for (int i = 0; i < 4; i++) result.data[i] = a.data[i] / b.data[i];
+#endif
+    return result;
+}
+
 typedef int (*Builtin)(struct Atom args, struct Atom *result);
 
 struct Atom {
@@ -52,7 +177,11 @@ struct Atom {
 		AtomType_Macro,
 		AtomType_Continuation,
 		AtomType_Char,
-		AtomType_Keyword
+		AtomType_Keyword,
+		AtomType_Vec2,
+		AtomType_Vec3,
+		AtomType_Vec4,
+		AtomType_Mat4
 	} type;
 
 	union {
@@ -68,6 +197,8 @@ struct Atom {
 		Builtin builtin;
 		int32_t character;  /* Unicode codepoint */
 		const char *keyword;  /* Interned keyword name (without :) */
+		vec4_t *vec;         /* Used for vec2, vec3, vec4 (SIMD aligned) */
+		mat4_t *mat4;        /* 4x4 matrix */
 	} value;
 };
 
@@ -150,6 +281,11 @@ Atom make_hash(void);
 Atom make_sym(const char *s);
 Atom make_keyword(const char *s);
 Atom make_builtin(Builtin fn);
+Atom make_vec2(float x, float y);
+Atom make_vec3(float x, float y, float z);
+Atom make_vec4(float x, float y, float z, float w);
+Atom make_mat4_identity(void);
+Atom make_mat4_from_floats(const float *values);
 int listp(Atom expr);
 Atom copy_list(Atom list);
 Atom list_create(int n, ...);
@@ -191,6 +327,7 @@ int builtin_less(Atom args, Atom *result);
 
 /* New type builtins */
 int builtin_floatp(Atom args, Atom *result);
+int builtin_integerp(Atom args, Atom *result);
 int builtin_stringp(Atom args, Atom *result);
 int builtin_vectorp(Atom args, Atom *result);
 int builtin_hashp(Atom args, Atom *result);
@@ -207,6 +344,25 @@ int builtin_hash_remove(Atom args, Atom *result);
 /* Metatable builtins */
 int builtin_set_metatable(Atom args, Atom *result);
 int builtin_get_metatable(Atom args, Atom *result);
+
+/* SIMD Vector/Matrix builtins */
+int builtin_vec2p(Atom args, Atom *result);
+int builtin_vec3p(Atom args, Atom *result);
+int builtin_vec4p(Atom args, Atom *result);
+int builtin_mat4p(Atom args, Atom *result);
+int builtin_vec2(Atom args, Atom *result);
+int builtin_vec3(Atom args, Atom *result);
+int builtin_vec4(Atom args, Atom *result);
+int builtin_mat4_identity(Atom args, Atom *result);
+int builtin_vec_x(Atom args, Atom *result);
+int builtin_vec_y(Atom args, Atom *result);
+int builtin_vec_z(Atom args, Atom *result);
+int builtin_vec_w(Atom args, Atom *result);
+int builtin_vec_ref(Atom args, Atom *result);
+int builtin_vec_set(Atom args, Atom *result);
+int builtin_mat4_multiply(Atom args, Atom *result);
+int builtin_mat4_transpose(Atom args, Atom *result);
+int builtin_mat4_inverse(Atom args, Atom *result);
 
 /* Output builtins */
 int builtin_print(Atom args, Atom *result);
@@ -341,6 +497,9 @@ int builtin_string_byte_length(Atom args, Atom *result);
 int builtin_keywordp(Atom args, Atom *result);
 int builtin_keyword_to_string(Atom args, Atom *result);
 int builtin_string_to_keyword(Atom args, Atom *result);
+
+/* Procedure introspection */
+int builtin_procedure_doc(Atom args, Atom *result);
 
 /* Decode a single UTF-8 character, return bytes consumed (0 on end/error) */
 int utf8_decode(const char *s, int32_t *cp);

@@ -196,7 +196,15 @@ int make_closure(Atom env, Atom args, Atom body, Atom *result)
 		p = cdr(p);
 	}
 
-	*result = cons(env, cons(args, body));
+	/* Extract docstring if first body form is a string and there's more body */
+	Atom docstring = nil;
+	if (!nilp(body) && car(body).type == AtomType_String && !nilp(cdr(body))) {
+		docstring = car(body);
+		body = cdr(body);
+	}
+
+	/* Structure: (env (args docstring . body)) */
+	*result = cons(env, cons(args, cons(docstring, body)));
 	result->type = AtomType_Closure;
 
 	return Error_OK;
@@ -244,7 +252,8 @@ int eval_do_bind(Atom *stack, Atom *expr, Atom *env)
 
 	*env = env_create(car(op));
 	arg_names = car(cdr(op));
-	body = cdr(cdr(op));
+	/* Structure: (env (args docstring . body)) - skip docstring */
+	body = cdr(cdr(cdr(op)));
 	list_set(*stack, 1, *env);
 	list_set(*stack, 5, body);
 

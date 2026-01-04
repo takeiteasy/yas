@@ -112,4 +112,87 @@
       (finally (set! side-effect 1)))
     (check side-effect 1)))
 
+(test "Docstrings"
+  ;; Function with docstring
+  (define (documented x) "This is documented" x)
+  (check (procedure-doc documented) "This is documented")
+  
+  ;; Function without docstring  
+  (define (undocumented x) x)
+  (check (procedure-doc undocumented) nil)
+  
+  ;; Lambda with docstring
+  (let ((f (lambda (x) "A lambda docstring" x)))
+    (check (procedure-doc f) "A lambda docstring"))
+  
+  ;; Multi-expression body with docstring
+  (define (multi-body a b)
+    "Adds two numbers and prints result"
+    (print a "+" b)
+    (+ a b))
+  (check (procedure-doc multi-body) "Adds two numbers and prints result"))
+
+;; SIMD Vector/Matrix Tests
+(test "SIMD Vectors"
+  ;; Type predicates
+  (check (vec2? #vec(1 2)) t)
+  (check (vec3? #vec(1 2 3)) t)
+  (check (vec4? #vec(1 2 3 4)) t)
+  (check (mat4? (mat4-identity)) t)
+  (check (vec2? #vec(1 2 3)) nil)
+  (check (vec3? #vec(1 2)) nil)
+  
+  ;; Constructors
+  (check (vec2? (vec2 1 2)) t)
+  (check (vec3? (vec3 1 2 3)) t)
+  (check (vec4? (vec4 1 2 3 4)) t)
+  
+  ;; Component accessors
+  (check (vec-x #vec(10 20)) 10.0)
+  (check (vec-y #vec(10 20)) 20.0)
+  (check (vec-z #vec(1 2 3)) 3.0)
+  (check (vec-w #vec(1 2 3 4)) 4.0)
+  (check (vec-ref #vec(5 6 7) 1) 6.0)
+  
+  ;; Vector arithmetic
+  (check (+ #vec(1 2) #vec(3 4)) #vec(4 6))
+  (check (+ #vec(1 2 3) #vec(4 5 6)) #vec(5 7 9))
+  (check (+ #vec(1 2) 10) #vec(11 12))
+  (check (+ 10 #vec(1 2)) #vec(11 12)))
+
+;; Hash literal syntax
+(test "#hash Literal"
+  (let ((h #hash(:name "test" :value 42)))
+    (check (hash? h) t)
+    (check (hash-ref h 'NAME) "test")
+    (check (hash-ref h 'VALUE) 42)))
+
+;; Additional Vector Arithmetic Tests
+(test "Vector Subtraction"
+  (check (- #vec(5 7) #vec(2 3)) #vec(3 4))
+  (check (- #vec(10 20 30) 5) #vec(5 15 25)))
+
+(test "Vector Multiplication"
+  (check (* #vec(2 3) #vec(4 5)) #vec(8 15))
+  (check (* #vec(1 2 3) 2) #vec(2 4 6))
+  (check (* 3 #vec(2 2 2)) #vec(6 6 6)))
+
+(test "Vector Division"
+  (check (/ #vec(10 20) #vec(2 4)) #vec(5 5))
+  (check (/ #vec(6 12 18) 3) #vec(2 4 6)))
+
+(test "vec-set!"
+  (let ((v (vec3 1 2 3)))
+    (vec-set! v 1 99)
+    (check (vec-y v) 99)))
+
+(test "Matrix Operations"
+  (let ((id (mat4-identity)))
+    (check (mat4? id) t)
+    (check (mat4? (mat4-transpose id)) t)
+    (check (mat4? (mat4* id id)) t)
+    (check (mat4? (mat4-inverse id)) t)))
+
 (run-tests)
+
+

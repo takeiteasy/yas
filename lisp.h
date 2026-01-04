@@ -74,90 +74,6 @@ typedef struct {
 	vec4_t columns[4];
 } mat4_t;
 
-/* Inline SIMD operations */
-static inline vec4_t vec4_splat(float val) {
-    vec4_t result;
-#ifdef SIMD_X86
-    result.v = _mm_set1_ps(val);
-#elif defined(SIMD_ARM_NEON)
-    result.v = vdupq_n_f32(val);
-#elif defined(SIMD_WASM)
-    result.v = wasm_f32x4_splat(val);
-#else
-    result.data[0] = result.data[1] = result.data[2] = result.data[3] = val;
-#endif
-    return result;
-}
-
-static inline void vec4_store(float* ptr, vec4_t v) {
-#ifdef SIMD_X86
-    _mm_storeu_ps(ptr, v.v);
-#elif defined(SIMD_ARM_NEON)
-    vst1q_f32(ptr, v.v);
-#elif defined(SIMD_WASM)
-    wasm_v128_store(ptr, v.v);
-#else
-    ptr[0] = v.data[0]; ptr[1] = v.data[1];
-    ptr[2] = v.data[2]; ptr[3] = v.data[3];
-#endif
-}
-
-static inline vec4_t vec4_add(vec4_t a, vec4_t b) {
-    vec4_t result;
-#ifdef SIMD_X86
-    result.v = _mm_add_ps(a.v, b.v);
-#elif defined(SIMD_ARM_NEON)
-    result.v = vaddq_f32(a.v, b.v);
-#elif defined(SIMD_WASM)
-    result.v = wasm_f32x4_add(a.v, b.v);
-#else
-    for (int i = 0; i < 4; i++) result.data[i] = a.data[i] + b.data[i];
-#endif
-    return result;
-}
-
-static inline vec4_t vec4_sub(vec4_t a, vec4_t b) {
-    vec4_t result;
-#ifdef SIMD_X86
-    result.v = _mm_sub_ps(a.v, b.v);
-#elif defined(SIMD_ARM_NEON)
-    result.v = vsubq_f32(a.v, b.v);
-#elif defined(SIMD_WASM)
-    result.v = wasm_f32x4_sub(a.v, b.v);
-#else
-    for (int i = 0; i < 4; i++) result.data[i] = a.data[i] - b.data[i];
-#endif
-    return result;
-}
-
-static inline vec4_t vec4_mul(vec4_t a, vec4_t b) {
-    vec4_t result;
-#ifdef SIMD_X86
-    result.v = _mm_mul_ps(a.v, b.v);
-#elif defined(SIMD_ARM_NEON)
-    result.v = vmulq_f32(a.v, b.v);
-#elif defined(SIMD_WASM)
-    result.v = wasm_f32x4_mul(a.v, b.v);
-#else
-    for (int i = 0; i < 4; i++) result.data[i] = a.data[i] * b.data[i];
-#endif
-    return result;
-}
-
-static inline vec4_t vec4_div(vec4_t a, vec4_t b) {
-    vec4_t result;
-#ifdef SIMD_X86
-    result.v = _mm_div_ps(a.v, b.v);
-#elif defined(SIMD_ARM_NEON)
-    result.v = vdivq_f32(a.v, b.v);
-#elif defined(SIMD_WASM)
-    result.v = wasm_f32x4_div(a.v, b.v);
-#else
-    for (int i = 0; i < 4; i++) result.data[i] = a.data[i] / b.data[i];
-#endif
-    return result;
-}
-
 typedef int (*Builtin)(struct Atom args, struct Atom *result);
 
 struct Atom {
@@ -511,3 +427,7 @@ size_t utf8_strlen(const char *s);
 int32_t utf8_codepoint_at(const char *s, size_t index);
 /* Get pointer to codepoint at index, returns NULL if out of bounds */
 const char *utf8_index_ptr(const char *s, size_t index);
+
+/* Serialization */
+int builtin_serialize(Atom args, Atom *result);
+int builtin_deserialize(Atom args, Atom *result);

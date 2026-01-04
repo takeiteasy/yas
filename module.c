@@ -145,6 +145,10 @@ static void create_base_library(void) {
 	reg_builtin(env, exports, "MAT4*", builtin_mat4_multiply);
 	reg_builtin(env, exports, "MAT4-TRANSPOSE", builtin_mat4_transpose);
 	reg_builtin(env, exports, "MAT4-INVERSE", builtin_mat4_inverse);
+
+	/* Serialization */
+	reg_builtin(env, exports, "SERIALIZE", builtin_serialize);
+	reg_builtin(env, exports, "DESERIALIZE", builtin_deserialize);
 	
 	reg_sym(env, exports, "T", make_sym("T"));
 	

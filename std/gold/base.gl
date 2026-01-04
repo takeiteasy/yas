@@ -7,7 +7,9 @@
     hash-remove! throw error set-metatable! get-metatable print t
     keyword? keyword->string string->keyword
     string=? string-ref string-byte-length
+    string=? string-ref string-byte-length
     procedure-doc
+    serialize deserialize
     
     ;; SIMD Vector/Matrix builtins
     vec2? vec3? vec4? mat4?

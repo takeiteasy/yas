@@ -100,7 +100,12 @@ struct Atom {
 		AtomType_Vec2,
 		AtomType_Vec3,
 		AtomType_Vec4,
-		AtomType_Mat4
+		AtomType_Mat4,
+#ifdef GOLD_FFI
+		AtomType_FFILibrary,   /* dlopen handle */
+		AtomType_FFIPointer,   /* Raw C pointer */
+		AtomType_FFIFunction   /* Prepared ffi function */
+#endif
 	} type;
 
 	union {
@@ -118,6 +123,11 @@ struct Atom {
 		const char *keyword;  /* Interned keyword name (without :) */
 		vec4_t *vec;         /* Used for vec2, vec3, vec4 (SIMD aligned) */
 		mat4_t *mat4;        /* 4x4 matrix */
+#ifdef GOLD_FFI
+		void *ffi_library;           /* dlopen handle */
+		void *ffi_pointer;           /* raw C pointer */
+		struct FFIFunction *ffi_fn;  /* prepared ffi function */
+#endif
 	} value;
 };
 
@@ -303,6 +313,11 @@ char *slurp(const char *path);
 /* Include tracking for relative paths */
 extern const char *current_file_path;
 
+/* Global features list for platform/feature detection */
+extern Atom global_features;
+void init_features(void);
+int has_feature(const char *name);
+
 /* Module system */
 extern Atom library_registry;
 void load_all_modules(void);
@@ -452,5 +467,56 @@ const char *utf8_index_ptr(const char *s, size_t index);
 /* Serialization */
 int builtin_serialize(Atom args, Atom *result);
 int builtin_deserialize(Atom args, Atom *result);
+
+/* ============================================================
+ * FFI (Foreign Function Interface) - Optional
+ * ============================================================ */
+#ifdef GOLD_FFI
+
+/* FFI Type descriptors for marshaling */
+typedef enum {
+	GOLD_FFI_TYPE_VOID,
+	GOLD_FFI_TYPE_INT8, GOLD_FFI_TYPE_UINT8,
+	GOLD_FFI_TYPE_INT16, GOLD_FFI_TYPE_UINT16,
+	GOLD_FFI_TYPE_INT32, GOLD_FFI_TYPE_UINT32,
+	GOLD_FFI_TYPE_INT64, GOLD_FFI_TYPE_UINT64,
+	GOLD_FFI_TYPE_FLOAT, GOLD_FFI_TYPE_DOUBLE,
+	GOLD_FFI_TYPE_POINTER, GOLD_FFI_TYPE_STRING
+} GoldFFIType;
+
+/* Forward declaration for ffi_cif */
+struct FFIFunction {
+	void *fn_ptr;           /* Function pointer */
+	void *cif;              /* ffi_cif* (opaque) */
+	GoldFFIType ret_type;
+	GoldFFIType *arg_types;
+	int arg_count;
+};
+
+/* FFI core functions (ffi.c) */
+void *ffi_load_library(const char *path);
+void ffi_close_library(void *handle);
+void *ffi_get_symbol(void *handle, const char *name);
+struct FFIFunction *ffi_prepare(void *fn_ptr, Atom ret_type, Atom arg_types);
+Atom ffi_call_function(struct FFIFunction *fn, Atom args);
+void ffi_free_function(struct FFIFunction *fn);
+
+/* FFI builtins */
+int builtin_ffi_open(Atom args, Atom *result);
+int builtin_ffi_close(Atom args, Atom *result);
+int builtin_ffi_lookup(Atom args, Atom *result);
+int builtin_ffi_define(Atom args, Atom *result);
+int builtin_ffi_call(Atom args, Atom *result);
+int builtin_ffi_malloc(Atom args, Atom *result);
+int builtin_ffi_free(Atom args, Atom *result);
+int builtin_ffi_pointer_ref(Atom args, Atom *result);
+int builtin_ffi_pointer_set(Atom args, Atom *result);
+int builtin_ffi_null(Atom args, Atom *result);
+int builtin_ffi_nullp(Atom args, Atom *result);
+
+/* FFI module loader */
+void load_ffi_library(void);
+
+#endif /* GOLD_FFI */
 
 #endif /* GOLD_LISP_H */

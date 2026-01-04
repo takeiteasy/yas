@@ -8,7 +8,8 @@
     quasiquote and begin cond let or unless when assert
     + - * / = < <= > >=
     for-each list-ref list-tail reverse list? not null?
-    macroexpand)
+    macroexpand
+    *features*)
   (begin
     (define (caar x) (car (car x)))
     (define (cadr x) (car (cdr x)))

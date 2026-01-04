@@ -17,7 +17,8 @@ static const char stdlib_src_0[] =
 "    quasiquote and begin cond let or unless when assert\n"
 "    + - * / = < <= > >=\n"
 "    for-each list-ref list-tail reverse list? not null?\n"
-"    macroexpand)\n"
+"    macroexpand\n"
+"    *features*)\n"
 "  (begin\n"
 "    (define (caar x) (car (car x)))\n"
 "    (define (cadr x) (car (cdr x)))\n"
@@ -118,6 +119,47 @@ static const char stdlib_src_0[] =
 "        (if (eq? expanded form) form (macroexpand expanded))))))\n";
 
 static const char stdlib_src_1[] = 
+";; Gold FFI - High-level interface\n"
+";; \n"
+";; This library provides convenient macros for FFI usage.\n"
+";; Use reader conditionals to check for FFI availability:\n"
+";;   #+ffi (import (gold ffi))\n"
+"\n"
+"(define-library (gold ffi)\n"
+"  (export \n"
+"    ;; High-level helpers\n"
+"    library-extension\n"
+"    define-foreign\n"
+"    ;; Re-export low-level primitives\n"
+"    ffi-open ffi-close ffi-lookup\n"
+"    ffi-define ffi-call\n"
+"    ffi-malloc ffi-free\n"
+"    ffi-pointer-ref ffi-pointer-set!\n"
+"    ffi-null ffi-null?)\n"
+"  \n"
+"  (import (gold base))\n"
+"  \n"
+"  (begin\n"
+"    ;; Get the library file extension for the current platform\n"
+"    (define (library-extension)\n"
+"      #+macos \".dylib\"\n"
+"      #+windows \".dll\"\n"
+"      #-(or macos windows) \".so\")\n"
+"    \n"
+"    ;; Macro: define a foreign function as a Scheme procedure\n"
+"    ;; Usage: (define-foreign name lib \"c_symbol\" :ret-type (:arg-types...))\n"
+"    ;; \n"
+"    ;; Example:\n"
+"    ;;   (define libc (ffi-open \"libc.dylib\"))\n"
+"    ;;   (define-foreign strlen libc \"strlen\" :uint64 (:pointer))\n"
+"    ;;   (strlen \"hello\")  ; => 5\n"
+"    (defmacro (define-foreign name lib c-name ret-type arg-types)\n"
+"      `(define ,name\n"
+"         (let ((fn (ffi-define (ffi-lookup ,lib ,c-name) ,ret-type ,arg-types)))\n"
+"           (lambda args\n"
+"             (apply ffi-call (cons fn args))))))))\n";
+
+static const char stdlib_src_2[] = 
 "(define-library (gold hash)\n"
 "  (import (gold base))\n"
 "  (export\n"
@@ -137,7 +179,7 @@ static const char stdlib_src_1[] =
 "               (let ((mt (get-metatable obj)))\n"
 "                 (and mt (hash-ref mt (quote ~call) nil))))))))\n";
 
-static const char stdlib_src_2[] = 
+static const char stdlib_src_3[] = 
 "(define-library (gold io)\n"
 "  (import (gold base))\n"
 "  (export \n"
@@ -196,7 +238,7 @@ static const char stdlib_src_2[] =
 "        (lambda (port) \n"
 "          (write-string content port))))))\n";
 
-static const char stdlib_src_3[] = 
+static const char stdlib_src_4[] = 
 "(define-library (gold math)\n"
 "  (import (gold base))\n"
 "  (export \n"
@@ -404,7 +446,7 @@ static const char stdlib_src_3[] =
 "             (vec-z s) (vec-z u) (- (vec-z f)) 0\n"
 "             (- (vec-dot s eye)) (- (vec-dot u eye)) (vec-dot f eye) 1)))))\n";
 
-static const char stdlib_src_4[] = 
+static const char stdlib_src_5[] = 
 "(define-library (gold test)\n"
 "  (import (gold base) (gold math) (gold vector) (gold text))\n"
 "  (export check test run-tests *passes* *fails* *current-test-name* equal? set-test-name! report-success report-failure)\n"
@@ -480,7 +522,7 @@ static const char stdlib_src_4[] =
 "          (print \"SOME TESTS FAILED\")\n"
 "          (print \"ALL TESTS PASSED\")))))\n";
 
-static const char stdlib_src_5[] = 
+static const char stdlib_src_6[] = 
 "(define-library (gold text)\n"
 "  (import (gold base))\n"
 "  (export\n"
@@ -494,7 +536,7 @@ static const char stdlib_src_5[] =
 "    procedure-doc)\n"
 "  (begin))\n";
 
-static const char stdlib_src_6[] = 
+static const char stdlib_src_7[] = 
 "(define-library (gold vector)\n"
 "  (import (gold base))\n"
 "  (export\n"
@@ -503,12 +545,13 @@ static const char stdlib_src_6[] =
 
 static const StdlibFile stdlib_files[] = {
     { "gold/base", stdlib_src_0 },
-    { "gold/hash", stdlib_src_1 },
-    { "gold/io", stdlib_src_2 },
-    { "gold/math", stdlib_src_3 },
-    { "gold/test", stdlib_src_4 },
-    { "gold/text", stdlib_src_5 },
-    { "gold/vector", stdlib_src_6 },
+    { "gold/ffi", stdlib_src_1 },
+    { "gold/hash", stdlib_src_2 },
+    { "gold/io", stdlib_src_3 },
+    { "gold/math", stdlib_src_4 },
+    { "gold/test", stdlib_src_5 },
+    { "gold/text", stdlib_src_6 },
+    { "gold/vector", stdlib_src_7 },
     { NULL, NULL }
 };
 

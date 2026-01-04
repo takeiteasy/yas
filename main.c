@@ -88,6 +88,9 @@ int main(int argc, char **argv)
 	Atom env;
 	char *input;
 
+	/* Initialize features before anything else */
+	init_features();
+
 	env = env_create(nil);
 
 	/* Import (gold base) */

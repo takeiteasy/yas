@@ -115,6 +115,9 @@ void load_base_library(void) {
 	reg_builtin(env, exports, "APPEND", builtin_list_append);
 	reg_sym(env, exports, "T", make_sym("T"));
 	reg_builtin(env, exports, "PROCEDURE-DOC", builtin_procedure_doc);
+	
+	/* Global features list */
+	reg_sym(env, exports, "*FEATURES*", global_features);
 }
 
 void load_hash_library(void) {
@@ -237,6 +240,26 @@ void load_math_library(void) {
 	reg_builtin(env, exports, "MAT4-INVERSE", builtin_mat4_inverse);
 }
 
+#ifdef GOLD_FFI
+void load_ffi_library(void) {
+	if (nilp(library_registry)) library_registry = make_hash();
+	Atom env, exports;
+	define_native_module("gold/ffi", &env, &exports);
+	
+	reg_builtin(env, exports, "FFI-OPEN", builtin_ffi_open);
+	reg_builtin(env, exports, "FFI-CLOSE", builtin_ffi_close);
+	reg_builtin(env, exports, "FFI-LOOKUP", builtin_ffi_lookup);
+	reg_builtin(env, exports, "FFI-DEFINE", builtin_ffi_define);
+	reg_builtin(env, exports, "FFI-CALL", builtin_ffi_call);
+	reg_builtin(env, exports, "FFI-MALLOC", builtin_ffi_malloc);
+	reg_builtin(env, exports, "FFI-FREE", builtin_ffi_free);
+	reg_builtin(env, exports, "FFI-POINTER-REF", builtin_ffi_pointer_ref);
+	reg_builtin(env, exports, "FFI-POINTER-SET!", builtin_ffi_pointer_set);
+	reg_builtin(env, exports, "FFI-NULL", builtin_ffi_null);
+	reg_builtin(env, exports, "FFI-NULL?", builtin_ffi_nullp);
+}
+#endif
+
 static const NativeModule native_modules[] = {
 	{ "gold/base", load_base_library },
 	{ "gold/hash", load_hash_library },
@@ -244,6 +267,9 @@ static const NativeModule native_modules[] = {
 	{ "gold/text", load_text_library },
 	{ "gold/io", load_io_library },
 	{ "gold/math", load_math_library },
+#ifdef GOLD_FFI
+	{ "gold/ffi", load_ffi_library },
+#endif
 	{ NULL, NULL }
 };
 

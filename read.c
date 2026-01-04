@@ -108,6 +108,8 @@ static int lex(const char *str, const char **start, const char **end,
 		*end = str + 5;  /* #mat( literal */
 	else if (str[0] == '#' && strncmp(str + 1, "hash(", 5) == 0)
 		*end = str + 6;  /* #hash( literal */
+	else if (str[0] == '#' && (str[1] == '+' || str[1] == '-'))
+		*end = str + 2;  /* Reader conditionals #+ #- */
 	else if (str[0] == '#' && str[1] == '\\') {
 		/* Character literal #\x or #\newline etc */
 		const char *p = str + 2;
@@ -475,6 +477,43 @@ static int read_expr_internal(const char *input, const char **end, Atom *result,
 			}
 			hash_set(*result, key, val);
 			p = cdr(cdr(p));
+		}
+		return Error_OK;
+	} else if (token[0] == '#' && (token[1] == '+' || token[1] == '-')) {
+		/* Reader conditionals: #+(feature expr) or #-(feature expr) */
+		int include_if_present = (token[1] == '+');
+		
+		/* Read the feature name (symbol) */
+		Atom feature;
+		e = read_expr_internal(*end, end, &feature, source, filename, err);
+		if (e) return e;
+		
+		/* Check if feature is present */
+		int feature_present = 0;
+		/* Handle both bare symbol and (symbol) form */
+		Atom feature_sym = feature;
+		if (feature.type == AtomType_Pair && !nilp(feature) && nilp(cdr(feature))) {
+			/* Single-element list like (MACOS) */
+			feature_sym = car(feature);
+		}
+		if (feature_sym.type == AtomType_Symbol) {
+			feature_present = has_feature(feature_sym.value.symbol);
+		}
+		
+		/* Decide whether to include the following expression */
+		int include_expr = (include_if_present && feature_present) ||
+		                   (!include_if_present && !feature_present);
+		
+		/* Read the expression */
+		Atom expr;
+		e = read_expr_internal(*end, end, &expr, source, filename, err);
+		if (e) return e;
+		
+		if (include_expr) {
+			*result = expr;
+		} else {
+			/* Skip this expression, try to read the next one */
+			return read_expr_internal(*end, end, result, source, filename, err);
 		}
 		return Error_OK;
 	} else if (token[0] == '#' && token[1] == '\\') {

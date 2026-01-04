@@ -627,3 +627,60 @@ Atom make_mat4_from_floats(const float *values)
 	}
 	return a;
 }
+
+/* ============================================================
+ * GLOBAL FEATURES SYSTEM
+ * ============================================================ */
+
+Atom global_features = { AtomType_Nil };
+
+void init_features(void)
+{
+	global_features = nil;
+
+	/* Platform detection */
+#if defined(__APPLE__)
+	global_features = cons(make_sym("MACOS"), global_features);
+	global_features = cons(make_sym("UNIX"), global_features);
+#elif defined(_WIN32)
+	global_features = cons(make_sym("WINDOWS"), global_features);
+#elif defined(__linux__)
+	global_features = cons(make_sym("LINUX"), global_features);
+	global_features = cons(make_sym("UNIX"), global_features);
+#elif defined(__FreeBSD__) || defined(__OpenBSD__) || defined(__NetBSD__)
+	global_features = cons(make_sym("BSD"), global_features);
+	global_features = cons(make_sym("UNIX"), global_features);
+#endif
+
+	/* Architecture detection */
+#if defined(__x86_64__) || defined(_M_X64)
+	global_features = cons(make_sym("X86-64"), global_features);
+#elif defined(__i386__) || defined(_M_IX86)
+	global_features = cons(make_sym("X86"), global_features);
+#elif defined(__aarch64__) || defined(_M_ARM64)
+	global_features = cons(make_sym("ARM64"), global_features);
+#elif defined(__arm__) || defined(_M_ARM)
+	global_features = cons(make_sym("ARM"), global_features);
+#elif defined(__wasm__)
+	global_features = cons(make_sym("WASM"), global_features);
+#endif
+
+	/* Optional features - compile-time flags */
+#ifdef GOLD_FFI
+	global_features = cons(make_sym("FFI"), global_features);
+#endif
+}
+
+int has_feature(const char *name)
+{
+	Atom p = global_features;
+	while (!nilp(p)) {
+		if (car(p).type == AtomType_Symbol &&
+		    strcmp(car(p).value.symbol, name) == 0) {
+			return 1;
+		}
+		p = cdr(p);
+	}
+	return 0;
+}
+

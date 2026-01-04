@@ -169,5 +169,16 @@ void print_expr(Atom atom)
 		printf(")");
 		break;
 	}
+#ifdef GOLD_FFI
+	case AtomType_FFILibrary:
+		printf("#<FFI-LIBRARY:%p>", atom.value.ffi_library);
+		break;
+	case AtomType_FFIPointer:
+		printf("#<FFI-POINTER:%p>", atom.value.ffi_pointer);
+		break;
+	case AtomType_FFIFunction:
+		printf("#<FFI-FUNCTION:%p>", atom.value.ffi_fn);
+		break;
+#endif
 	}
 }

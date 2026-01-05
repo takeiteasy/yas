@@ -401,6 +401,11 @@ void gc()
 
 	gc_mark(sym_table);
 	gc_mark(kw_table);
+	
+	/* Mark global roots */
+	gc_mark(library_registry);
+	gc_mark(global_search_paths);
+	gc_mark(global_features);
 
 	/* Free unmarked allocations */
 	p = &global_allocations;

@@ -9,7 +9,7 @@
     + - * / = < <= > >=
     for-each list-ref list-tail reverse list? not null?
     macroexpand
-    dotimes dolist while
+    dotimes dolist while for
     *features*)
   (begin
     (define (caar x) (car (car x)))
@@ -111,6 +111,43 @@
            ,@body
            (while-loop))))
 
+    (defmacro (for var . args)
+      (let ((lookup (lambda (key alist default)
+                      (let loop ((l alist))
+                        (if (null? l) default
+                            (if (eq? (car (car l)) key) (cdr (car l))
+                                (loop (cdr l))))))))
+        (let parse ((args args) (state nil) (res nil))
+          (if (null? args)
+              (let ((in-list (lookup 'in res nil)))
+                (if in-list
+                    `(dolist (,var ,in-list) ,@(lookup 'body res nil))
+                    (let ((start (lookup 'from res 0))
+                          (end (lookup 'to res 0))
+                          (step (lookup 'step res 1))
+                          (body (lookup 'body res nil)))
+                      `(let for-loop ((,var ,start))
+                         (if (< ,var ,end)
+                             (begin 
+                               ,@body
+                               (for-loop (+ ,var ,step)))
+                             nil)))))
+              (let ((k (car args)))
+                (cond
+                  ((eq? k 'from) (parse (cdr args) 'from res))
+                  ((eq? k 'to)   (parse (cdr args) 'to res))
+                  ((eq? k 'step) (parse (cdr args) 'step res))
+                  ((eq? k 'in)   (parse (cdr args) 'in res))
+                  ((eq? k 'do)   (parse (cdr args) 'do res))
+                  (t
+                   (cond
+                     ((eq? state 'from) (parse (cdr args) nil (cons (cons 'from k) res)))
+                     ((eq? state 'to)   (parse (cdr args) nil (cons (cons 'to k) res)))
+                     ((eq? state 'step) (parse (cdr args) nil (cons (cons 'step k) res)))
+                     ((eq? state 'in)   (parse (cdr args) nil (cons (cons 'in k) res)))
+                     ((eq? state 'do)   (parse nil nil (cons (cons 'body (cons k (cdr args))) res)))
+                     (t (parse (cdr args) state res))))))))))
+
     (define + (let ((old+ +)) (lambda xs (foldl old+ 0 xs))))
     (define - (let ((old- -)) (lambda (x . xs) (if xs (foldl old- x xs) (old- 0 x)))))
     (define * (let ((old* *)) (lambda xs (foldl old* 1 xs))))
@@ -126,7 +163,7 @@
         (apply for-each (append (list proc) (map cdr arg-lists)))))
 
     (define (list-ref x k) (car (list-tail x k)))
-    (define (list-tail x k) (if (zero? k) x (list-tail (cdr x) (- k 1))))
+    (define (list-tail x k) (if (= k 0) x (list-tail (cdr x) (- k 1))))
     (define (reverse list) (foldl (lambda (a x) (cons x a)) nil list))
 
     (define (list? x) (or (null? x) (and (pair? x) (list? (cdr x)))))

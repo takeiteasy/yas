@@ -5,6 +5,10 @@
     string? string-length string-ref string=? string-append string-byte-length
     ->string
     
+    ;; Format Helpers
+    number->string string-upcase string-downcase string-capitalize
+    make-string substring
+    
     ;; Keyword Operations
     keyword? keyword->string string->keyword
     

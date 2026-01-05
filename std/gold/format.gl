@@ -1,0 +1,332 @@
+;;; Gold Format Library
+;;; Common Lisp style format strings
+
+(define-library (gold format)
+  (import (gold base) (gold text) (gold math))
+  (export format)
+  (begin
+    ;; Main format function
+    ;; dest = nil: return string
+    ;; dest = t: print to stdout, return nil
+    (define (format dest control-string . args)
+      (let ((result (format-string control-string args)))
+        (if (eq? dest t)
+            (begin (print result) nil)
+            result)))
+
+    ;; Format a string with args
+    (define (format-string str args)
+      (let ((len (string-length str)))
+        (let loop ((pos 0) (args args) (out ""))
+          (if (>= pos len)
+              out
+              (let ((c (string-ref str pos)))
+                (if (not (char=? c #\~))
+                    (loop (+ pos 1) args (string-append out (->string c)))
+                    ;; Found ~, process directive
+                    (if (>= (+ pos 1) len)
+                        (string-append out "~")
+                        (let ((result (process-directive str (+ pos 1) len args)))
+                          (loop (car (cdr (cdr result)))
+                                (car (cdr result))
+                                (string-append out (car result)))))))))))
+
+    ;; Process directive at position, returns (output new-args new-pos)
+    (define (process-directive str pos len args)
+      ;; Parse modifiers
+      (let parse-mods ((pos pos) (colon? nil) (at? nil) (params '()))
+        (if (>= pos len)
+            (list "" args pos)
+            (let ((c (string-ref str pos)))
+              (cond
+                ;; Colon modifier
+                ((char=? c #\:)
+                 (parse-mods (+ pos 1) t at? params))
+                ;; At modifier
+                ((char=? c #\@)
+                 (parse-mods (+ pos 1) colon? t params))
+                ;; Number parameter
+                ((and (char>=? c #\0) (char<=? c #\9))
+                 (let ((num-end (parse-num str pos len)))
+                   (parse-mods (cdr num-end) colon? at? (cons (car num-end) params))))
+                ;; Comma separator
+                ((char=? c #\,)
+                 (parse-mods (+ pos 1) colon? at? params))
+                ;; Directive character
+                (t
+                 (handle-directive c (reverse params) colon? at? args (+ pos 1))))))))
+
+    ;; Parse number from string
+    (define (parse-num str pos len)
+      (let loop ((end pos) (n 0))
+        (if (>= end len)
+            (cons n end)
+            (let ((c (string-ref str end)))
+              (if (and (char>=? c #\0) (char<=? c #\9))
+                  (loop (+ end 1) (+ (* n 10) (- (char->integer c) 48)))
+                  (cons n end))))))
+
+    ;; Char helpers
+    (define (char>=? a b) (>= (char->integer a) (char->integer b)))
+    (define (char<=? a b) (<= (char->integer a) (char->integer b)))
+    (define (char-upcase c)
+      (if (and (char>=? c #\a) (char<=? c #\z))
+          (integer->char (- (char->integer c) 32))
+          c))
+
+    ;; List helper (workaround for base library bug with zero?)
+    (define (my-my-list-ref lst n)
+      (if (= n 0)
+          (car lst)
+          (my-my-list-ref (cdr lst) (- n 1))))
+
+    ;; Handle a specific directive
+    (define (handle-directive dir params colon? at? args new-pos)
+      (let ((d (char-upcase dir)))
+        (cond
+          ;; ~A - Aesthetic (display)
+          ((char=? d #\A)
+           (if (null? args)
+               (list "" args new-pos)
+               (let ((val (car args)))
+                 (list (if (string? val) val (->string val))
+                       (cdr args) new-pos))))
+
+          ;; ~S - S-expression (write with quotes for strings)
+          ((char=? d #\S)
+           (if (null? args)
+               (list "" args new-pos)
+               (let ((val (car args)))
+                 (list (if (string? val)
+                          (string-append "\"" val "\"")
+                          (->string val))
+                       (cdr args) new-pos))))
+
+          ;; ~D - Decimal
+          ((char=? d #\D)
+           (if (null? args)
+               (list "" args new-pos)
+               (let ((val (car args)))
+                 (let ((s (number->string val)))
+                   (let ((s2 (if (and at? (>= val 0)) (string-append "+" s) s)))
+                     (let ((s3 (if colon? (add-commas s2) s2)))
+                       (list (pad-num s3 params) (cdr args) new-pos)))))))
+
+          ;; ~X - Hexadecimal
+          ((char=? d #\X)
+           (if (null? args)
+               (list "" args new-pos)
+               (let ((val (car args)))
+                 (let ((s (number->string val 16)))
+                   (let ((s2 (if (and at? (>= val 0)) (string-append "+" s) s)))
+                     (list s2 (cdr args) new-pos))))))
+
+          ;; ~O - Octal
+          ((char=? d #\O)
+           (if (null? args)
+               (list "" args new-pos)
+               (let ((val (car args)))
+                 (let ((s (number->string val 8)))
+                   (let ((s2 (if (and at? (>= val 0)) (string-append "+" s) s)))
+                     (list s2 (cdr args) new-pos))))))
+
+          ;; ~B - Binary
+          ((char=? d #\B)
+           (if (null? args)
+               (list "" args new-pos)
+               (let ((val (car args)))
+                 (let ((s (number->string val 2)))
+                   (let ((s2 (if (and at? (>= val 0)) (string-append "+" s) s)))
+                     (list s2 (cdr args) new-pos))))))
+
+          ;; ~R - Radix (english or roman)
+          ((char=? d #\R)
+           (if (null? args)
+               (list "" args new-pos)
+               (let ((val (car args)))
+                 (list (cond
+                         ((not (null? params))
+                          (number->string val (car params)))
+                         ((and at? colon?)
+                          (format-roman val t))
+                         (at?
+                          (format-roman val nil))
+                         (colon?
+                          (format-ordinal val))
+                         (t
+                          (format-cardinal val)))
+                       (cdr args) new-pos))))
+
+          ;; ~C - Character
+          ((char=? d #\C)
+           (if (null? args)
+               (list "" args new-pos)
+               (let ((c (car args)))
+                 (list (cond
+                         (at? (string-append "#\\" (->string c)))
+                         (t (->string c)))
+                       (cdr args) new-pos))))
+
+          ;; ~P - Plural
+          ((char=? d #\P)
+           (let ((val (if (null? args) 1 (car args))))
+             (list (if (= val 1)
+                      (if at? "y" "")
+                      (if at? "ies" "s"))
+                   (if colon? args (cdr args))
+                   new-pos)))
+
+          ;; ~% - Newline
+          ((char=? d #\%)
+           (let ((count (if (null? params) 1 (car params))))
+             (list (make-string count #\newline) args new-pos)))
+
+          ;; ~& - Fresh line
+          ((char=? d #\&)
+           (let ((count (if (null? params) 1 (car params))))
+             (list (make-string count #\newline) args new-pos)))
+
+          ;; ~~ - Tilde
+          ((char=? d #\~)
+           (let ((count (if (null? params) 1 (car params))))
+             (list (make-string count #\~) args new-pos)))
+
+          ;; ~| - Page separator
+          ((char=? d #\|)
+           (let ((count (if (null? params) 1 (car params))))
+             (list (make-string count (integer->char 12)) args new-pos)))
+
+          ;; ~T - Tab
+          ((char=? d #\T)
+           (let ((count (if (null? params) 1 (car params))))
+             (list (make-string count #\space) args new-pos)))
+
+          ;; ~_ - Space
+          ((char=? d #\_)
+           (let ((count (if (null? params) 1 (car params))))
+             (list (make-string count #\space) args new-pos)))
+
+          ;; ~/ - Tab character
+          ((char=? d #\/)
+           (let ((count (if (null? params) 1 (car params))))
+             (list (make-string count #\tab) args new-pos)))
+
+          ;; ~* - Skip args
+          ((char=? d #\*)
+           (let ((count (if (null? params) 1 (car params))))
+             (if at?
+                 (list "" args count)  ;; Absolute positioning not implemented
+                 (let skip ((n count) (a args))
+                   (if (or (= n 0) (null? a))
+                       (list "" a new-pos)
+                       (skip (- n 1) (cdr a)))))))
+
+          ;; ~F - Fixed float (simplified)
+          ((char=? d #\F)
+           (if (null? args)
+               (list "" args new-pos)
+               (list (number->string (car args)) (cdr args) new-pos)))
+
+          ;; ~! - Flush (no-op)
+          ((char=? d #\!)
+           (list "" args new-pos))
+
+          ;; ~Q - Format info
+          ((char=? d #\Q)
+           (list (if colon? "Gold Format 1.0" "Gold Format") args new-pos))
+
+          ;; Unknown/unimplemented - output as-is
+          (t
+           (list (string-append "~" (->string dir)) args new-pos)))))
+
+    ;; Add commas to number string
+    (define (add-commas s)
+      (let ((neg? (if (> (string-length s) 0)
+                     (char=? (string-ref s 0) #\-)
+                     nil)))
+        (let ((digits (if neg? (substring s 1 (string-length s)) s)))
+          (let ((len (string-length digits)))
+            (if (<= len 3)
+                s
+                (let loop ((i (- len 1)) (count 0) (result ""))
+                  (if (< i 0)
+                      (if neg? (string-append "-" result) result)
+                      (let ((digit (->string (string-ref digits i))))
+                        (if (and (> count 0) (= 0 (modulo count 3)))
+                            (loop (- i 1) (+ count 1) (string-append digit "," result))
+                            (loop (- i 1) (+ count 1) (string-append digit result)))))))))))
+
+    ;; Pad number string
+    (define (pad-num s params)
+      (if (null? params)
+          s
+          (let ((mincol (car params)))
+            (if (< (string-length s) mincol)
+                (string-append (make-string (- mincol (string-length s)) #\space) s)
+                s))))
+
+    ;; Roman numerals
+    (define (format-roman n old?)
+      (if (or (< n 1) (> n 3999))
+          (number->string n)
+          (string-append
+            (roman-thousands (my-quotient n 1000))
+            (roman-digit (modulo (my-quotient n 100) 10) "" "C" "CC" "CCC" "CD" "D" "DC" "DCC" "DCCC" "CM")
+            (roman-digit (modulo (my-quotient n 10) 10) "" "X" "XX" "XXX" "XL" "L" "LX" "LXX" "LXXX" "XC")
+            (roman-digit (modulo n 10) "" "I" "II" "III" "IV" "V" "VI" "VII" "VIII" "IX"))))
+
+    (define (roman-thousands n)
+      (cond ((= n 0) "") ((= n 1) "M") ((= n 2) "MM") (t "MMM")))
+
+    (define (roman-digit n d0 d1 d2 d3 d4 d5 d6 d7 d8 d9)
+      (cond ((= n 0) d0) ((= n 1) d1) ((= n 2) d2) ((= n 3) d3) ((= n 4) d4)
+            ((= n 5) d5) ((= n 6) d6) ((= n 7) d7) ((= n 8) d8) (t d9)))
+
+    ;; English cardinal
+    (define (format-cardinal n)
+      (cond
+        ((= n 0) "zero")
+        ((< n 0) (string-append "negative " (format-cardinal (- n))))
+        ((= n 1) "one") ((= n 2) "two") ((= n 3) "three") ((= n 4) "four")
+        ((= n 5) "five") ((= n 6) "six") ((= n 7) "seven") ((= n 8) "eight")
+        ((= n 9) "nine") ((= n 10) "ten") ((= n 11) "eleven") ((= n 12) "twelve")
+        ((= n 13) "thirteen") ((= n 14) "fourteen") ((= n 15) "fifteen")
+        ((= n 16) "sixteen") ((= n 17) "seventeen") ((= n 18) "eighteen")
+        ((= n 19) "nineteen")
+        ((< n 100)
+         (let ((tens-word (cond ((= (my-quotient n 10) 2) "twenty")
+                               ((= (my-quotient n 10) 3) "thirty")
+                               ((= (my-quotient n 10) 4) "forty")
+                               ((= (my-quotient n 10) 5) "fifty")
+                               ((= (my-quotient n 10) 6) "sixty")
+                               ((= (my-quotient n 10) 7) "seventy")
+                               ((= (my-quotient n 10) 8) "eighty")
+                               (t "ninety"))))
+           (let ((ones (modulo n 10)))
+             (if (= ones 0)
+                 tens-word
+                 (string-append tens-word "-" (format-cardinal ones))))))
+        ((< n 1000)
+         (let ((h (my-quotient n 100)))
+           (let ((rest (modulo n 100)))
+             (if (= rest 0)
+                 (string-append (format-cardinal h) " hundred")
+                 (string-append (format-cardinal h) " hundred " (format-cardinal rest))))))
+        (t (number->string n))))
+
+    ;; English ordinal
+    (define (format-ordinal n)
+      (cond
+        ((= n 1) "first")
+        ((= n 2) "second")
+        ((= n 3) "third")
+        (t (string-append (format-cardinal n) "th"))))
+
+    ;; Integer quotient
+    (define (my-quotient a b)
+      (if (< a 0)
+          (- 0 (my-quotient (- a) b))
+          (let loop ((n 0))
+            (if (< (- a (* n b)) b)
+                n
+                (loop (+ n 1))))))))

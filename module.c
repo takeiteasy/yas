@@ -174,6 +174,14 @@ void load_text_library(void) {
 	reg_builtin(env, exports, "STRING-APPEND", builtin_string_append);
 	reg_builtin(env, exports, "->STRING", builtin_tostring);
 	
+	/* Format helper builtins */
+	reg_builtin(env, exports, "NUMBER->STRING", builtin_number_to_string);
+	reg_builtin(env, exports, "STRING-UPCASE", builtin_string_upcase);
+	reg_builtin(env, exports, "STRING-DOWNCASE", builtin_string_downcase);
+	reg_builtin(env, exports, "STRING-CAPITALIZE", builtin_string_capitalize);
+	reg_builtin(env, exports, "MAKE-STRING", builtin_make_string);
+	reg_builtin(env, exports, "SUBSTRING", builtin_substring);
+	
 	reg_builtin(env, exports, "KEYWORD?", builtin_keywordp);
 	reg_builtin(env, exports, "KEYWORD->STRING", builtin_keyword_to_string);
 	reg_builtin(env, exports, "STRING->KEYWORD", builtin_string_to_keyword);

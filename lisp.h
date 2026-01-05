@@ -476,6 +476,14 @@ int builtin_get_search_paths(Atom args, Atom *result);
 int builtin_set_search_paths(Atom args, Atom *result);
 int builtin_add_search_path(Atom args, Atom *result);
 
+/* Format helper builtins */
+int builtin_number_to_string(Atom args, Atom *result);
+int builtin_string_upcase(Atom args, Atom *result);
+int builtin_string_downcase(Atom args, Atom *result);
+int builtin_string_capitalize(Atom args, Atom *result);
+int builtin_make_string(Atom args, Atom *result);
+int builtin_substring(Atom args, Atom *result);
+
 /* ============================================================
  * FFI (Foreign Function Interface) - Optional
  * ============================================================ */
@@ -526,5 +534,10 @@ int builtin_ffi_nullp(Atom args, Atom *result);
 void load_ffi_library(void);
 
 #endif /* GOLD_FFI */
+
+/* Global roots for GC */
+extern Atom library_registry;
+extern Atom global_search_paths;
+extern Atom global_features;
 
 #endif /* GOLD_LISP_H */

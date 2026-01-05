@@ -184,6 +184,7 @@ void error_print(ErrorContext *err);
 /* PRINTER */
 
 void print_expr(Atom atom);
+char *sprint_expr(Atom atom);
 
 /* Exceptions */
 extern Atom ctx_exception;
@@ -306,6 +307,7 @@ int builtin_mat4_inverse(Atom args, Atom *result);
 
 /* Output builtins */
 int builtin_print(Atom args, Atom *result);
+int builtin_tostring(Atom args, Atom *result);
 
 /* File I/O */
 char *slurp(const char *path);
@@ -315,6 +317,7 @@ extern const char *current_file_path;
 
 /* Global features list for platform/feature detection */
 extern Atom global_features;
+extern Atom global_search_paths;
 void init_features(void);
 int has_feature(const char *name);
 
@@ -467,6 +470,11 @@ const char *utf8_index_ptr(const char *s, size_t index);
 /* Serialization */
 int builtin_serialize(Atom args, Atom *result);
 int builtin_deserialize(Atom args, Atom *result);
+
+/* Search paths */
+int builtin_get_search_paths(Atom args, Atom *result);
+int builtin_set_search_paths(Atom args, Atom *result);
+int builtin_add_search_path(Atom args, Atom *result);
 
 /* ============================================================
  * FFI (Foreign Function Interface) - Optional

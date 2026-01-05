@@ -154,6 +154,25 @@ static int parse_simple(const char *start, const char *end, Atom *result,
 		(start[0] == '.' && end - start > 1 && isdigit(start[1]));
 
 	if (is_number) {
+		/* Check for hex (0x) or binary (0b) prefix */
+		if (start[0] == '0' && end - start > 2) {
+			if (start[1] == 'x' || start[1] == 'X') {
+				long val = strtol(start + 2, &p, 16);
+				if (p == end) {
+					result->type = AtomType_Integer;
+					result->value.integer = val;
+					return Error_OK;
+				}
+			} else if (start[1] == 'b' || start[1] == 'B') {
+				long val = strtol(start + 2, &p, 2);
+				if (p == end) {
+					result->type = AtomType_Integer;
+					result->value.integer = val;
+					return Error_OK;
+				}
+			}
+		}
+
 		/* Check if it's a float (contains .) */
 		int has_dot = 0;
 		for (const char *c = start; c < end; c++) {
@@ -321,48 +340,180 @@ static int read_expr_internal(const char *input, const char **end, Atom *result,
 		}
 		return e;
 	} else if (token[0] == '"') {
-		/* String literal */
+		/* String literal with interpolation support: "Hello {{name}}" */
 		const char *str_start = *end;
 		const char *p = str_start;
-		size_t len = 0;
 		
-		/* Count length and find end */
+		/* First pass: check if there's any interpolation */
+		int has_interp = 0;
 		while (*p && *p != '"') {
-			if (*p == '\\' && p[1]) p++;
-			p++;
-			len++;
+			if (*p == '\\' && p[1]) {
+				p += 2;
+			} else if (p[0] == '{' && p[1] == '{') {
+				has_interp = 1;
+				break;
+			} else {
+				p++;
+			}
 		}
-		if (!*p) {
+		
+		if (!has_interp) {
+			/* Simple string - no interpolation */
+			p = str_start;
+			size_t len = 0;
+			while (*p && *p != '"') {
+				if (*p == '\\' && p[1]) p++;
+				p++;
+				len++;
+			}
+			if (!*p) {
+				set_error(err, Error_Syntax, source, token, filename,
+				          "Unterminated string");
+				return Error_Syntax;
+			}
+			
+			char *buf = malloc(len + 1);
+			char *dst = buf;
+			p = str_start;
+			while (*p != '"') {
+				if (*p == '\\') {
+					p++;
+					switch (*p) {
+					case 'n': *dst++ = '\n'; break;
+					case 't': *dst++ = '\t'; break;
+					case 'r': *dst++ = '\r'; break;
+					case '\\': *dst++ = '\\'; break;
+					case '"': *dst++ = '"'; break;
+					default: *dst++ = *p; break;
+					}
+				} else {
+					*dst++ = *p;
+				}
+				p++;
+			}
+			*dst = '\0';
+			*end = p + 1;
+			
+			result->type = AtomType_String;
+			result->value.string = buf;
+			return Error_OK;
+		}
+		
+		/* Has interpolation - build (string-append ...) form */
+		Atom parts = nil;
+		Atom parts_tail = nil;
+		p = str_start;
+		
+		while (*p && *p != '"') {
+			if (p[0] == '{' && p[1] == '{') {
+				/* Interpolation - parse expression */
+				const char *expr_start = p + 2;
+				const char *expr_end = expr_start;
+				int depth = 1;
+				
+				/* Find matching }} */
+				while (*expr_end && depth > 0) {
+					if (expr_end[0] == '{' && expr_end[1] == '{') {
+						depth++;
+						expr_end += 2;
+					} else if (expr_end[0] == '}' && expr_end[1] == '}') {
+						depth--;
+						if (depth > 0) expr_end += 2;
+					} else {
+						expr_end++;
+					}
+				}
+				
+				if (depth != 0) {
+					set_error(err, Error_Syntax, source, p, filename,
+					          "Unterminated interpolation - missing }}");
+					return Error_Syntax;
+				}
+				
+				/* Parse the expression */
+				Atom expr;
+				const char *parse_end;
+				e = read_expr_internal(expr_start, &parse_end, &expr, source, filename, err);
+				if (e) return e;
+				
+				/* Wrap in (->string expr) */
+				Atom tostr_call = cons(make_sym("->STRING"), cons(expr, nil));
+				
+				/* Add to parts list */
+				Atom new_cell = cons(tostr_call, nil);
+				if (nilp(parts)) {
+					parts = new_cell;
+					parts_tail = new_cell;
+				} else {
+					cdr(parts_tail) = new_cell;
+					parts_tail = new_cell;
+				}
+				
+				p = expr_end + 2;  /* Skip }} */
+			} else {
+				/* Literal string segment */
+				const char *seg_start = p;
+				size_t seg_len = 0;
+				
+				/* Scan until {{ or end of string */
+				while (*p && *p != '"' && !(p[0] == '{' && p[1] == '{')) {
+					if (*p == '\\' && p[1]) {
+						p += 2;
+						seg_len++;
+					} else {
+						p++;
+						seg_len++;
+					}
+				}
+				
+				if (seg_len > 0) {
+					/* Build the string segment */
+					char *seg_buf = malloc(seg_len + 1);
+					char *dst = seg_buf;
+					const char *sp = seg_start;
+					while (sp < p) {
+						if (*sp == '\\') {
+							sp++;
+							switch (*sp) {
+							case 'n': *dst++ = '\n'; break;
+							case 't': *dst++ = '\t'; break;
+							case 'r': *dst++ = '\r'; break;
+							case '\\': *dst++ = '\\'; break;
+							case '"': *dst++ = '"'; break;
+							default: *dst++ = *sp; break;
+							}
+						} else {
+							*dst++ = *sp;
+						}
+						sp++;
+					}
+					*dst = '\0';
+					
+					Atom str_atom = make_string(seg_buf);
+					free(seg_buf);
+					
+					Atom new_cell = cons(str_atom, nil);
+					if (nilp(parts)) {
+						parts = new_cell;
+						parts_tail = new_cell;
+					} else {
+						cdr(parts_tail) = new_cell;
+						parts_tail = new_cell;
+					}
+				}
+			}
+		}
+		
+		if (*p != '"') {
 			set_error(err, Error_Syntax, source, token, filename,
 			          "Unterminated string");
 			return Error_Syntax;
 		}
 		
-		/* Build string with escape handling */
-		char *buf = malloc(len + 1);
-		char *dst = buf;
-		p = str_start;
-		while (*p != '"') {
-			if (*p == '\\') {
-				p++;
-				switch (*p) {
-				case 'n': *dst++ = '\n'; break;
-				case 't': *dst++ = '\t'; break;
-				case 'r': *dst++ = '\r'; break;
-				case '\\': *dst++ = '\\'; break;
-				case '"': *dst++ = '"'; break;
-				default: *dst++ = *p; break;
-				}
-			} else {
-				*dst++ = *p;
-			}
-			p++;
-		}
-		*dst = '\0';
 		*end = p + 1;  /* Skip closing quote */
 		
-		result->type = AtomType_String;
-		result->value.string = buf;
+		/* Build (string-append part1 part2 ...) */
+		*result = cons(make_sym("STRING-APPEND"), parts);
 		return Error_OK;
 	} else if (token[0] == '#' && token[1] == '(') {
 		/* Vector literal #(1 2 3) */

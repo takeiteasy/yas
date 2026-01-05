@@ -5,12 +5,8 @@
 
 Atom library_registry = { AtomType_Nil };
 
-/* Search paths */
-static const char *search_paths[] = {
-	"./lib",
-	".",
-	NULL
-};
+/* Search paths - modifiable at runtime via *search-paths* */
+Atom global_search_paths = { AtomType_Nil };
 
 /* Forward declarations */
 static Atom make_library(Atom name);
@@ -118,6 +114,11 @@ void load_base_library(void) {
 	
 	/* Global features list */
 	reg_sym(env, exports, "*FEATURES*", global_features);
+	
+	/* Search path management */
+	reg_builtin(env, exports, "GET-SEARCH-PATHS", builtin_get_search_paths);
+	reg_builtin(env, exports, "SET-SEARCH-PATHS!", builtin_set_search_paths);
+	reg_builtin(env, exports, "ADD-SEARCH-PATH!", builtin_add_search_path);
 }
 
 void load_hash_library(void) {
@@ -171,6 +172,7 @@ void load_text_library(void) {
 	reg_builtin(env, exports, "STRING-BYTE-LENGTH", builtin_string_byte_length);
 	reg_builtin(env, exports, "STRING-LENGTH", builtin_string_length);
 	reg_builtin(env, exports, "STRING-APPEND", builtin_string_append);
+	reg_builtin(env, exports, "->STRING", builtin_tostring);
 	
 	reg_builtin(env, exports, "KEYWORD?", builtin_keywordp);
 	reg_builtin(env, exports, "KEYWORD->STRING", builtin_keyword_to_string);
@@ -276,6 +278,13 @@ static const NativeModule native_modules[] = {
 void load_all_modules(void)
 {
 	if (nilp(library_registry)) library_registry = make_hash();
+	
+	/* Initialize default search paths if not set */
+	if (nilp(global_search_paths)) {
+		global_search_paths = cons(make_string("./lib"), 
+		                           cons(make_string("."), nil));
+	}
+	
 	for (int i = 0; native_modules[i].name; i++)
 		native_modules[i].loader();
 }
@@ -316,16 +325,19 @@ char *library_name_to_string(Atom name)
 static char *find_library_file(const char *lib_path)
 {
 	char *full_path = malloc(1024);
-	const char **dir = search_paths;
+	Atom paths = global_search_paths;
 	
-	while (*dir) {
-		sprintf(full_path, "%s/%s.gl", *dir, lib_path);
-		FILE *f = fopen(full_path, "r");
-		if (f) {
-			fclose(f);
-			return full_path;
+	while (!nilp(paths)) {
+		Atom dir = car(paths);
+		if (dir.type == AtomType_String) {
+			sprintf(full_path, "%s/%s.gl", dir.value.string, lib_path);
+			FILE *f = fopen(full_path, "r");
+			if (f) {
+				fclose(f);
+				return full_path;
+			}
 		}
-		dir++;
+		paths = cdr(paths);
 	}
 	
 	free(full_path);
@@ -349,6 +361,12 @@ Atom library_load(Atom name_parts)
 	if (!key_str) return nil;
 	
 	if (nilp(library_registry)) library_registry = make_hash();
+	
+	/* Initialize default search paths if not set */
+	if (nilp(global_search_paths)) {
+		global_search_paths = cons(make_string("./lib"), 
+		                           cons(make_string("."), nil));
+	}
 	
 	Atom key = make_string(key_str);
 	Atom lib = hash_ref(library_registry, key, nil);

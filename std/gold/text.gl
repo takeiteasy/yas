@@ -3,6 +3,7 @@
   (export
     ;; String Operations
     string? string-length string-ref string=? string-append string-byte-length
+    ->string
     
     ;; Keyword Operations
     keyword? keyword->string string->keyword

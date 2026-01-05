@@ -255,14 +255,14 @@ Atom get_metamethod(Atom hash, const char *name)
 	struct Hash *h = hash.value.hash;
 	if (!h->metatable) return nil;
 	
-	/* Build symbol name with ~ prefix (uppercase to match reader) */
-	char sym_name[64];
-	snprintf(sym_name, sizeof(sym_name), "~%s", name);
+	/* Use keyword for metamethod lookup (uppercase to match reader) */
+	char kw_name[64];
+	snprintf(kw_name, sizeof(kw_name), "%s", name);
 	/* Convert to uppercase */
-	for (char *p = sym_name; *p; p++) {
+	for (char *p = kw_name; *p; p++) {
 		if (*p >= 'a' && *p <= 'z') *p -= 32;
 	}
-	Atom key = make_sym(sym_name);
+	Atom key = make_keyword(kw_name);
 	
 	/* Look up in metatable */
 	Atom mt;

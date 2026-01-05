@@ -61,21 +61,21 @@
     (hash-set! h 'val 10)
     (set-metatable! h mt)
 
-    ;; Test ~add operator
-    (hash-set! mt '~add (lambda (self other) 
+    ;; Test :add operator
+    (hash-set! mt :add (lambda (self other) 
                             (+ (hash-ref self 'val) other)))
     (check (+ h 5) 15)
 
-    ;; Test ~call
-    (hash-set! mt '~call (lambda (self . args)
+    ;; Test :call
+    (hash-set! mt :call (lambda (self . args)
                             (cons 'called args)))
     (check (h 1 2) '(called 1 2))
     
-    ;; Remove ~call to test ~missing (otherwise ~call takes precedence)
-    (hash-remove! mt '~call) 
+    ;; Remove :call to test :missing (otherwise :call takes precedence)
+    (hash-remove! mt :call) 
 
-    ;; Test ~missing
-    (hash-set! mt '~missing (lambda (self key)
+    ;; Test :missing
+    (hash-set! mt :missing (lambda (self key)
                                (list 'missing key)))
     (check (h 'unknown) '(missing (unknown)))))
 
@@ -197,6 +197,87 @@
     (check (mat4? (mat4* id id)) t)
     (check (mat4? (mat4-inverse id)) t)))
 
+;; Binary and Hex Literals
+(test "Numeric Literals"
+  (check 0xFF 255)
+  (check 0b1010 10)
+  (check 0x10 16)
+  (check 0B11 3)
+  (check 0XFF 255))
+
+;; Loop Macros
+(test "Loop Macros"
+  (let ((sum 0))
+    (dotimes (i 5) (set! sum (+ sum i)))
+    (check sum 10))  ;; 0+1+2+3+4
+  (let ((result nil))
+    (dolist (x '(a b c)) (set! result (cons x result)))
+    (check result '(c b a)))
+  (let ((n 0))
+    (while (< n 3) (set! n (+ n 1)))
+    (check n 3)))
+
+;; Serialization (from serialization_test.gl)
+(test "Serialization"
+  (check (serialize 123) "123")
+  (check (serialize 3.5) "3.5") 
+  (check (serialize "hello") "\"hello\"")
+  (check (serialize :key) ":KEY")
+  (check (serialize 'sym) "SYM")
+  (check (serialize t) "T")
+  (check (serialize nil) "nil")
+  (check (serialize #(1 2)) "#(1 2)")
+  (check (serialize '(1 2)) "#(1 2)"))
+
+(test "Deserialization"
+  (check (deserialize "123") 123)
+  (check (deserialize "\"hello\"") "hello")
+  (check (deserialize ":key") :KEY)
+  (check (deserialize "#(1 2)") #(1 2))
+  (let ((h (deserialize "(:k 1)")))
+    (check (hash? h) t)
+    (check (hash-ref h :k) 1)))
+
+;; Keywords (from keyword_test.gl)
+(test "Keywords"
+  (check (keyword? :foo) t)
+  (check (keyword? 'foo) nil)
+  (check (keyword->string :hello) "HELLO")
+  (check (string->keyword "world") :WORLD)
+  (check (eq? :same :same) t)
+  (check (eq? :foo :bar) nil))
+
+;; UTF-8 (from utf8_test.gl)
+(test "UTF-8 Characters"
+  (check (char? #\a) t)
+  (check (char? "a") nil)
+  (check (char->integer #\a) 97)
+  (check (char->integer #\newline) 10)
+  (check (char=? #\a #\a) t)
+  (check (char<? #\a #\b) t)
+  (check (char=? (integer->char 65) #\A) t))
+
+(test "UTF-8 Strings"
+  (check (string-length "hello") 5)
+  (check (string-length "日本語") 3)
+  (check (string-length "λ") 1)
+  (check (string-length "café") 4)
+  (check (char=? (string-ref "hello" 0) #\h) t)
+  (check (string-byte-length "hello") 5)
+  (check (string-byte-length "日本語") 9)
+  (check (string-byte-length "λ") 2))
+
+;; Default Arguments (from default_args_test.gl)
+(test "Default Arguments"
+  (define (greet name (greeting "Hello"))
+    (string-append greeting ", " name))
+  (check (greet "World") "Hello, World")
+  (check (greet "World" "Hi") "Hi, World"))
+
+(test "Keyword Arguments"
+  (define (make-point x y :color (color "black"))
+    (list x y color))
+  (check (make-point 10 20) '(10 20 "black"))
+  (check (make-point 10 20 :color "red") '(10 20 "red")))
+
 (run-tests)
-
-

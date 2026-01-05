@@ -9,6 +9,7 @@
     + - * / = < <= > >=
     for-each list-ref list-tail reverse list? not null?
     macroexpand
+    dotimes dolist while
     *features*)
   (begin
     (define (caar x) (car (car x)))
@@ -82,6 +83,33 @@
 
     (defmacro (assert condition . args)
       `(unless ,condition (error ,(if args (car args) "Assertion failed"))))
+
+    ;; Loop macros
+    (defmacro (dotimes spec . body)
+      (let ((var (car spec))
+            (count (cadr spec))
+            (result (if (cddr spec) (car (cddr spec)) nil)))
+        `(let dotimes-loop ((,var 0))
+           (if (< ,var ,count)
+               (begin ,@body (dotimes-loop (+ ,var 1)))
+               ,result))))
+
+    (defmacro (dolist spec . body)
+      (let ((var (car spec))
+            (lst (cadr spec))
+            (result (if (cddr spec) (car (cddr spec)) nil)))
+        `(let dolist-loop ((dolist-rest ,lst))
+           (if dolist-rest
+               (let ((,var (car dolist-rest)))
+                 ,@body
+                 (dolist-loop (cdr dolist-rest)))
+               ,result))))
+
+    (defmacro (while test . body)
+      `(let while-loop ()
+         (when ,test
+           ,@body
+           (while-loop))))
 
     (define + (let ((old+ +)) (lambda xs (foldl old+ 0 xs))))
     (define - (let ((old- -)) (lambda (x . xs) (if xs (foldl old- x xs) (old- 0 x)))))

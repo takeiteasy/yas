@@ -1,0 +1,445 @@
+;; Gold CFFI - Automatic FFI bindings generator
+;;
+;; This library provides Lua FFI-style functionality for Gold:
+;; - Parse C headers at runtime
+;; - Automatically generate FFI bindings for functions, structs, enums
+;;
+;; Usage:
+;;   (import (gold cffi))
+;;   (define libc (cffi-open "libc.dylib"))
+;;   (cffi-cdef libc "int puts(const char *s);")
+;;   (cffi-call libc "puts" "Hello!")
+
+(define-library (gold cffi)
+  (export
+    ;; Core API
+    cffi-init
+    cffi-destroy
+    cffi-add-include
+    cffi-add-system-include
+    cffi-define
+    cffi-parse-string
+    cffi-parse-file
+    cffi-error
+    
+    ;; High-level API
+    cffi-open
+    cffi-cdef
+    cffi-header
+    cffi-call
+    
+    ;; Type utilities
+    cffi-sizeof
+    cffi-alignof
+    
+    ;; Memory management
+    cffi-malloc
+    cffi-free
+    cffi-new
+    
+    ;; Struct accessors
+    cffi-ref
+    cffi-set!
+    
+    ;; Re-export FFI primitives
+    ffi-open ffi-close ffi-lookup
+    ffi-define ffi-call
+    ffi-malloc ffi-free
+    ffi-pointer-ref ffi-pointer-set!
+    ffi-null ffi-null?
+    
+    ;; Library extension helper
+    library-extension)
+  
+  (import (gold base)
+          (gold hash)
+          (gold ffi))
+  
+  (begin
+    ;; ================================================================
+    ;; Platform detection
+    ;; ================================================================
+
+    (define (library-extension)
+      #+macos ".dylib"
+      #+windows ".dll"
+      #-(or macos windows) ".so")
+
+    ;; ================================================================
+    ;; Low-level bridge to libgold-cffi
+    ;; ================================================================
+
+    ;; Load our bridge library
+    (define *cffi-lib*
+      (ffi-open #+macos "./libgold-cffi.dylib"
+                #+linux "./libgold-cffi.so"
+                #+windows "./libgold-cffi.dll"
+                #-(or macos linux windows) "./libgold-cffi.so"))
+    
+    ;; Bind C functions from libgold-cffi
+    (define %gcffi-init
+      (let ((fn (ffi-define (ffi-lookup *cffi-lib* "gcffi_init") :POINTER '())))
+        (lambda () (ffi-call fn))))
+    
+    (define %gcffi-destroy
+      (let ((fn (ffi-define (ffi-lookup *cffi-lib* "gcffi_destroy") :VOID '(:POINTER))))
+        (lambda (ctx) (ffi-call fn ctx))))
+    
+    (define %gcffi-add-include
+      (let ((fn (ffi-define (ffi-lookup *cffi-lib* "gcffi_add_include") :VOID '(:POINTER :STRING))))
+        (lambda (ctx path) (ffi-call fn ctx path))))
+    
+    (define %gcffi-add-system-include
+      (let ((fn (ffi-define (ffi-lookup *cffi-lib* "gcffi_add_system_include") :VOID '(:POINTER :STRING))))
+        (lambda (ctx path) (ffi-call fn ctx path))))
+    
+    (define %gcffi-define
+      (let ((fn (ffi-define (ffi-lookup *cffi-lib* "gcffi_define") :VOID '(:POINTER :STRING :STRING))))
+        (lambda (ctx name value) (ffi-call fn ctx name value))))
+    
+    (define %gcffi-parse-string
+      (let ((fn (ffi-define (ffi-lookup *cffi-lib* "gcffi_parse_string") :STRING '(:POINTER :STRING :STRING))))
+        (lambda (ctx code filename) (ffi-call fn ctx code filename))))
+    
+    (define %gcffi-parse-file
+      (let ((fn (ffi-define (ffi-lookup *cffi-lib* "gcffi_parse_file") :STRING '(:POINTER :STRING))))
+        (lambda (ctx path) (ffi-call fn ctx path))))
+    
+    (define %gcffi-get-error
+      (let ((fn (ffi-define (ffi-lookup *cffi-lib* "gcffi_get_error") :STRING '(:POINTER))))
+        (lambda (ctx) (ffi-call fn ctx))))
+    
+    ;; ================================================================
+    ;; Parser context management
+    ;; ================================================================
+    
+    (define (cffi-init)
+      "Create a new CFFI parser context"
+      (%gcffi-init))
+    
+    (define (cffi-destroy ctx)
+      "Destroy a CFFI parser context"
+      (%gcffi-destroy ctx))
+    
+    (define (cffi-add-include ctx path)
+      "Add a directory to the include search path"
+      (%gcffi-add-include ctx path))
+    
+    (define (cffi-add-system-include ctx path)
+      "Add a directory to the system include search path"
+      (%gcffi-add-system-include ctx path))
+    
+    (define (cffi-define ctx name . value)
+      "Define a preprocessor macro"
+      (%gcffi-define ctx name (if value (car value) "")))
+    
+    (define (cffi-parse-string ctx code . filename)
+      "Parse C code from a string, returns parsed declarations"
+      (let ((result (%gcffi-parse-string ctx code (if filename (car filename) "<cffi>"))))
+        (if result
+            (read-string result)
+            nil)))
+    
+    (define (cffi-parse-file ctx path)
+      "Parse a C header file, returns parsed declarations"
+      (let ((result (%gcffi-parse-file ctx path)))
+        (if result
+            (read-string result)
+            nil)))
+    
+    (define (cffi-error ctx)
+      "Get the last error message"
+      (%gcffi-get-error ctx))
+    
+    ;; ================================================================
+    ;; Type system
+    ;; ================================================================
+    
+    ;; Build type size table
+    (define *type-sizes* (make-hash))
+    (hash-set! *type-sizes* :VOID 0)
+    (hash-set! *type-sizes* :INT8 1)
+    (hash-set! *type-sizes* :UINT8 1)
+    (hash-set! *type-sizes* :INT16 2)
+    (hash-set! *type-sizes* :UINT16 2)
+    (hash-set! *type-sizes* :INT32 4)
+    (hash-set! *type-sizes* :UINT32 4)
+    (hash-set! *type-sizes* :INT64 8)
+    (hash-set! *type-sizes* :UINT64 8)
+    (hash-set! *type-sizes* :FLOAT 4)
+    (hash-set! *type-sizes* :DOUBLE 8)
+    (hash-set! *type-sizes* :POINTER 8)
+    (hash-set! *type-sizes* :STRING 8)
+    
+    ;; Build type alignment table (same as sizes for basic types)
+    (define *type-alignments* (make-hash))
+    (hash-set! *type-alignments* :VOID 1)
+    (hash-set! *type-alignments* :INT8 1)
+    (hash-set! *type-alignments* :UINT8 1)
+    (hash-set! *type-alignments* :INT16 2)
+    (hash-set! *type-alignments* :UINT16 2)
+    (hash-set! *type-alignments* :INT32 4)
+    (hash-set! *type-alignments* :UINT32 4)
+    (hash-set! *type-alignments* :INT64 8)
+    (hash-set! *type-alignments* :UINT64 8)
+    (hash-set! *type-alignments* :FLOAT 4)
+    (hash-set! *type-alignments* :DOUBLE 8)
+    (hash-set! *type-alignments* :POINTER 8)
+    (hash-set! *type-alignments* :STRING 8)
+    
+    (define (cffi-sizeof type)
+      "Get the size of a type in bytes"
+      (cond
+        ((keyword? type)
+         (hash-ref *type-sizes* type 0))
+        ((pair? type)
+         (let ((kind (car type)))
+           (cond
+             ((eq? kind :POINTER) 8)
+             ((eq? kind :ARRAY)
+              (* (cadr type) (cffi-sizeof (caddr type))))
+             (t 0))))
+        (t 0)))
+    
+    (define (cffi-alignof type)
+      "Get the alignment of a type in bytes"
+      (cond
+        ((keyword? type)
+         (hash-ref *type-alignments* type 1))
+        ((pair? type)
+         (let ((kind (car type)))
+           (cond
+             ((eq? kind :POINTER) 8)
+             ((eq? kind :ARRAY) (cffi-alignof (caddr type)))
+             (t 1))))
+        (t 1)))
+    
+    ;; ================================================================
+    ;; Library context - holds parsed declarations and FFI handles
+    ;; ================================================================
+    
+    (define (make-cffi-library lib-handle)
+      "Create a CFFI library context"
+      (let ((lib (make-hash)))
+        (hash-set! lib :handle lib-handle)
+        (hash-set! lib :parser (cffi-init))
+        (hash-set! lib :functions (make-hash))
+        (hash-set! lib :structs (make-hash))
+        (hash-set! lib :enums (make-hash))
+        (hash-set! lib :variables (make-hash))
+        lib))
+    
+    (define (cffi-open path)
+      "Open a shared library and create a CFFI context for it"
+      (let ((handle (ffi-open path)))
+        (if (ffi-null? handle)
+            (error "Failed to open library:" path)
+            (make-cffi-library handle))))
+    
+    ;; ================================================================
+    ;; Declaration processing
+    ;; ================================================================
+    
+    (define (process-function lib name ret-type param-types)
+      "Register a function binding"
+      (let* ((handle (hash-ref lib :handle))
+             (sym (ffi-lookup handle name)))
+        (when (not (ffi-null? sym))
+          (let* ((variadic? (and param-types
+                                 (let loop ((p param-types))
+                                   (cond
+                                     ((null? p) nil)
+                                     ((eq? (car p) :VARIADIC) t)
+                                     (t (loop (cdr p)))))))
+                 ;; Filter out :VARIADIC from param types
+                 (clean-params (if variadic?
+                                   (let loop ((p param-types) (acc nil))
+                                     (cond
+                                       ((null? p) (reverse acc))
+                                       ((eq? (car p) :VARIADIC) (loop (cdr p) acc))
+                                       (t (loop (cdr p) (cons (car p) acc)))))
+                                   param-types))
+                 (fn (ffi-define sym ret-type clean-params))
+                 (fn-info (make-hash)))
+            (hash-set! fn-info :ptr fn)
+            (hash-set! fn-info :ret-type ret-type)
+            (hash-set! fn-info :param-types clean-params)
+            (hash-set! fn-info :variadic variadic?)
+            (hash-set! (hash-ref lib :functions) name fn-info)))))
+    
+    (define (process-struct lib kind name size align members)
+      "Register a struct/union definition"
+      (let ((struct-info (make-hash))
+            (members-hash (make-hash)))
+        (hash-set! struct-info :kind kind)
+        (hash-set! struct-info :name name)
+        (hash-set! struct-info :size size)
+        (hash-set! struct-info :align align)
+        (hash-set! struct-info :members members-hash)
+        ;; Process members
+        (dolist (m members)
+          (let ((mname (car m))
+                (mtype (cadr m))
+                (moffset (caddr m))
+                (member-info (make-hash)))
+            (hash-set! member-info :type mtype)
+            (hash-set! member-info :offset moffset)
+            (hash-set! members-hash mname member-info)))
+        ;; Store in library
+        (hash-set! (hash-ref lib :structs) name struct-info)))
+    
+    (define (process-enum lib name size constants)
+      "Register an enum definition"
+      (let ((enum-info (make-hash))
+            (const-hash (make-hash)))
+        (hash-set! enum-info :name name)
+        (hash-set! enum-info :size size)
+        (hash-set! enum-info :constants const-hash)
+        (dolist (c constants)
+          (let ((cname (car c))
+                (cvalue (cadr c)))
+            (hash-set! const-hash cname cvalue)))
+        (hash-set! (hash-ref lib :enums) name enum-info)))
+    
+    (define (process-declarations lib decls)
+      "Process parsed declarations and register bindings"
+      (when (and decls (eq? (car decls) 'CFFI-DECLARATIONS))
+        (let ((sections (cdr decls)))
+          ;; Process each section
+          (dolist (section sections)
+            (let ((section-type (car section))
+                  (items (cdr section)))
+              (cond
+                ;; Functions
+                ((eq? section-type 'FUNCTIONS)
+                 (dolist (fn items)
+                   (let ((name (car fn))
+                         (ret-type (cadr fn))
+                         (param-types (caddr fn)))
+                     (process-function lib name ret-type param-types))))
+                
+                ;; Structs
+                ((eq? section-type 'STRUCTS)
+                 (dolist (s items)
+                   (let ((kind (car s))
+                         (name (cadr s))
+                         (size (caddr s))
+                         (align (car (cdddr s)))
+                         (members (cadr (cdddr s))))
+                     (process-struct lib kind name size align members))))
+                
+                ;; Enums
+                ((eq? section-type 'ENUMS)
+                 (dolist (e items)
+                   (let ((marker (car e))
+                         (name (cadr e))
+                         (size (caddr e))
+                         (constants (car (cdddr e))))
+                     (process-enum lib name size constants))))
+                
+                ;; Variables (TODO)
+                ((eq? section-type 'VARIABLES)
+                 nil)))))))
+    
+    ;; ================================================================
+    ;; High-level API
+    ;; ================================================================
+    
+    (define (cffi-cdef lib code)
+      "Parse C declarations and register bindings"
+      (let* ((parser (hash-ref lib :parser))
+             (decls (cffi-parse-string parser code)))
+        (if decls
+            (begin
+              (process-declarations lib decls)
+              t)
+            (begin
+              (print "CFFI parse error:" (cffi-error parser))
+              nil))))
+    
+    (define (cffi-header lib path . opts)
+      "Parse a C header file and register bindings"
+      (let ((parser (hash-ref lib :parser)))
+        ;; Process options
+        (let process-opts ((opts opts))
+          (when opts
+            (cond
+              ((eq? (car opts) :include-paths)
+               (dolist (p (cadr opts))
+                 (cffi-add-include parser p))
+               (process-opts (cddr opts)))
+              ((eq? (car opts) :system-include-paths)
+               (dolist (p (cadr opts))
+                 (cffi-add-system-include parser p))
+               (process-opts (cddr opts)))
+              ((eq? (car opts) :defines)
+               (dolist (d (cadr opts))
+                 (if (pair? d)
+                     (cffi-define parser (car d) (cadr d))
+                     (cffi-define parser d)))
+               (process-opts (cddr opts)))
+              (t (process-opts (cdr opts))))))
+        ;; Parse the header
+        (let ((decls (cffi-parse-file parser path)))
+          (if decls
+              (begin
+                (process-declarations lib decls)
+                t)
+              (begin
+                (print "CFFI parse error:" (cffi-error parser))
+                nil)))))
+    
+    ;; ================================================================
+    ;; Function calling
+    ;; ================================================================
+    
+    (define (cffi-call lib name . args)
+      "Call a function from a CFFI library"
+      (let ((fn-info (hash-ref (hash-ref lib :functions) name)))
+        (if fn-info
+            (apply ffi-call (cons (hash-ref fn-info :ptr) args))
+            (error "Function not found:" name))))
+    
+    ;; ================================================================
+    ;; Memory management
+    ;; ================================================================
+    
+    (define cffi-malloc ffi-malloc)
+    (define cffi-free ffi-free)
+    
+    (define (cffi-new lib type-name)
+      "Allocate memory for a struct type"
+      (let ((struct-info (hash-ref (hash-ref lib :structs) type-name)))
+        (if struct-info
+            (ffi-malloc (hash-ref struct-info :size))
+            (error "Struct not found:" type-name))))
+    
+    ;; ================================================================
+    ;; Struct field access
+    ;; ================================================================
+    
+    (define (cffi-ref lib ptr type-name field-name)
+      "Read a field from a struct pointer"
+      (let ((struct-info (hash-ref (hash-ref lib :structs) type-name)))
+        (if struct-info
+            (let ((member (hash-ref (hash-ref struct-info :members) field-name)))
+              (if member
+                  (let ((type (hash-ref member :type))
+                        (offset (hash-ref member :offset)))
+                    (ffi-pointer-ref ptr type offset))
+                  (error "Field not found:" field-name)))
+            (error "Struct not found:" type-name))))
+    
+    (define (cffi-set! lib ptr type-name field-name value)
+      "Write a field to a struct pointer"
+      (let ((struct-info (hash-ref (hash-ref lib :structs) type-name)))
+        (if struct-info
+            (let ((member (hash-ref (hash-ref struct-info :members) field-name)))
+              (if member
+                  (let ((type (hash-ref member :type))
+                        (offset (hash-ref member :offset)))
+                    (ffi-pointer-set! ptr type offset value))
+                  (error "Field not found:" field-name)))
+            (error "Struct not found:" type-name))))
+    
+    )) ;; end of library

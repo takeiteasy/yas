@@ -10,7 +10,8 @@ typedef enum {
 	Error_Unbound,
 	Error_Args,
 	Error_Type,
-	Error_Exception
+	Error_Exception,
+	Error_Skip  /* Used internally by reader to skip feature-excluded expressions */
 } Error;
 
 /* Reader position tracking */
@@ -280,6 +281,7 @@ int builtin_make_hash(Atom args, Atom *result);
 int builtin_hash_ref(Atom args, Atom *result);
 int builtin_hash_set(Atom args, Atom *result);
 int builtin_hash_remove(Atom args, Atom *result);
+int builtin_hash_keys(Atom args, Atom *result);
 
 /* Metatable builtins */
 int builtin_set_metatable(Atom args, Atom *result);
@@ -320,6 +322,7 @@ extern Atom global_features;
 extern Atom global_search_paths;
 void init_features(void);
 int has_feature(const char *name);
+int eval_feature_expr(Atom expr);
 
 /* Module system */
 extern Atom library_registry;
@@ -419,6 +422,8 @@ int builtin_write_bytes(Atom args, Atom *result);
 int builtin_newline(Atom args, Atom *result);
 int builtin_flush_port(Atom args, Atom *result);
 int builtin_file_exists(Atom args, Atom *result);
+int builtin_delete_file(Atom args, Atom *result);
+int builtin_rename_file(Atom args, Atom *result);
 
 /* Bytevector builtins */
 int builtin_make_bytevector(Atom args, Atom *result);
@@ -470,6 +475,7 @@ const char *utf8_index_ptr(const char *s, size_t index);
 /* Serialization */
 int builtin_serialize(Atom args, Atom *result);
 int builtin_deserialize(Atom args, Atom *result);
+int builtin_read_string(Atom args, Atom *result);
 
 /* Search paths */
 int builtin_get_search_paths(Atom args, Atom *result);

@@ -133,12 +133,14 @@ void load_hash_library(void) {
 	reg_builtin(env, exports, "HASH-REMOVE!", builtin_hash_remove);
 	reg_builtin(env, exports, "HASH-LENGTH", builtin_hash_length);
 	reg_builtin(env, exports, "HASH-JOIN", builtin_hash_join);
+	reg_builtin(env, exports, "HASH-KEYS", builtin_hash_keys);
 	
 	reg_builtin(env, exports, "SET-METATABLE!", builtin_set_metatable);
 	reg_builtin(env, exports, "GET-METATABLE", builtin_get_metatable);
 	
 	reg_builtin(env, exports, "SERIALIZE", builtin_serialize);
 	reg_builtin(env, exports, "DESERIALIZE", builtin_deserialize);
+	reg_builtin(env, exports, "READ-STRING", builtin_read_string);
 }
 
 void load_vector_library(void) {
@@ -211,6 +213,8 @@ void load_io_library(void) {
 	reg_builtin(env, exports, "NEWLINE", builtin_newline);
 	reg_builtin(env, exports, "FLUSH-PORT", builtin_flush_port);
 	reg_builtin(env, exports, "FILE-EXISTS?", builtin_file_exists);
+	reg_builtin(env, exports, "DELETE-FILE", builtin_delete_file);
+	reg_builtin(env, exports, "RENAME-FILE", builtin_rename_file);
 	
 	reg_builtin(env, exports, "MAKE-BYTEVECTOR", builtin_make_bytevector);
 	reg_builtin(env, exports, "BYTEVECTOR?", builtin_bytevectorp);

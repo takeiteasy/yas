@@ -4,18 +4,29 @@
     length
     append
     throw error print t
-    caar cadr cdar cddr foldl foldr list unary-map map
-    quasiquote and begin cond let or unless when assert
+    caar cadr cdar cddr caaar caadr cadar caddr cdaar cdadr cddar cdddr
+    foldl foldr list unary-map map
+    quasiquote and begin cond let let* or unless when assert
     + - * / = < <= > >=
     for-each list-ref list-tail reverse list? not null?
     macroexpand
     dotimes dolist while for
+    equal?
     *features*)
   (begin
     (define (caar x) (car (car x)))
     (define (cadr x) (car (cdr x)))
     (define (cdar x) (cdr (car x)))
     (define (cddr x) (cdr (cdr x)))
+    ;; Three-level accessors
+    (define (caaar x) (car (car (car x))))
+    (define (caadr x) (car (car (cdr x))))
+    (define (cadar x) (car (cdr (car x))))
+    (define (caddr x) (car (cdr (cdr x))))
+    (define (cdaar x) (cdr (car (car x))))
+    (define (cdadr x) (cdr (car (cdr x))))
+    (define (cddar x) (cdr (cdr (car x))))
+    (define (cdddr x) (cdr (cdr (cdr x))))
 
     (define (foldl proc init list)
       (if list
@@ -71,6 +82,13 @@
                `(let ((,name nil))
                   (set! ,name (lambda ,vars ,@body))
                   (,name ,@inits))))))
+
+    ;; let* - sequential bindings (each can reference previous)
+    (defmacro (let* bindings . body)
+      (if (null? bindings)
+          `(begin ,@body)
+          `(let (,(car bindings))
+             (let* ,(cdr bindings) ,@body))))
 
     (defmacro (or . terms)
       (if terms
@@ -165,6 +183,14 @@
     (define (list-ref x k) (car (list-tail x k)))
     (define (list-tail x k) (if (= k 0) x (list-tail (cdr x) (- k 1))))
     (define (reverse list) (foldl (lambda (a x) (cons x a)) nil list))
+
+    (define (equal? a b)
+      (cond
+        ((eq? a b) t)
+        ((and (pair? a) (pair? b))
+         (and (equal? (car a) (car b))
+              (equal? (cdr a) (cdr b))))
+        (t nil)))
 
     (define (list? x) (or (null? x) (and (pair? x) (list? (cdr x)))))
     (define (not x) (if x nil t))

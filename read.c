@@ -282,6 +282,10 @@ static int read_list(const char *start, const char **end, Atom *result,
 		}
 
 		e = read_expr(token, end, &item, err);
+		if (e == Error_Skip) {
+			/* Feature conditional excluded this expression, continue reading */
+			continue;
+		}
 		if (e)
 			return e;
 
@@ -639,34 +643,25 @@ static int read_expr_internal(const char *input, const char **end, Atom *result,
 		e = read_expr_internal(*end, end, &feature, source, filename, err);
 		if (e) return e;
 		
-		/* Check if feature is present */
-		int feature_present = 0;
-		/* Handle both bare symbol and (symbol) form */
-		Atom feature_sym = feature;
-		if (feature.type == AtomType_Pair && !nilp(feature) && nilp(cdr(feature))) {
-			/* Single-element list like (MACOS) */
-			feature_sym = car(feature);
-		}
-		if (feature_sym.type == AtomType_Symbol) {
-			feature_present = has_feature(feature_sym.value.symbol);
-		}
-		
+		/* Check if feature is present - supports compound expressions like (or macos linux) */
+		int feature_present = eval_feature_expr(feature);
+
 		/* Decide whether to include the following expression */
 		int include_expr = (include_if_present && feature_present) ||
 		                   (!include_if_present && !feature_present);
-		
-		/* Read the expression */
+
+		/* Read the expression (we must consume it either way) */
 		Atom expr;
 		e = read_expr_internal(*end, end, &expr, source, filename, err);
 		if (e) return e;
-		
+
 		if (include_expr) {
 			*result = expr;
+			return Error_OK;
 		} else {
-			/* Skip this expression, try to read the next one */
-			return read_expr_internal(*end, end, result, source, filename, err);
+			/* Signal to caller that this expression should be skipped */
+			return Error_Skip;
 		}
-		return Error_OK;
 	} else if (token[0] == '#' && token[1] == '\\') {
 		/* Character literal */
 		const char *start = token + 2;

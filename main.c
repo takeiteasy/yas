@@ -46,6 +46,10 @@ void load_file(Atom env, const char *path)
 			err.message[0] = '\0';
 
 			Error read_err = read_expr(p, &p, &expr, &err);
+			if (read_err == Error_Skip) {
+				/* Feature conditional excluded this expression, continue */
+				continue;
+			}
 			if (read_err) {
 				if (err.message[0] != '\0') {
 					/* Real error, not just end of file */
@@ -131,6 +135,11 @@ int main(int argc, char **argv)
 
 		read_err = read_expr(p, &p, &expr, &err);
 
+		if (read_err == Error_Skip) {
+			/* Feature conditional excluded this expression */
+			free(input);
+			continue;
+		}
 		if (read_err) {
 			error_print(&err);
 			free(input);
@@ -160,6 +169,9 @@ int main(int argc, char **argv)
 			printf("Uncaught exception: ");
 			print_expr(ctx_exception);
 			putchar('\n');
+			break;
+		case Error_Skip:
+			/* Should not reach here - handled earlier */
 			break;
 		}
 

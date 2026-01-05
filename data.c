@@ -689,3 +689,52 @@ int has_feature(const char *name)
 	return 0;
 }
 
+/* Evaluate compound feature expressions like (or macos linux), (and x y), (not x) */
+int eval_feature_expr(Atom expr)
+{
+	/* Simple symbol */
+	if (expr.type == AtomType_Symbol) {
+		return has_feature(expr.value.symbol);
+	}
+
+	/* Compound expression */
+	if (expr.type == AtomType_Pair && !nilp(expr)) {
+		Atom op = car(expr);
+		Atom args = cdr(expr);
+
+		if (op.type == AtomType_Symbol) {
+			/* (or ...) - true if any arg is true */
+			if (strcmp(op.value.symbol, "OR") == 0) {
+				while (!nilp(args)) {
+					if (eval_feature_expr(car(args)))
+						return 1;
+					args = cdr(args);
+				}
+				return 0;
+			}
+			/* (and ...) - true if all args are true */
+			if (strcmp(op.value.symbol, "AND") == 0) {
+				while (!nilp(args)) {
+					if (!eval_feature_expr(car(args)))
+						return 0;
+					args = cdr(args);
+				}
+				return 1;
+			}
+			/* (not x) - true if x is false */
+			if (strcmp(op.value.symbol, "NOT") == 0) {
+				if (!nilp(args)) {
+					return !eval_feature_expr(car(args));
+				}
+				return 0;
+			}
+			/* Single symbol in parens like (macos) */
+			if (nilp(args)) {
+				return has_feature(op.value.symbol);
+			}
+		}
+	}
+
+	return 0;
+}
+

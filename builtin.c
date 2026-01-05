@@ -912,6 +912,26 @@ int builtin_hash_remove(Atom args, Atom *result)
 	return Error_OK;
 }
 
+int builtin_hash_keys(Atom args, Atom *result)
+{
+	if (nilp(args) || !nilp(cdr(args)))
+		return raise_error("args-error", "hash-keys: expected 1 argument");
+	
+	Atom hash = car(args);
+	if (hash.type != AtomType_Hash)
+		return raise_error("type-error", "hash-keys: argument must be hash");
+	
+	Atom keys = nil;
+	struct Hash *h = hash.value.hash;
+	
+	for (size_t i = 0; i < h->size; i++) {
+		keys = cons(h->keys[i], keys);
+	}
+	
+	*result = keys;
+	return Error_OK;
+}
+
 int builtin_throw(Atom args, Atom *result)
 {
 	if (nilp(args) || !nilp(cdr(args)))
@@ -1230,6 +1250,32 @@ int builtin_deserialize(Atom args, Atom *result) {
 	} else {
 		/* Argument is already a structure (e.g. quoted list), just convert it */
 		*result = lisd_convert(arg);
+	}
+	
+	return Error_OK;
+}
+
+/* (read-string str) - Parse an S-expression from a string, returning raw result (no conversion) */
+int builtin_read_string(Atom args, Atom *result) {
+	if (nilp(args) || !nilp(cdr(args)))
+		return Error_Args;
+	
+	Atom arg = car(args);
+	
+	if (arg.type != AtomType_String) {
+		*result = nil;
+		return Error_Type;
+	}
+	
+	const char *input = arg.value.string;
+	const char *end = input + strlen(input);
+	ErrorContext err = {0};
+	
+	int status = read_expr(input, &end, result, &err);
+	
+	if (status != Error_OK) {
+		*result = nil;
+		return status;
 	}
 	
 	return Error_OK;
@@ -1638,6 +1684,40 @@ int builtin_file_exists(Atom args, Atom *result) {
 		*result = nil;
 	}
 	return Error_OK;
+}
+
+/* (delete-file path) */
+int builtin_delete_file(Atom args, Atom *result) {
+	if (nilp(args) || car(args).type != AtomType_String) {
+		return raise_error("type-error", "delete-file expects a string path");
+	}
+	
+	if (remove(car(args).value.string) == 0) {
+		*result = make_sym("T");
+		return Error_OK;
+	} else {
+		return raise_error("io-error", "could not delete file");
+	}
+}
+
+/* (rename-file old new) */
+int builtin_rename_file(Atom args, Atom *result) {
+	if (nilp(args) || car(args).type != AtomType_String) {
+		return raise_error("type-error", "rename-file expects a string source path");
+	}
+	if (nilp(cdr(args)) || car(cdr(args)).type != AtomType_String) {
+		return raise_error("type-error", "rename-file expects a string destination path");
+	}
+	
+	const char *old_path = car(args).value.string;
+	const char *new_path = car(cdr(args)).value.string;
+	
+	if (rename(old_path, new_path) == 0) {
+		*result = make_sym("T");
+		return Error_OK;
+	} else {
+		return raise_error("io-error", "could not rename file");
+	}
 }
 
 /* ============================================================

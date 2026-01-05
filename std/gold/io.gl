@@ -1,5 +1,5 @@
 (define-library (gold io)
-  (import (gold base))
+  (import (gold base) (gold text))
   (export 
     ;; Core port operations
     open-input-file open-output-file close-port
@@ -12,7 +12,8 @@
     write-char write-string write-byte write-bytes newline flush-port
     
     ;; File utilities
-    file-exists?
+    file-exists? delete-file rename-file copy-file
+    path-join path-dirname path-basename path-extension
     
     ;; Bytevector operations
     make-bytevector bytevector? bytevector-length
@@ -54,4 +55,47 @@
     (define (write-file path content)
       (call-with-output-file path 
         (lambda (port) 
-          (write-string content port))))))
+          (write-string content port))))
+
+    ;; File Operations
+    (define (copy-file src dst)
+      (call-with-input-file src
+        (lambda (in)
+          (call-with-output-file dst
+            (lambda (out)
+              (let loop ()
+                (let ((chunk (read-bytes in 4096)))
+                  (if (not (eq? chunk 'EOF))
+                      (begin
+                        (write-bytes chunk out)
+                        (loop))))))))))
+
+    ;; Path Utilities
+    (define (path-join . parts)
+      (string-join parts "/"))
+
+    (define (path-dirname path)
+      (let loop ((i (- (string-length path) 1)))
+        (if (< i 0)
+            "."
+            (if (string=? (substring path i (+ i 1)) "/")
+                (if (= i 0) "/" (substring path 0 i))
+                (loop (- i 1))))))
+
+    (define (path-basename path)
+      (let loop ((i (- (string-length path) 1)))
+        (if (< i 0)
+            path
+            (if (string=? (substring path i (+ i 1)) "/")
+                (substring path (+ i 1) (string-length path))
+                (loop (- i 1))))))
+
+    (define (path-extension path)
+      (let loop ((i (- (string-length path) 1)))
+        (if (< i 0)
+            ""
+            (if (string=? (substring path i (+ i 1)) ".")
+                (substring path i (string-length path))
+                (if (string=? (substring path i (+ i 1)) "/")
+                    ""
+                    (loop (- i 1)))))))))

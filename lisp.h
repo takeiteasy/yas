@@ -105,7 +105,8 @@ struct Atom {
 #ifdef GOLD_FFI
 		AtomType_FFILibrary,   /* dlopen handle */
 		AtomType_FFIPointer,   /* Raw C pointer */
-		AtomType_FFIFunction   /* Prepared ffi function */
+		AtomType_FFIFunction,  /* Prepared ffi function */
+		AtomType_FFIStruct     /* Struct instance (packed bytes) */
 #endif
 	} type;
 
@@ -128,6 +129,7 @@ struct Atom {
 		void *ffi_library;           /* dlopen handle */
 		void *ffi_pointer;           /* raw C pointer */
 		struct FFIFunction *ffi_fn;  /* prepared ffi function */
+		struct FFIStructInstance *ffi_struct; /* struct instance */
 #endif
 	} value;
 };
@@ -503,8 +505,42 @@ typedef enum {
 	GOLD_FFI_TYPE_INT32, GOLD_FFI_TYPE_UINT32,
 	GOLD_FFI_TYPE_INT64, GOLD_FFI_TYPE_UINT64,
 	GOLD_FFI_TYPE_FLOAT, GOLD_FFI_TYPE_DOUBLE,
-	GOLD_FFI_TYPE_POINTER, GOLD_FFI_TYPE_STRING
+	GOLD_FFI_TYPE_POINTER, GOLD_FFI_TYPE_STRING,
+	GOLD_FFI_TYPE_STRUCT   /* Struct by value */
 } GoldFFIType;
+
+/* Maximum fields per struct */
+#define FFI_STRUCT_MAX_FIELDS 32
+
+/* Struct field definition */
+typedef struct FFIStructField {
+	char *name;            /* Field name */
+	GoldFFIType type;      /* Field type */
+	size_t offset;         /* Byte offset in struct */
+} FFIStructField;
+
+/* Struct type definition (registered via ffi-defstruct) */
+typedef struct FFIStructType {
+	char *name;                                    /* Struct name (e.g., "Color") */
+	void *ffi_struct;                              /* ffi_type* for this struct */
+	void *elements[FFI_STRUCT_MAX_FIELDS + 1];     /* ffi_type** element array */
+	FFIStructField fields[FFI_STRUCT_MAX_FIELDS];  /* Field metadata */
+	int field_count;                               /* Number of fields */
+	size_t size;                                   /* Total size in bytes */
+	struct FFIStructType *next;                    /* Linked list for registry */
+} FFIStructType;
+
+/* Struct instance (created via make-ffi-struct) */
+typedef struct FFIStructInstance {
+	FFIStructType *type;   /* Pointer to struct type definition */
+	void *data;            /* Pointer to packed struct data */
+} FFIStructInstance;
+
+/* Global struct type registry */
+extern FFIStructType *ffi_struct_registry;
+
+/* Struct type lookup */
+FFIStructType *ffi_lookup_struct_type(const char *name);
 
 /* Forward declaration for ffi_cif */
 struct FFIFunction {
@@ -512,6 +548,8 @@ struct FFIFunction {
 	void *cif;              /* ffi_cif* (opaque) */
 	GoldFFIType ret_type;
 	GoldFFIType *arg_types;
+	void **ffi_arg_types;   /* ffi_type** for each arg (needed for structs) */
+	void *ffi_ret_type;     /* ffi_type* for return (needed for structs) */
 	int arg_count;
 };
 
@@ -535,6 +573,12 @@ int builtin_ffi_pointer_ref(Atom args, Atom *result);
 int builtin_ffi_pointer_set(Atom args, Atom *result);
 int builtin_ffi_null(Atom args, Atom *result);
 int builtin_ffi_nullp(Atom args, Atom *result);
+
+/* FFI struct builtins */
+int builtin_ffi_defstruct(Atom args, Atom *result);
+int builtin_ffi_make_struct(Atom args, Atom *result);
+int builtin_ffi_struct_ref(Atom args, Atom *result);
+int builtin_ffi_struct_set(Atom args, Atom *result);
 
 /* FFI module loader */
 void load_ffi_library(void);

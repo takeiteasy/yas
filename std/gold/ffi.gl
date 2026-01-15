@@ -1,33 +1,74 @@
 ;; Gold FFI - High-level interface
-;; 
+;;
 ;; This library provides convenient macros for FFI usage.
 ;; Use reader conditionals to check for FFI availability:
 ;;   #+ffi (import (gold ffi))
+;;
+;; NOTE: Native builtins (ffi-open, ffi-call, ffi-defstruct, etc.) are
+;; exported by the native module loader in module.c. This Scheme file
+;; only adds high-level helper functions.
 
 (define-library (gold ffi)
-  (export 
-    ;; High-level helpers
+  (export
+    ;; High-level helpers (defined in this file)
     library-extension
     define-foreign
-    ;; Re-export low-level primitives
-    ffi-open ffi-close ffi-lookup
-    ffi-define ffi-call
-    ffi-malloc ffi-free
-    ffi-pointer-ref ffi-pointer-set!
-    ffi-null ffi-null?)
-  
+    ffi-defstruct
+    make-ffi-struct
+    ffi-struct-ref
+    ffi-struct-set!)
+    ;; Note: Native FFI primitives are exported by the native module:
+    ;; ffi-open, ffi-close, ffi-lookup, ffi-define, ffi-call,
+    ;; ffi-malloc, ffi-free, ffi-pointer-ref, ffi-pointer-set!,
+    ;; ffi-null, ffi-null?, %ffi-defstruct, %make-ffi-struct,
+    ;; %ffi-struct-ref, %ffi-struct-set!
+
   (import (gold base))
-  
+
   (begin
     ;; Get the library file extension for the current platform
     (define (library-extension)
       #+macos ".dylib"
       #+windows ".dll"
       #-(or macos windows) ".so")
-    
+
+    ;; Macro: define a struct type for FFI
+    ;; Usage: (ffi-defstruct name (field-name type) ...)
+    ;;
+    ;; Example:
+    ;;   (ffi-defstruct Color (r :UINT8) (g :UINT8) (b :UINT8) (a :UINT8))
+    ;;   (ffi-defstruct Point (x :INT32) (y :INT32))
+    (defmacro (ffi-defstruct name . fields)
+      `(%ffi-defstruct ',name ',fields))
+
+    ;; Macro: create an instance of an FFI struct
+    ;; Usage: (make-ffi-struct type-name values...)
+    ;;
+    ;; Example:
+    ;;   (define white (make-ffi-struct Color 255 255 255 255))
+    ;;   (define p (make-ffi-struct Point 10 20))
+    (defmacro (make-ffi-struct type-name . values)
+      `(%make-ffi-struct ',type-name ,@values))
+
+    ;; Macro: read a field from an FFI struct
+    ;; Usage: (ffi-struct-ref struct field-name)
+    ;;
+    ;; Example:
+    ;;   (ffi-struct-ref p x)  ; => 10
+    (defmacro (ffi-struct-ref struct field-name)
+      `(%ffi-struct-ref ,struct ',field-name))
+
+    ;; Macro: set a field in an FFI struct
+    ;; Usage: (ffi-struct-set! struct field-name value)
+    ;;
+    ;; Example:
+    ;;   (ffi-struct-set! p x 100)
+    (defmacro (ffi-struct-set! struct field-name value)
+      `(%ffi-struct-set! ,struct ',field-name ,value))
+
     ;; Macro: define a foreign function as a Scheme procedure
     ;; Usage: (define-foreign name lib "c_symbol" :ret-type (:arg-types...))
-    ;; 
+    ;;
     ;; Example:
     ;;   (define libc (ffi-open "libc.dylib"))
     ;;   (define-foreign strlen libc "strlen" :uint64 (:pointer))

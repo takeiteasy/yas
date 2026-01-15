@@ -61,10 +61,26 @@ void load_file(Atom env, const char *path)
 			Atom result;
 			Error eval_err = eval_expr(expr, env, &result);
 			if (eval_err) {
-				printf("Error evaluating expression:\n");
+				extern const char *current_file_path;
+				printf("Error evaluating expression");
+				if (current_file_path) {
+					printf(" in %s", current_file_path);
+				}
+				printf(":\n");
 				switch (eval_err) {
 				case Error_Syntax: puts("Syntax error"); break;
-				case Error_Unbound: puts("Symbol not bound"); break;
+				case Error_Unbound:
+					if (!nilp(ctx_exception) && ctx_exception.type == AtomType_Pair) {
+						Atom msg = car(cdr(ctx_exception));
+						if (msg.type == AtomType_String) {
+							printf("%s\n", msg.value.string);
+						} else {
+							puts("Symbol not bound");
+						}
+					} else {
+						puts("Symbol not bound");
+					}
+					break;
 				case Error_Args: puts("Wrong number of arguments"); break;
 				case Error_Type: puts("Wrong type"); break;
 				case Error_Exception:
@@ -75,7 +91,7 @@ void load_file(Atom env, const char *path)
 				default:
 					printf("Unknown error %d\n", eval_err);
 				}
-				printf("\t");
+				printf("  Code: ");
 				print_expr(expr);
 				putchar('\n');
 			} else {

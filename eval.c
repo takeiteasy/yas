@@ -712,6 +712,15 @@ static int eval_vm(Atom expr, Atom env, Atom *result, struct EvalRoot *root)
 
 		if (expr.type == AtomType_Symbol) {
 			err = env_get(env, expr, result);
+			if (err == Error_Unbound) {
+				/* Store the symbol name in exception for better error reporting */
+				extern Atom ctx_exception;
+				char msg[256];
+				snprintf(msg, sizeof(msg), "Symbol not bound: %s", expr.value.symbol);
+				Atom t = make_sym("type-error");
+				Atom m = make_string(msg);
+				ctx_exception = cons(t, cons(m, nil));
+			}
 		} else if (expr.type != AtomType_Pair) {
 			*result = expr;
 		} else if (!listp(expr)) {

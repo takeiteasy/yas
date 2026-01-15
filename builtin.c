@@ -88,8 +88,20 @@ static inline vec4_t vec4_div(vec4_t a, vec4_t b) {
 
 int raise_error(const char *type, const char *msg)
 {
+	extern const char *current_file_path;
+	
 	Atom t = make_sym(type);
 	Atom m = make_string(msg);
+	
+	/* Include file path in error message if available */
+	if (current_file_path) {
+		char *full_msg = malloc(strlen(msg) + strlen(current_file_path) + 50);
+		snprintf(full_msg, strlen(msg) + strlen(current_file_path) + 50, 
+		         "%s (in %s)", msg, current_file_path);
+		m = make_string(full_msg);
+		free(full_msg);
+	}
+	
 	ctx_exception = cons(t, cons(m, nil));
 	return Error_Exception;
 }

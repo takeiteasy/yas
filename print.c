@@ -181,6 +181,13 @@ void print_expr(Atom atom)
 	case AtomType_FFIFunction:
 		printf("#<FFI-FUNCTION:%p>", atom.value.ffi_fn);
 		break;
+	case AtomType_FFIStruct:
+		if (atom.value.ffi_struct && atom.value.ffi_struct->type) {
+			printf("#<FFI-STRUCT:%s>", atom.value.ffi_struct->type->name);
+		} else {
+			printf("#<FFI-STRUCT:nil>");
+		}
+		break;
 #endif
 	}
 }

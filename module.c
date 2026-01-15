@@ -271,6 +271,12 @@ void load_ffi_library(void) {
 	reg_builtin(env, exports, "FFI-POINTER-SET!", builtin_ffi_pointer_set);
 	reg_builtin(env, exports, "FFI-NULL", builtin_ffi_null);
 	reg_builtin(env, exports, "FFI-NULL?", builtin_ffi_nullp);
+
+	/* Struct support (internal builtins, wrapped by macros in ffi.gl) */
+	reg_builtin(env, exports, "%FFI-DEFSTRUCT", builtin_ffi_defstruct);
+	reg_builtin(env, exports, "%MAKE-FFI-STRUCT", builtin_ffi_make_struct);
+	reg_builtin(env, exports, "%FFI-STRUCT-REF", builtin_ffi_struct_ref);
+	reg_builtin(env, exports, "%FFI-STRUCT-SET!", builtin_ffi_struct_set);
 }
 #endif
 
@@ -460,14 +466,46 @@ Atom library_load(Atom name_parts)
 	hash_set(library_registry, key, lib);
 	free(key_str);
 	
+	/* Load the file - ensure native modules are loaded first */
+	if (nilp(library_registry)) {
+		load_all_modules();
+	}
+	
+	/* Convert to absolute path to avoid resolve_include_path mangling it */
+	char *abs_path = realpath(path, NULL);
+	if (!abs_path) {
+		printf("Error: Could not resolve path: %s\n", path);
+		free(path);
+		return nil;
+	}
+	free(path);
+	path = abs_path;
+	
 	/* Load the file */
 	Atom ignore;
 	int err = eval_file(path, env_create(nil), &ignore, 0);
 	
+	if (err) {
+		printf("Error loading library file %s: ", path);
+		switch (err) {
+		case Error_Syntax: printf("Syntax error\n"); break;
+		case Error_Unbound: printf("Symbol not bound\n"); break;
+		case Error_Args: printf("Argument error\n"); break;
+		case Error_Type: printf("Type error\n"); break;
+		case Error_Exception:
+			printf("Exception: ");
+			extern Atom ctx_exception;
+			print_expr(ctx_exception);
+			putchar('\n');
+			break;
+		default:
+			printf("Error code %d\n", err);
+		}
+		free(path);
+		return nil;
+	}
+	
 	free(path);
-	
-	if (err) return nil;
-	
 	return lib;
 }
 
@@ -582,18 +620,27 @@ static Atom resolve_import_set(Atom set) {
 	if (nilp(exports_map) || exports_map.type != AtomType_Hash) return result;
 	
 	struct Hash *h = exports_map.value.hash;
+	Atom ffid_sym = make_sym("%FFI-DEFSTRUCT");
 	for (size_t i = 0; i < h->size; i++) {
 		Atom ext = h->keys[i];
 		Atom internal = h->values[i];
 		Atom val;
+		/* Try internal first (for renames), then external (for direct exports) */
 		if (env_get(lib_env, internal, &val) == Error_OK) {
 			hash_set(result, ext, val);
+		} else if (env_get(lib_env, ext, &val) == Error_OK) {
+			/* Direct export - internal == external */
+			hash_set(result, ext, val);
 		} else {
-			printf("DEBUG: Failed to resolve export: ");
-			print_expr(internal);
-			printf(" from library ");
-			print_expr(hash_ref(lib, make_sym("*name*"), nil));
-			printf("\n");
+			/* Export not found - check if it's %FFI-DEFSTRUCT for debugging */
+			if (ext.type == AtomType_Symbol && strcmp(ext.value.symbol, "%FFI-DEFSTRUCT") == 0) {
+				printf("DEBUG: %FFI-DEFSTRUCT export found but not in library environment\n");
+				printf("  Export key: ");
+				print_expr(ext);
+				printf("\n  Export value: ");
+				print_expr(internal);
+				printf("\n");
+			}
 		}
 	}
 	
@@ -603,13 +650,27 @@ static Atom resolve_import_set(Atom set) {
 static int process_import_set(Atom import_set, Atom target_env) {
 	Atom bindings = resolve_import_set(import_set);
 	if (nilp(bindings) && !nilp(import_set)) {
+		printf("Failed to resolve import set: ");
+		print_expr(import_set);
+		printf("\n");
 		return Error_Unbound; 
 	}
 	if (bindings.type != AtomType_Hash) return Error_Type;
 	
 	struct Hash *h = bindings.value.hash;
 	for (size_t i = 0; i < h->size; i++) {
-		env_define(target_env, h->keys[i], h->values[i]);
+		Atom key = h->keys[i];
+		Atom val = h->values[i];
+		env_define(target_env, key, val);
+		/* Debug: verify %FFI-DEFSTRUCT is being added */
+		if (key.type == AtomType_Symbol && strcmp(key.value.symbol, "%FFI-DEFSTRUCT") == 0) {
+			Atom check;
+			if (env_get(target_env, key, &check) == Error_OK) {
+				/* Successfully added */
+			} else {
+				printf("WARNING: Failed to add %FFI-DEFSTRUCT to target environment\n");
+			}
+		}
 	}
 	return Error_OK;
 }
@@ -677,7 +738,28 @@ int module_define_library(Atom args, Atom *result) {
 					p = cdr(p);
 				}
 			} else if (strcmp(op.value.symbol, "IMPORT") == 0) {
-				module_import(dargs, lib_env, result);
+				/* Process imports - these add symbols to lib_env */
+				Atom import_list = dargs;
+				while (!nilp(import_list)) {
+					Atom import_set = car(import_list);
+					int import_err = process_import_set(import_set, lib_env);
+					if (import_err) {
+						printf("Error importing dependency in library ");
+						print_expr(name);
+						printf(": ");
+						switch (import_err) {
+						case Error_Unbound: printf("Symbol not bound\n"); break;
+						case Error_Type: printf("Type error\n"); break;
+						case Error_Args: printf("Argument error\n"); break;
+						default: printf("Error code %d\n", import_err);
+						}
+						printf("  Import set: ");
+						print_expr(import_set);
+						printf("\n");
+						return import_err;
+					}
+					import_list = cdr(import_list);
+				}
 			} else if (strcmp(op.value.symbol, "BEGIN") == 0) {
 				Atom p = dargs;
 				while (!nilp(p)) {

@@ -28,6 +28,30 @@ src/stdlib.h: embed.py $(wildcard std/yas/*.ys)
 	python3 embed.py $@ $(wildcard std/yas/*.ys)
 
 src/module.o: src/stdlib.h
+src/module.pic.o: src/stdlib.h
+
+# libyas: the reader (aot_shim.c) exposed as a shared library, so cccc's
+# comptime pass can dlopen it. Everything except main.c - a library has no
+# business with the REPL/CLI entry point.
+lib_sources=$(filter-out src/main.c,$(sources))
+lib_objects=$(lib_sources:.c=.pic.o)
+
+ifeq ($(shell uname),Darwin)
+libyas=libyas.dylib
+LIBFLAGS=-dynamiclib
+else
+libyas=libyas.so
+LIBFLAGS=-shared
+endif
+
+src/%.pic.o: src/%.c
+	$(CC) $(CFLAGS) -fPIC -c -o $@ $<
+
+$(libyas): $(lib_objects)
+	$(CC) $(CFLAGS) $(LIBFLAGS) -o $@ $^ $(filter-out -lreadline,$(LDFLAGS))
+
+.PHONY: libyas
+libyas: $(libyas)
 
 .PHONY: test
 test: yas
@@ -43,4 +67,4 @@ test: yas
 
 .PHONY: clean
 clean:
-	$(RM) $(objects) yas src/stdlib.h .test-output.log
+	$(RM) $(objects) $(lib_objects) yas libyas.dylib libyas.so src/stdlib.h .test-output.log

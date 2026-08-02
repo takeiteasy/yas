@@ -4,6 +4,30 @@
 #include <string.h>
 #include <fnmatch.h>
 
+char *slurp(const char *path)
+{
+	FILE *file;
+	char *buf;
+	long len;
+
+	file = fopen(path, "r");
+	if (!file)
+		return NULL;
+	fseek(file, 0, SEEK_END);
+	len = ftell(file);
+	fseek(file, 0, SEEK_SET);
+
+	buf = malloc(len + 1);
+	if (!buf)
+		return NULL;
+
+	fread(buf, 1, len, file);
+	buf[len] = 0;
+	fclose(file);
+
+	return buf;
+}
+
 static IOSandboxMode sandbox_mode = IO_SANDBOX_UNRESTRICTED;
 static int sandbox_default_allow = 1;  /* Default: allow unmatched paths */
 

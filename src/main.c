@@ -4,30 +4,6 @@
 #include <string.h>
 #include <readline/readline.h>
 
-char *slurp(const char *path)
-{
-	FILE *file;
-	char *buf;
-	long len;
-
-	file = fopen(path, "r");
-	if (!file)
-		return NULL;
-	fseek(file, 0, SEEK_END);
-	len = ftell(file);
-	fseek(file, 0, SEEK_SET);
-
-	buf = malloc(len + 1);
-	if (!buf)
-		return NULL;
-
-	fread(buf, 1, len, file);
-	buf[len] = 0;
-	fclose(file);
-
-	return buf;
-}
-
 void load_file(Atom env, const char *path)
 {
 	char *text;

@@ -1,5 +1,5 @@
-(define-library (gold math)
-  (import (gold base))
+(define-library (yas math)
+  (import (yas base))
   (export 
     ;; Constants
     *pi* *tau* *e*

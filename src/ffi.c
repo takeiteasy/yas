@@ -1,11 +1,11 @@
 /*
- * ffi.c - Foreign Function Interface for Gold Scheme
+ * ffi.c - Foreign Function Interface for YAS Scheme
  * 
  * Provides bindings to libffi for calling C functions from Scheme.
- * This file is only compiled when GOLD_FFI is defined.
+ * This file is only compiled when YAS_FFI is defined.
  */
 
-#ifdef GOLD_FFI
+#ifdef YAS_FFI
 
 #include "lisp.h"
 #include <ffi.h>
@@ -37,43 +37,43 @@ void *ffi_get_symbol(void *handle, const char *name)
  * Type Mapping
  * ============================================================ */
 
-/* Map keyword name to GoldFFIType */
-static GoldFFIType keyword_to_type(const char *name)
+/* Map keyword name to YasFFIType */
+static YasFFIType keyword_to_type(const char *name)
 {
-	if (strcmp(name, "VOID") == 0) return GOLD_FFI_TYPE_VOID;
-	if (strcmp(name, "INT8") == 0) return GOLD_FFI_TYPE_INT8;
-	if (strcmp(name, "UINT8") == 0) return GOLD_FFI_TYPE_UINT8;
-	if (strcmp(name, "INT16") == 0) return GOLD_FFI_TYPE_INT16;
-	if (strcmp(name, "UINT16") == 0) return GOLD_FFI_TYPE_UINT16;
-	if (strcmp(name, "INT32") == 0 || strcmp(name, "INT") == 0) return GOLD_FFI_TYPE_INT32;
-	if (strcmp(name, "UINT32") == 0 || strcmp(name, "UINT") == 0) return GOLD_FFI_TYPE_UINT32;
-	if (strcmp(name, "INT64") == 0 || strcmp(name, "LONG") == 0) return GOLD_FFI_TYPE_INT64;
-	if (strcmp(name, "UINT64") == 0 || strcmp(name, "ULONG") == 0) return GOLD_FFI_TYPE_UINT64;
-	if (strcmp(name, "FLOAT") == 0) return GOLD_FFI_TYPE_FLOAT;
-	if (strcmp(name, "DOUBLE") == 0) return GOLD_FFI_TYPE_DOUBLE;
-	if (strcmp(name, "POINTER") == 0 || strcmp(name, "PTR") == 0) return GOLD_FFI_TYPE_POINTER;
-	if (strcmp(name, "STRING") == 0 || strcmp(name, "CSTRING") == 0) return GOLD_FFI_TYPE_STRING;
-	return GOLD_FFI_TYPE_VOID; /* Default */
+	if (strcmp(name, "VOID") == 0) return YAS_FFI_TYPE_VOID;
+	if (strcmp(name, "INT8") == 0) return YAS_FFI_TYPE_INT8;
+	if (strcmp(name, "UINT8") == 0) return YAS_FFI_TYPE_UINT8;
+	if (strcmp(name, "INT16") == 0) return YAS_FFI_TYPE_INT16;
+	if (strcmp(name, "UINT16") == 0) return YAS_FFI_TYPE_UINT16;
+	if (strcmp(name, "INT32") == 0 || strcmp(name, "INT") == 0) return YAS_FFI_TYPE_INT32;
+	if (strcmp(name, "UINT32") == 0 || strcmp(name, "UINT") == 0) return YAS_FFI_TYPE_UINT32;
+	if (strcmp(name, "INT64") == 0 || strcmp(name, "LONG") == 0) return YAS_FFI_TYPE_INT64;
+	if (strcmp(name, "UINT64") == 0 || strcmp(name, "ULONG") == 0) return YAS_FFI_TYPE_UINT64;
+	if (strcmp(name, "FLOAT") == 0) return YAS_FFI_TYPE_FLOAT;
+	if (strcmp(name, "DOUBLE") == 0) return YAS_FFI_TYPE_DOUBLE;
+	if (strcmp(name, "POINTER") == 0 || strcmp(name, "PTR") == 0) return YAS_FFI_TYPE_POINTER;
+	if (strcmp(name, "STRING") == 0 || strcmp(name, "CSTRING") == 0) return YAS_FFI_TYPE_STRING;
+	return YAS_FFI_TYPE_VOID; /* Default */
 }
 
-/* Map GoldFFIType to libffi type */
-static ffi_type *type_to_ffi(GoldFFIType t)
+/* Map YasFFIType to libffi type */
+static ffi_type *type_to_ffi(YasFFIType t)
 {
 	switch (t) {
-	case GOLD_FFI_TYPE_VOID:    return &ffi_type_void;
-	case GOLD_FFI_TYPE_INT8:    return &ffi_type_sint8;
-	case GOLD_FFI_TYPE_UINT8:   return &ffi_type_uint8;
-	case GOLD_FFI_TYPE_INT16:   return &ffi_type_sint16;
-	case GOLD_FFI_TYPE_UINT16:  return &ffi_type_uint16;
-	case GOLD_FFI_TYPE_INT32:   return &ffi_type_sint32;
-	case GOLD_FFI_TYPE_UINT32:  return &ffi_type_uint32;
-	case GOLD_FFI_TYPE_INT64:   return &ffi_type_sint64;
-	case GOLD_FFI_TYPE_UINT64:  return &ffi_type_uint64;
-	case GOLD_FFI_TYPE_FLOAT:   return &ffi_type_float;
-	case GOLD_FFI_TYPE_DOUBLE:  return &ffi_type_double;
-	case GOLD_FFI_TYPE_POINTER:
-	case GOLD_FFI_TYPE_STRING:  return &ffi_type_pointer;
-	case GOLD_FFI_TYPE_STRUCT:  return &ffi_type_pointer; /* Handled specially */
+	case YAS_FFI_TYPE_VOID:    return &ffi_type_void;
+	case YAS_FFI_TYPE_INT8:    return &ffi_type_sint8;
+	case YAS_FFI_TYPE_UINT8:   return &ffi_type_uint8;
+	case YAS_FFI_TYPE_INT16:   return &ffi_type_sint16;
+	case YAS_FFI_TYPE_UINT16:  return &ffi_type_uint16;
+	case YAS_FFI_TYPE_INT32:   return &ffi_type_sint32;
+	case YAS_FFI_TYPE_UINT32:  return &ffi_type_uint32;
+	case YAS_FFI_TYPE_INT64:   return &ffi_type_sint64;
+	case YAS_FFI_TYPE_UINT64:  return &ffi_type_uint64;
+	case YAS_FFI_TYPE_FLOAT:   return &ffi_type_float;
+	case YAS_FFI_TYPE_DOUBLE:  return &ffi_type_double;
+	case YAS_FFI_TYPE_POINTER:
+	case YAS_FFI_TYPE_STRING:  return &ffi_type_pointer;
+	case YAS_FFI_TYPE_STRUCT:  return &ffi_type_pointer; /* Handled specially */
 	}
 	return &ffi_type_void;
 }
@@ -98,12 +98,12 @@ FFIStructType *ffi_lookup_struct_type(const char *name)
 	return NULL;
 }
 
-/* Resolve a type name (keyword or symbol) to ffi_type and GoldFFIType */
-static ffi_type *resolve_type(const char *name, GoldFFIType *out_type)
+/* Resolve a type name (keyword or symbol) to ffi_type and YasFFIType */
+static ffi_type *resolve_type(const char *name, YasFFIType *out_type)
 {
 	/* First check primitive types (keywords) */
-	GoldFFIType t = keyword_to_type(name);
-	if (t != GOLD_FFI_TYPE_VOID || strcmp(name, "VOID") == 0) {
+	YasFFIType t = keyword_to_type(name);
+	if (t != YAS_FFI_TYPE_VOID || strcmp(name, "VOID") == 0) {
 		*out_type = t;
 		return type_to_ffi(t);
 	}
@@ -111,11 +111,11 @@ static ffi_type *resolve_type(const char *name, GoldFFIType *out_type)
 	/* Check struct registry */
 	FFIStructType *st = ffi_lookup_struct_type(name);
 	if (st) {
-		*out_type = GOLD_FFI_TYPE_STRUCT;
+		*out_type = YAS_FFI_TYPE_STRUCT;
 		return (ffi_type *)st->ffi_struct;
 	}
 
-	*out_type = GOLD_FFI_TYPE_VOID;
+	*out_type = YAS_FFI_TYPE_VOID;
 	return &ffi_type_void;
 }
 
@@ -130,7 +130,7 @@ struct FFIFunction *ffi_prepare(void *fn_ptr, Atom ret_type, Atom arg_types)
 	fn->fn_ptr = fn_ptr;
 
 	/* Parse return type (keyword or symbol for structs) */
-	fn->ret_type = GOLD_FFI_TYPE_VOID;
+	fn->ret_type = YAS_FFI_TYPE_VOID;
 	fn->ffi_ret_type = &ffi_type_void;
 	if (ret_type.type == AtomType_Keyword) {
 		fn->ffi_ret_type = resolve_type(ret_type.value.keyword, &fn->ret_type);
@@ -150,7 +150,7 @@ struct FFIFunction *ffi_prepare(void *fn_ptr, Atom ret_type, Atom arg_types)
 	fn->arg_types = NULL;
 	fn->ffi_arg_types = NULL;
 	if (fn->arg_count > 0) {
-		fn->arg_types = malloc(sizeof(GoldFFIType) * fn->arg_count);
+		fn->arg_types = malloc(sizeof(YasFFIType) * fn->arg_count);
 		fn->ffi_arg_types = malloc(sizeof(ffi_type *) * fn->arg_count);
 		p = arg_types;
 		for (int i = 0; i < fn->arg_count; i++) {
@@ -160,7 +160,7 @@ struct FFIFunction *ffi_prepare(void *fn_ptr, Atom ret_type, Atom arg_types)
 			} else if (t.type == AtomType_Symbol) {
 				fn->ffi_arg_types[i] = resolve_type(t.value.symbol, &fn->arg_types[i]);
 			} else {
-				fn->arg_types[i] = GOLD_FFI_TYPE_VOID;
+				fn->arg_types[i] = YAS_FFI_TYPE_VOID;
 				fn->ffi_arg_types[i] = &ffi_type_void;
 			}
 			p = cdr(p);
@@ -224,31 +224,31 @@ Atom ffi_call_function(struct FFIFunction *fn, Atom args)
 			void *storage = (char *)arg_storage + (i * 8);
 			
 			switch (fn->arg_types[i]) {
-			case GOLD_FFI_TYPE_INT8:
-			case GOLD_FFI_TYPE_UINT8:
+			case YAS_FFI_TYPE_INT8:
+			case YAS_FFI_TYPE_UINT8:
 				*(int8_t *)storage = (int8_t)(v.type == AtomType_Integer ? v.value.integer : 0);
 				break;
-			case GOLD_FFI_TYPE_INT16:
-			case GOLD_FFI_TYPE_UINT16:
+			case YAS_FFI_TYPE_INT16:
+			case YAS_FFI_TYPE_UINT16:
 				*(int16_t *)storage = (int16_t)(v.type == AtomType_Integer ? v.value.integer : 0);
 				break;
-			case GOLD_FFI_TYPE_INT32:
-			case GOLD_FFI_TYPE_UINT32:
+			case YAS_FFI_TYPE_INT32:
+			case YAS_FFI_TYPE_UINT32:
 				*(int32_t *)storage = (int32_t)(v.type == AtomType_Integer ? v.value.integer : 0);
 				break;
-			case GOLD_FFI_TYPE_INT64:
-			case GOLD_FFI_TYPE_UINT64:
+			case YAS_FFI_TYPE_INT64:
+			case YAS_FFI_TYPE_UINT64:
 				*(int64_t *)storage = (int64_t)(v.type == AtomType_Integer ? v.value.integer : 0);
 				break;
-			case GOLD_FFI_TYPE_FLOAT:
+			case YAS_FFI_TYPE_FLOAT:
 				*(float *)storage = (float)(v.type == AtomType_Float ? v.value.floatval : 
 				                            (v.type == AtomType_Integer ? v.value.integer : 0));
 				break;
-			case GOLD_FFI_TYPE_DOUBLE:
+			case YAS_FFI_TYPE_DOUBLE:
 				*(double *)storage = (double)(v.type == AtomType_Float ? v.value.floatval :
 				                              (v.type == AtomType_Integer ? v.value.integer : 0));
 				break;
-			case GOLD_FFI_TYPE_STRING:
+			case YAS_FFI_TYPE_STRING:
 				if (v.type == AtomType_String) {
 					string_temps[i] = strdup(v.value.string);
 					*(char **)storage = string_temps[i];
@@ -256,7 +256,7 @@ Atom ffi_call_function(struct FFIFunction *fn, Atom args)
 					*(char **)storage = NULL;
 				}
 				break;
-			case GOLD_FFI_TYPE_POINTER:
+			case YAS_FFI_TYPE_POINTER:
 				if (v.type == AtomType_FFIPointer) {
 					*(void **)storage = v.value.ffi_pointer;
 				} else if (v.type == AtomType_String) {
@@ -269,7 +269,7 @@ Atom ffi_call_function(struct FFIFunction *fn, Atom args)
 					*(void **)storage = NULL;
 				}
 				break;
-			case GOLD_FFI_TYPE_STRUCT:
+			case YAS_FFI_TYPE_STRUCT:
 				/* For struct-by-value, libffi expects pointer to struct data */
 				if (v.type == AtomType_FFIStruct && v.value.ffi_struct) {
 					/* Point directly to struct data - libffi copies it */
@@ -315,41 +315,45 @@ Atom ffi_call_function(struct FFIFunction *fn, Atom args)
 	/* Convert return value to Atom */
 	Atom result;
 	switch (fn->ret_type) {
-	case GOLD_FFI_TYPE_VOID:
+	case YAS_FFI_TYPE_VOID:
 		result = nil;
 		break;
-	case GOLD_FFI_TYPE_INT8:
-	case GOLD_FFI_TYPE_UINT8:
+	case YAS_FFI_TYPE_INT8:
+	case YAS_FFI_TYPE_UINT8:
 		result = make_int(ret_value.i8);
 		break;
-	case GOLD_FFI_TYPE_INT16:
-	case GOLD_FFI_TYPE_UINT16:
+	case YAS_FFI_TYPE_INT16:
+	case YAS_FFI_TYPE_UINT16:
 		result = make_int(ret_value.i16);
 		break;
-	case GOLD_FFI_TYPE_INT32:
-	case GOLD_FFI_TYPE_UINT32:
+	case YAS_FFI_TYPE_INT32:
+	case YAS_FFI_TYPE_UINT32:
 		result = make_int(ret_value.i32);
 		break;
-	case GOLD_FFI_TYPE_INT64:
-	case GOLD_FFI_TYPE_UINT64:
+	case YAS_FFI_TYPE_INT64:
+	case YAS_FFI_TYPE_UINT64:
 		result = make_int(ret_value.i64);
 		break;
-	case GOLD_FFI_TYPE_FLOAT:
+	case YAS_FFI_TYPE_FLOAT:
 		result = make_float(ret_value.f);
 		break;
-	case GOLD_FFI_TYPE_DOUBLE:
+	case YAS_FFI_TYPE_DOUBLE:
 		result = make_float(ret_value.d);
 		break;
-	case GOLD_FFI_TYPE_POINTER:
+	case YAS_FFI_TYPE_POINTER:
 		result.type = AtomType_FFIPointer;
 		result.value.ffi_pointer = ret_value.ptr;
 		break;
-	case GOLD_FFI_TYPE_STRING:
+	case YAS_FFI_TYPE_STRING:
 		if (ret_value.ptr) {
 			result = make_string((char *)ret_value.ptr);
 		} else {
 			result = nil;
 		}
+		break;
+	case YAS_FFI_TYPE_STRUCT:
+		/* Struct by-value return not supported; fail like the nil guard above */
+		result = nil;
 		break;
 	}
 	
@@ -492,43 +496,43 @@ int builtin_ffi_pointer_ref(Atom args, Atom *result)
 	}
 	
 	void *base = car(args).value.ffi_pointer;
-	GoldFFIType type = keyword_to_type(car(cdr(args)).value.keyword);
+	YasFFIType type = keyword_to_type(car(cdr(args)).value.keyword);
 	size_t offset = (size_t)car(cdr(cdr(args))).value.integer;
 	
 	char *ptr = (char *)base + offset;
 	
 	switch (type) {
-	case GOLD_FFI_TYPE_INT8:
+	case YAS_FFI_TYPE_INT8:
 		*result = make_int(*(int8_t *)ptr);
 		break;
-	case GOLD_FFI_TYPE_UINT8:
+	case YAS_FFI_TYPE_UINT8:
 		*result = make_int(*(uint8_t *)ptr);
 		break;
-	case GOLD_FFI_TYPE_INT16:
+	case YAS_FFI_TYPE_INT16:
 		*result = make_int(*(int16_t *)ptr);
 		break;
-	case GOLD_FFI_TYPE_UINT16:
+	case YAS_FFI_TYPE_UINT16:
 		*result = make_int(*(uint16_t *)ptr);
 		break;
-	case GOLD_FFI_TYPE_INT32:
+	case YAS_FFI_TYPE_INT32:
 		*result = make_int(*(int32_t *)ptr);
 		break;
-	case GOLD_FFI_TYPE_UINT32:
+	case YAS_FFI_TYPE_UINT32:
 		*result = make_int(*(uint32_t *)ptr);
 		break;
-	case GOLD_FFI_TYPE_INT64:
+	case YAS_FFI_TYPE_INT64:
 		*result = make_int(*(int64_t *)ptr);
 		break;
-	case GOLD_FFI_TYPE_UINT64:
+	case YAS_FFI_TYPE_UINT64:
 		*result = make_int((long)*(uint64_t *)ptr);
 		break;
-	case GOLD_FFI_TYPE_FLOAT:
+	case YAS_FFI_TYPE_FLOAT:
 		*result = make_float(*(float *)ptr);
 		break;
-	case GOLD_FFI_TYPE_DOUBLE:
+	case YAS_FFI_TYPE_DOUBLE:
 		*result = make_float(*(double *)ptr);
 		break;
-	case GOLD_FFI_TYPE_POINTER:
+	case YAS_FFI_TYPE_POINTER:
 		result->type = AtomType_FFIPointer;
 		result->value.ffi_pointer = *(void **)ptr;
 		break;
@@ -556,38 +560,38 @@ int builtin_ffi_pointer_set(Atom args, Atom *result)
 	}
 	
 	void *base = car(args).value.ffi_pointer;
-	GoldFFIType type = keyword_to_type(car(cdr(args)).value.keyword);
+	YasFFIType type = keyword_to_type(car(cdr(args)).value.keyword);
 	size_t offset = (size_t)car(cdr(cdr(args))).value.integer;
 	Atom value = car(cdr(cdr(cdr(args))));
 	
 	char *ptr = (char *)base + offset;
 	
 	switch (type) {
-	case GOLD_FFI_TYPE_INT8:
-	case GOLD_FFI_TYPE_UINT8:
+	case YAS_FFI_TYPE_INT8:
+	case YAS_FFI_TYPE_UINT8:
 		*(int8_t *)ptr = (int8_t)(value.type == AtomType_Integer ? value.value.integer : 0);
 		break;
-	case GOLD_FFI_TYPE_INT16:
-	case GOLD_FFI_TYPE_UINT16:
+	case YAS_FFI_TYPE_INT16:
+	case YAS_FFI_TYPE_UINT16:
 		*(int16_t *)ptr = (int16_t)(value.type == AtomType_Integer ? value.value.integer : 0);
 		break;
-	case GOLD_FFI_TYPE_INT32:
-	case GOLD_FFI_TYPE_UINT32:
+	case YAS_FFI_TYPE_INT32:
+	case YAS_FFI_TYPE_UINT32:
 		*(int32_t *)ptr = (int32_t)(value.type == AtomType_Integer ? value.value.integer : 0);
 		break;
-	case GOLD_FFI_TYPE_INT64:
-	case GOLD_FFI_TYPE_UINT64:
+	case YAS_FFI_TYPE_INT64:
+	case YAS_FFI_TYPE_UINT64:
 		*(int64_t *)ptr = (int64_t)(value.type == AtomType_Integer ? value.value.integer : 0);
 		break;
-	case GOLD_FFI_TYPE_FLOAT:
+	case YAS_FFI_TYPE_FLOAT:
 		*(float *)ptr = (float)(value.type == AtomType_Float ? value.value.floatval :
 		                        (value.type == AtomType_Integer ? value.value.integer : 0));
 		break;
-	case GOLD_FFI_TYPE_DOUBLE:
+	case YAS_FFI_TYPE_DOUBLE:
 		*(double *)ptr = (double)(value.type == AtomType_Float ? value.value.floatval :
 		                          (value.type == AtomType_Integer ? value.value.integer : 0));
 		break;
-	case GOLD_FFI_TYPE_POINTER:
+	case YAS_FFI_TYPE_POINTER:
 		if (value.type == AtomType_FFIPointer) {
 			*(void **)ptr = value.value.ffi_pointer;
 		}
@@ -756,31 +760,31 @@ int builtin_ffi_make_struct(Atom args, Atom *result)
 		void *field_ptr = (char *)inst->data + st->fields[i].offset;
 
 		switch (st->fields[i].type) {
-		case GOLD_FFI_TYPE_INT8:
-		case GOLD_FFI_TYPE_UINT8:
+		case YAS_FFI_TYPE_INT8:
+		case YAS_FFI_TYPE_UINT8:
 			*(uint8_t *)field_ptr = (uint8_t)(v.type == AtomType_Integer ? v.value.integer : 0);
 			break;
-		case GOLD_FFI_TYPE_INT16:
-		case GOLD_FFI_TYPE_UINT16:
+		case YAS_FFI_TYPE_INT16:
+		case YAS_FFI_TYPE_UINT16:
 			*(uint16_t *)field_ptr = (uint16_t)(v.type == AtomType_Integer ? v.value.integer : 0);
 			break;
-		case GOLD_FFI_TYPE_INT32:
-		case GOLD_FFI_TYPE_UINT32:
+		case YAS_FFI_TYPE_INT32:
+		case YAS_FFI_TYPE_UINT32:
 			*(uint32_t *)field_ptr = (uint32_t)(v.type == AtomType_Integer ? v.value.integer : 0);
 			break;
-		case GOLD_FFI_TYPE_INT64:
-		case GOLD_FFI_TYPE_UINT64:
+		case YAS_FFI_TYPE_INT64:
+		case YAS_FFI_TYPE_UINT64:
 			*(uint64_t *)field_ptr = (uint64_t)(v.type == AtomType_Integer ? v.value.integer : 0);
 			break;
-		case GOLD_FFI_TYPE_FLOAT:
+		case YAS_FFI_TYPE_FLOAT:
 			*(float *)field_ptr = (float)(v.type == AtomType_Float ? v.value.floatval :
 			                              (v.type == AtomType_Integer ? v.value.integer : 0));
 			break;
-		case GOLD_FFI_TYPE_DOUBLE:
+		case YAS_FFI_TYPE_DOUBLE:
 			*(double *)field_ptr = (double)(v.type == AtomType_Float ? v.value.floatval :
 			                                (v.type == AtomType_Integer ? v.value.integer : 0));
 			break;
-		case GOLD_FFI_TYPE_POINTER:
+		case YAS_FFI_TYPE_POINTER:
 			if (v.type == AtomType_FFIPointer) {
 				*(void **)field_ptr = v.value.ffi_pointer;
 			} else {
@@ -832,35 +836,35 @@ int builtin_ffi_struct_ref(Atom args, Atom *result)
 	void *field_ptr = (char *)inst->data + st->fields[field_idx].offset;
 
 	switch (st->fields[field_idx].type) {
-	case GOLD_FFI_TYPE_INT8:
+	case YAS_FFI_TYPE_INT8:
 		*result = make_int(*(int8_t *)field_ptr);
 		break;
-	case GOLD_FFI_TYPE_UINT8:
+	case YAS_FFI_TYPE_UINT8:
 		*result = make_int(*(uint8_t *)field_ptr);
 		break;
-	case GOLD_FFI_TYPE_INT16:
+	case YAS_FFI_TYPE_INT16:
 		*result = make_int(*(int16_t *)field_ptr);
 		break;
-	case GOLD_FFI_TYPE_UINT16:
+	case YAS_FFI_TYPE_UINT16:
 		*result = make_int(*(uint16_t *)field_ptr);
 		break;
-	case GOLD_FFI_TYPE_INT32:
+	case YAS_FFI_TYPE_INT32:
 		*result = make_int(*(int32_t *)field_ptr);
 		break;
-	case GOLD_FFI_TYPE_UINT32:
+	case YAS_FFI_TYPE_UINT32:
 		*result = make_int(*(uint32_t *)field_ptr);
 		break;
-	case GOLD_FFI_TYPE_INT64:
-	case GOLD_FFI_TYPE_UINT64:
+	case YAS_FFI_TYPE_INT64:
+	case YAS_FFI_TYPE_UINT64:
 		*result = make_int(*(int64_t *)field_ptr);
 		break;
-	case GOLD_FFI_TYPE_FLOAT:
+	case YAS_FFI_TYPE_FLOAT:
 		*result = make_float(*(float *)field_ptr);
 		break;
-	case GOLD_FFI_TYPE_DOUBLE:
+	case YAS_FFI_TYPE_DOUBLE:
 		*result = make_float(*(double *)field_ptr);
 		break;
-	case GOLD_FFI_TYPE_POINTER:
+	case YAS_FFI_TYPE_POINTER:
 		result->type = AtomType_FFIPointer;
 		result->value.ffi_pointer = *(void **)field_ptr;
 		break;
@@ -909,31 +913,31 @@ int builtin_ffi_struct_set(Atom args, Atom *result)
 	void *field_ptr = (char *)inst->data + st->fields[field_idx].offset;
 
 	switch (st->fields[field_idx].type) {
-	case GOLD_FFI_TYPE_INT8:
-	case GOLD_FFI_TYPE_UINT8:
+	case YAS_FFI_TYPE_INT8:
+	case YAS_FFI_TYPE_UINT8:
 		*(uint8_t *)field_ptr = (uint8_t)(value.type == AtomType_Integer ? value.value.integer : 0);
 		break;
-	case GOLD_FFI_TYPE_INT16:
-	case GOLD_FFI_TYPE_UINT16:
+	case YAS_FFI_TYPE_INT16:
+	case YAS_FFI_TYPE_UINT16:
 		*(uint16_t *)field_ptr = (uint16_t)(value.type == AtomType_Integer ? value.value.integer : 0);
 		break;
-	case GOLD_FFI_TYPE_INT32:
-	case GOLD_FFI_TYPE_UINT32:
+	case YAS_FFI_TYPE_INT32:
+	case YAS_FFI_TYPE_UINT32:
 		*(uint32_t *)field_ptr = (uint32_t)(value.type == AtomType_Integer ? value.value.integer : 0);
 		break;
-	case GOLD_FFI_TYPE_INT64:
-	case GOLD_FFI_TYPE_UINT64:
+	case YAS_FFI_TYPE_INT64:
+	case YAS_FFI_TYPE_UINT64:
 		*(uint64_t *)field_ptr = (uint64_t)(value.type == AtomType_Integer ? value.value.integer : 0);
 		break;
-	case GOLD_FFI_TYPE_FLOAT:
+	case YAS_FFI_TYPE_FLOAT:
 		*(float *)field_ptr = (float)(value.type == AtomType_Float ? value.value.floatval :
 		                              (value.type == AtomType_Integer ? value.value.integer : 0));
 		break;
-	case GOLD_FFI_TYPE_DOUBLE:
+	case YAS_FFI_TYPE_DOUBLE:
 		*(double *)field_ptr = (double)(value.type == AtomType_Float ? value.value.floatval :
 		                                (value.type == AtomType_Integer ? value.value.integer : 0));
 		break;
-	case GOLD_FFI_TYPE_POINTER:
+	case YAS_FFI_TYPE_POINTER:
 		if (value.type == AtomType_FFIPointer) {
 			*(void **)field_ptr = value.value.ffi_pointer;
 		} else {
@@ -948,4 +952,4 @@ int builtin_ffi_struct_set(Atom args, Atom *result)
 	return Error_OK;
 }
 
-#endif /* GOLD_FFI */
+#endif /* YAS_FFI */

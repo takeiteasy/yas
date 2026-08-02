@@ -961,7 +961,7 @@ static int eval_vm(Atom expr, Atom env, Atom *result, struct EvalRoot *root)
 					continue;
 				} else if (strcmp(op.value.symbol, "INCLUDE") == 0 ||
 				           strcmp(op.value.symbol, "INCLUDE-CI") == 0) {
-					/* (include "file.gl" ...) - textual file inclusion */
+					/* (include "file.ys" ...) - textual file inclusion */
 					if (nilp(args))
 						return Error_Args;
 					

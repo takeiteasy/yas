@@ -171,7 +171,7 @@ void print_expr(Atom atom)
 		printf(")");
 		break;
 	}
-#ifdef GOLD_FFI
+#ifdef YAS_FFI
 	case AtomType_FFILibrary:
 		printf("#<FFI-LIBRARY:%p>", atom.value.ffi_library);
 		break;

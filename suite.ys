@@ -1,11 +1,11 @@
-(import (gold base))
-(import (gold math))
-(import (gold hash))
-(import (gold vector))
-(import (gold text))
-(import (gold test))
+(import (yas base))
+(import (yas math))
+(import (yas hash))
+(import (yas vector))
+(import (yas text))
+(import (yas test))
 
-(print "Running Gold Test Suite...")
+(print "Running YAS Test Suite...")
 
 (test "Arithmetic"
   (check (+ 1 2) 3)
@@ -217,7 +217,7 @@
     (while (< n 3) (set! n (+ n 1)))
     (check n 3)))
 
-;; Serialization (from serialization_test.gl)
+;; Serialization (from serialization_test.ys)
 (test "Serialization"
   (check (serialize 123) "123")
   (check (serialize 3.5) "3.5") 
@@ -238,7 +238,7 @@
     (check (hash? h) t)
     (check (hash-ref h :k) 1)))
 
-;; Keywords (from keyword_test.gl)
+;; Keywords (from keyword_test.ys)
 (test "Keywords"
   (check (keyword? :foo) t)
   (check (keyword? 'foo) nil)
@@ -247,7 +247,7 @@
   (check (eq? :same :same) t)
   (check (eq? :foo :bar) nil))
 
-;; UTF-8 (from utf8_test.gl)
+;; UTF-8 (from utf8_test.ys)
 (test "UTF-8 Characters"
   (check (char? #\a) t)
   (check (char? "a") nil)
@@ -267,7 +267,7 @@
   (check (string-byte-length "日本語") 9)
   (check (string-byte-length "λ") 2))
 
-;; Default Arguments (from default_args_test.gl)
+;; Default Arguments (from default_args_test.ys)
 (test "Default Arguments"
   (define (greet name (greeting "Hello"))
     (string-append greeting ", " name))
@@ -281,7 +281,7 @@
   (check (make-point 10 20 :color "red") '(10 20 "red")))
 
 ;; Format Function
-(import (gold format))
+(import (yas format))
 
 (test "Format Strings"
   (check (format nil "Hello ~A!" "World") "Hello World!")

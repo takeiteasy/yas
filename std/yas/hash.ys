@@ -1,5 +1,5 @@
-(define-library (gold hash)
-  (import (gold base))
+(define-library (yas hash)
+  (import (yas base))
   (export
     ;; Basic Hash Operations
     make-hash hash-ref hash-set! hash-remove! hash-length hash-join hash-keys hash?

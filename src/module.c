@@ -44,7 +44,7 @@ static void reg_sym(Atom env, Atom exports, const char *name, Atom val) {
 }
 
 Atom define_native_module(const char *name_str, Atom *out_env, Atom *out_exports) {
-	/* Parse "gold/primitives" -> (GOLD PRIMITIVES) */
+	/* Parse "yas/primitives" -> (YAS PRIMITIVES) */
 	Atom name = nil;
 	Atom tail = nil;
 	
@@ -85,8 +85,8 @@ Atom define_native_module(const char *name_str, Atom *out_env, Atom *out_exports
 void load_base_library(void) {
 	if (nilp(library_registry)) library_registry = make_hash();
 	Atom env, exports;
-	/* unified: registers to "gold/base" */
-	define_native_module("gold/base", &env, &exports);
+	/* unified: registers to "yas/base" */
+	define_native_module("yas/base", &env, &exports);
 	
 	/* Register core primitives */
 	reg_builtin(env, exports, "CAR", builtin_car);
@@ -124,7 +124,7 @@ void load_base_library(void) {
 void load_hash_library(void) {
 	if (nilp(library_registry)) library_registry = make_hash();
 	Atom env, exports;
-	define_native_module("gold/hash", &env, &exports);	
+	define_native_module("yas/hash", &env, &exports);	
 	
 	reg_builtin(env, exports, "HASH?", builtin_hashp);
 	reg_builtin(env, exports, "MAKE-HASH", builtin_make_hash);
@@ -146,7 +146,7 @@ void load_hash_library(void) {
 void load_vector_library(void) {
 	if (nilp(library_registry)) library_registry = make_hash();
 	Atom env, exports;
-	define_native_module("gold/vector", &env, &exports);
+	define_native_module("yas/vector", &env, &exports);
 	
 	reg_builtin(env, exports, "VECTOR?", builtin_vectorp);
 	reg_builtin(env, exports, "MAKE-VECTOR", builtin_make_vector);
@@ -159,7 +159,7 @@ void load_vector_library(void) {
 void load_text_library(void) {
 	if (nilp(library_registry)) library_registry = make_hash();
 	Atom env, exports;
-	define_native_module("gold/text", &env, &exports);
+	define_native_module("yas/text", &env, &exports);
 	
 	reg_builtin(env, exports, "CHAR?", builtin_charp);
 	reg_builtin(env, exports, "CHAR->INTEGER", builtin_char_to_integer);
@@ -192,7 +192,7 @@ void load_text_library(void) {
 void load_io_library(void) {
 	if (nilp(library_registry)) library_registry = make_hash();
 	Atom env, exports;
-	define_native_module("gold/io", &env, &exports);
+	define_native_module("yas/io", &env, &exports);
 	
 	reg_builtin(env, exports, "OPEN-INPUT-FILE", builtin_open_input_file);
 	reg_builtin(env, exports, "OPEN-OUTPUT-FILE", builtin_open_output_file);
@@ -232,7 +232,7 @@ void load_io_library(void) {
 void load_math_library(void) {
 	if (nilp(library_registry)) library_registry = make_hash();
 	Atom env, exports;
-	define_native_module("gold/math", &env, &exports);
+	define_native_module("yas/math", &env, &exports);
 	
 	reg_builtin(env, exports, "VEC2?", builtin_vec2p);
 	reg_builtin(env, exports, "VEC3?", builtin_vec3p);
@@ -254,11 +254,11 @@ void load_math_library(void) {
 	reg_builtin(env, exports, "MAT4-INVERSE", builtin_mat4_inverse);
 }
 
-#ifdef GOLD_FFI
+#ifdef YAS_FFI
 void load_ffi_library(void) {
 	if (nilp(library_registry)) library_registry = make_hash();
 	Atom env, exports;
-	define_native_module("gold/ffi", &env, &exports);
+	define_native_module("yas/ffi", &env, &exports);
 	
 	reg_builtin(env, exports, "FFI-OPEN", builtin_ffi_open);
 	reg_builtin(env, exports, "FFI-CLOSE", builtin_ffi_close);
@@ -272,7 +272,7 @@ void load_ffi_library(void) {
 	reg_builtin(env, exports, "FFI-NULL", builtin_ffi_null);
 	reg_builtin(env, exports, "FFI-NULL?", builtin_ffi_nullp);
 
-	/* Struct support (internal builtins, wrapped by macros in ffi.gl) */
+	/* Struct support (internal builtins, wrapped by macros in ffi.ys) */
 	reg_builtin(env, exports, "%FFI-DEFSTRUCT", builtin_ffi_defstruct);
 	reg_builtin(env, exports, "%MAKE-FFI-STRUCT", builtin_ffi_make_struct);
 	reg_builtin(env, exports, "%FFI-STRUCT-REF", builtin_ffi_struct_ref);
@@ -281,14 +281,14 @@ void load_ffi_library(void) {
 #endif
 
 static const NativeModule native_modules[] = {
-	{ "gold/base", load_base_library },
-	{ "gold/hash", load_hash_library },
-	{ "gold/vector", load_vector_library },
-	{ "gold/text", load_text_library },
-	{ "gold/io", load_io_library },
-	{ "gold/math", load_math_library },
-#ifdef GOLD_FFI
-	{ "gold/ffi", load_ffi_library },
+	{ "yas/base", load_base_library },
+	{ "yas/hash", load_hash_library },
+	{ "yas/vector", load_vector_library },
+	{ "yas/text", load_text_library },
+	{ "yas/io", load_io_library },
+	{ "yas/math", load_math_library },
+#ifdef YAS_FFI
+	{ "yas/ffi", load_ffi_library },
 #endif
 	{ NULL, NULL }
 };
@@ -348,7 +348,7 @@ static char *find_library_file(const char *lib_path)
 	while (!nilp(paths)) {
 		Atom dir = car(paths);
 		if (dir.type == AtomType_String) {
-			sprintf(full_path, "%s/%s.gl", dir.value.string, lib_path);
+			sprintf(full_path, "%s/%s.ys", dir.value.string, lib_path);
 			FILE *f = fopen(full_path, "r");
 			if (f) {
 				fclose(f);
@@ -620,7 +620,6 @@ static Atom resolve_import_set(Atom set) {
 	if (nilp(exports_map) || exports_map.type != AtomType_Hash) return result;
 	
 	struct Hash *h = exports_map.value.hash;
-	Atom ffid_sym = make_sym("%FFI-DEFSTRUCT");
 	for (size_t i = 0; i < h->size; i++) {
 		Atom ext = h->keys[i];
 		Atom internal = h->values[i];
@@ -634,7 +633,7 @@ static Atom resolve_import_set(Atom set) {
 		} else {
 			/* Export not found - check if it's %FFI-DEFSTRUCT for debugging */
 			if (ext.type == AtomType_Symbol && strcmp(ext.value.symbol, "%FFI-DEFSTRUCT") == 0) {
-				printf("DEBUG: %FFI-DEFSTRUCT export found but not in library environment\n");
+				printf("DEBUG: %%FFI-DEFSTRUCT export found but not in library environment\n");
 				printf("  Export key: ");
 				print_expr(ext);
 				printf("\n  Export value: ");
@@ -668,7 +667,7 @@ static int process_import_set(Atom import_set, Atom target_env) {
 			if (env_get(target_env, key, &check) == Error_OK) {
 				/* Successfully added */
 			} else {
-				printf("WARNING: Failed to add %FFI-DEFSTRUCT to target environment\n");
+				printf("WARNING: Failed to add %%FFI-DEFSTRUCT to target environment\n");
 			}
 		}
 	}

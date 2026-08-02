@@ -1,2 +1,5 @@
-/gold
+/yas
 TODO.md
+/src/stdlib.h
+*.o
+.test-output.log

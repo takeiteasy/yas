@@ -113,9 +113,9 @@ int main(int argc, char **argv)
 
 	env = env_create(nil);
 
-	/* Import (gold base) */
-	Atom gold_base = list_create(2, make_sym("GOLD"), make_sym("BASE"));
-	Atom import_args = list_create(1, gold_base);
+	/* Import (yas base) */
+	Atom yas_base = list_create(2, make_sym("YAS"), make_sym("BASE"));
+	Atom import_args = list_create(1, yas_base);
 	Atom ignore;
 	module_import(import_args, env, &ignore);
 
@@ -125,7 +125,7 @@ int main(int argc, char **argv)
 		return 0;
 	}
 
-	printf("(gold repl v0.0.1 :)\n\n");
+	printf("(yas repl v0.0.1 :)\n\n");
 
 	/* Main loop */
 	while ((input = readline("> ")) != NULL) {

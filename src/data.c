@@ -671,7 +671,7 @@ void init_features(void)
 #endif
 
 	/* Optional features - compile-time flags */
-#ifdef GOLD_FFI
+#ifdef YAS_FFI
 	global_features = cons(make_sym("FFI"), global_features);
 #endif
 }

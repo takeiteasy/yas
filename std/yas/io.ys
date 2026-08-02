@@ -1,5 +1,5 @@
-(define-library (gold io)
-  (import (gold base) (gold text))
+(define-library (yas io)
+  (import (yas base) (yas text))
   (export 
     ;; Core port operations
     open-input-file open-output-file close-port

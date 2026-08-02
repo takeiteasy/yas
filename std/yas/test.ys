@@ -1,5 +1,5 @@
-(define-library (gold test)
-  (import (gold base) (gold math) (gold vector) (gold text))
+(define-library (yas test)
+  (import (yas base) (yas math) (yas vector) (yas text))
   (export check test run-tests *passes* *fails* *current-test-name* equal? set-test-name! report-success report-failure)
   (begin
     (define *passes* 0)

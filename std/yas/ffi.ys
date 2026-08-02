@@ -1,14 +1,14 @@
-;; Gold FFI - High-level interface
+;; YAS FFI - High-level interface
 ;;
 ;; This library provides convenient macros for FFI usage.
 ;; Use reader conditionals to check for FFI availability:
-;;   #+ffi (import (gold ffi))
+;;   #+ffi (import (yas ffi))
 ;;
 ;; NOTE: Native builtins (ffi-open, ffi-call, ffi-defstruct, etc.) are
 ;; exported by the native module loader in module.c. This Scheme file
 ;; only adds high-level helper functions.
 
-(define-library (gold ffi)
+(define-library (yas ffi)
   (export
     ;; High-level helpers (defined in this file)
     library-extension
@@ -23,7 +23,7 @@
     ;; ffi-null, ffi-null?, %ffi-defstruct, %make-ffi-struct,
     ;; %ffi-struct-ref, %ffi-struct-set!
 
-  (import (gold base))
+  (import (yas base))
 
   (begin
     ;; Get the library file extension for the current platform

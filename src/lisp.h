@@ -1,5 +1,5 @@
-#ifndef GOLD_LISP_H
-#define GOLD_LISP_H
+#ifndef YAS_LISP_H
+#define YAS_LISP_H
 
 #include <stddef.h>
 #include <stdint.h>
@@ -102,7 +102,7 @@ struct Atom {
 		AtomType_Vec3,
 		AtomType_Vec4,
 		AtomType_Mat4,
-#ifdef GOLD_FFI
+#ifdef YAS_FFI
 		AtomType_FFILibrary,   /* dlopen handle */
 		AtomType_FFIPointer,   /* Raw C pointer */
 		AtomType_FFIFunction,  /* Prepared ffi function */
@@ -125,7 +125,7 @@ struct Atom {
 		const char *keyword;  /* Interned keyword name (without :) */
 		vec4_t *vec;         /* Used for vec2, vec3, vec4 (SIMD aligned) */
 		mat4_t *mat4;        /* 4x4 matrix */
-#ifdef GOLD_FFI
+#ifdef YAS_FFI
 		void *ffi_library;           /* dlopen handle */
 		void *ffi_pointer;           /* raw C pointer */
 		struct FFIFunction *ffi_fn;  /* prepared ffi function */
@@ -495,19 +495,19 @@ int builtin_substring(Atom args, Atom *result);
 /* ============================================================
  * FFI (Foreign Function Interface) - Optional
  * ============================================================ */
-#ifdef GOLD_FFI
+#ifdef YAS_FFI
 
 /* FFI Type descriptors for marshaling */
 typedef enum {
-	GOLD_FFI_TYPE_VOID,
-	GOLD_FFI_TYPE_INT8, GOLD_FFI_TYPE_UINT8,
-	GOLD_FFI_TYPE_INT16, GOLD_FFI_TYPE_UINT16,
-	GOLD_FFI_TYPE_INT32, GOLD_FFI_TYPE_UINT32,
-	GOLD_FFI_TYPE_INT64, GOLD_FFI_TYPE_UINT64,
-	GOLD_FFI_TYPE_FLOAT, GOLD_FFI_TYPE_DOUBLE,
-	GOLD_FFI_TYPE_POINTER, GOLD_FFI_TYPE_STRING,
-	GOLD_FFI_TYPE_STRUCT   /* Struct by value */
-} GoldFFIType;
+	YAS_FFI_TYPE_VOID,
+	YAS_FFI_TYPE_INT8, YAS_FFI_TYPE_UINT8,
+	YAS_FFI_TYPE_INT16, YAS_FFI_TYPE_UINT16,
+	YAS_FFI_TYPE_INT32, YAS_FFI_TYPE_UINT32,
+	YAS_FFI_TYPE_INT64, YAS_FFI_TYPE_UINT64,
+	YAS_FFI_TYPE_FLOAT, YAS_FFI_TYPE_DOUBLE,
+	YAS_FFI_TYPE_POINTER, YAS_FFI_TYPE_STRING,
+	YAS_FFI_TYPE_STRUCT   /* Struct by value */
+} YasFFIType;
 
 /* Maximum fields per struct */
 #define FFI_STRUCT_MAX_FIELDS 32
@@ -515,7 +515,7 @@ typedef enum {
 /* Struct field definition */
 typedef struct FFIStructField {
 	char *name;            /* Field name */
-	GoldFFIType type;      /* Field type */
+	YasFFIType type;      /* Field type */
 	size_t offset;         /* Byte offset in struct */
 } FFIStructField;
 
@@ -546,8 +546,8 @@ FFIStructType *ffi_lookup_struct_type(const char *name);
 struct FFIFunction {
 	void *fn_ptr;           /* Function pointer */
 	void *cif;              /* ffi_cif* (opaque) */
-	GoldFFIType ret_type;
-	GoldFFIType *arg_types;
+	YasFFIType ret_type;
+	YasFFIType *arg_types;
 	void **ffi_arg_types;   /* ffi_type** for each arg (needed for structs) */
 	void *ffi_ret_type;     /* ffi_type* for return (needed for structs) */
 	int arg_count;
@@ -583,11 +583,11 @@ int builtin_ffi_struct_set(Atom args, Atom *result);
 /* FFI module loader */
 void load_ffi_library(void);
 
-#endif /* GOLD_FFI */
+#endif /* YAS_FFI */
 
 /* Global roots for GC */
 extern Atom library_registry;
 extern Atom global_search_paths;
 extern Atom global_features;
 
-#endif /* GOLD_LISP_H */
+#endif /* YAS_LISP_H */

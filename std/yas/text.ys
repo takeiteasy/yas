@@ -1,5 +1,5 @@
-(define-library (gold text)
-  (import (gold base))
+(define-library (yas text)
+  (import (yas base))
   (export
     ;; String Operations
     string? string-length string-ref string=? string-append string-byte-length

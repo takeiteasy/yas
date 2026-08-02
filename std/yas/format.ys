@@ -1,8 +1,8 @@
-;;; Gold Format Library
+;;; YAS Format Library
 ;;; Common Lisp style format strings
 
-(define-library (gold format)
-  (import (gold base) (gold text) (gold math))
+(define-library (yas format)
+  (import (yas base) (yas text) (yas math))
   (export format)
   (begin
     ;; Main format function
@@ -233,7 +233,7 @@
 
           ;; ~Q - Format info
           ((char=? d #\Q)
-           (list (if colon? "Gold Format 1.0" "Gold Format") args new-pos))
+           (list (if colon? "YAS Format 1.0" "YAS Format") args new-pos))
 
           ;; Unknown/unimplemented - output as-is
           (t

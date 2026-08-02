@@ -33,13 +33,13 @@ for i, src in enumerate(src_files):
         sys.exit(1)
 
     # Determine internal name (key)
-    # logic: strip "std/" prefix if present, strip ".gl" suffix
-    # e.g. std/gold/base.gl -> gold/base
+    # logic: strip "std/" prefix if present, strip ".ys" suffix
+    # e.g. std/yas/base.ys -> yas/base
     
     key = src
     if key.startswith("std/"):
         key = key[4:]
-    if key.endswith(".gl"):
+    if key.endswith(".ys"):
         key = key[:-3]
         
     # Escape content

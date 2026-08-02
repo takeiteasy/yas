@@ -216,14 +216,6 @@ static int is_vec_type(int type)
 	return type == AtomType_Vec2 || type == AtomType_Vec3 || type == AtomType_Vec4;
 }
 
-/* Helper: get vec dimension */
-static int vec_dim(Atom v)
-{
-	if (v.type == AtomType_Vec2) return 2;
-	if (v.type == AtomType_Vec3) return 3;
-	return 4;
-}
-
 /* Helper: get float value from number */
 static float num_to_float(Atom a)
 {
@@ -1016,9 +1008,9 @@ static size_t serialize_calc_len(Atom atom) {
 	case AtomType_Nil:
 		return 3; /* "nil" or "()" ? lisd uses nil? lisd.h: LD_PRIMITIVE. 
 		             If we want compatible with common lisp usage in lisd, maybe "nil". 
-					 But plan says: "Hash Table: (:key1 val1)". 
-					 Gold nil is usually printed as NIL. 
-					 Let's use "nil" for now. */
+				 But plan says: "Hash Table: (:key1 val1)". 
+				 nil is usually printed as NIL. 
+				 Let's use "nil" for now. */
 		return 3; 
 	case AtomType_Pair: {
 		/* List -> Vector #(...) */
@@ -1174,6 +1166,9 @@ static void serialize_write(Atom atom, char *buf, size_t *pos) {
 		size_t len = strlen(atom.value.keyword);
 		memcpy(buf + *pos, atom.value.keyword, len);
 		*pos += len;
+		break;
+	default:
+		/* Unserializable types; keep in sync with serialize_calc_len (returns 0) */
 		break;
 	}
 }

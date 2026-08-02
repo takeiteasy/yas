@@ -1,5 +1,5 @@
-(define-library (gold vector)
-  (import (gold base))
+(define-library (yas vector)
+  (import (yas base))
   (export
     make-vector vector-ref vector-set! vector-length vector-append vector?
     vector-map vector-for-each vector->list list->vector vector-fold)

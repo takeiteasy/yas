@@ -65,6 +65,71 @@ test: yas
 	rm -f .test-output.log; \
 	echo "make test: PASSED"
 
+# ============================================================
+# AOT: lowers a .ys file to C at compile time via cccc's comptime pass +
+# reflection API. See docs/AOT.md for the design and aot/aot.c for the
+# implementation notes (several cccc quirks/bugs worked around there).
+#
+# Requires cccc (https://github.com - sibling checkout by default;
+# override with `make aot CCCC_DIR=/path/to/cccc`). cccc must run with
+# its own repo as CWD (its bundled headers are found relative to CWD, not
+# to the invoking binary's own path) - hence the `cd $(CCCC_DIR)` below,
+# and why every path handed to it is absolute.
+# ============================================================
+CCCC_DIR ?= $(abspath ../cccc)
+CCCC ?= $(CCCC_DIR)/cccc
+YAS_ROOT := $(abspath .)
+
+AOT_SRC ?= aot/examples/fib.ys
+AOT_MAIN ?= aot/fib_main.c
+
+# Substitute the absolute libyas path into aot.c (plain text, before cccc
+# ever sees it - see the comment above the dlopen calls in aot/aot.c for
+# why this can't be a #define read inside the comptime function body),
+# then concatenate the YAS_AOT_SOURCE_PATH #define + aot.c + the host
+# "main" file into one physical source file. Also plain concatenation, not
+# an #include: a global-generation comptime function loses sight of its
+# own file-scope statics when invoked across an #include boundary, even
+# though the preprocessed token stream is identical either way (see the
+# note near the top of aot/aot.c). `make aot` is therefore the only
+# supported way to build an AOT example - not a direct cccc invocation.
+build/aot_gen.c: aot/aot.c src/aot_plan.h src/aot_plan_ops.h $(libyas)
+	@mkdir -p build
+	sed -e "s#AOT_LIBYAS_DYLIB_ABS#$(YAS_ROOT)/libyas.dylib#" \
+	    -e "s#AOT_LIBYAS_SO_ABS#$(YAS_ROOT)/libyas.so#" \
+	    aot/aot.c > $@
+
+build/fib.gen.c: build/aot_gen.c $(AOT_MAIN)
+	@mkdir -p build
+	{ echo '#define YAS_AOT_SOURCE_PATH "$(YAS_ROOT)/$(AOT_SRC)"'; \
+	  cat build/aot_gen.c $(AOT_MAIN); } > $@
+
+.PHONY: aot
+aot: build/fib.gen.c
+	cd $(CCCC_DIR) && ./cccc -c=native -o $(YAS_ROOT)/build/fib $(YAS_ROOT)/build/fib.gen.c
+
+.PHONY: aot-gen
+aot-gen: build/fib.gen.c
+	cd $(CCCC_DIR) && ./cccc -G -o $(YAS_ROOT)/build/fib.expanded.c $(YAS_ROOT)/build/fib.gen.c
+	@echo "generated C: build/fib.expanded.c"
+
+.PHONY: test-aot
+test-aot: libyas aot
+	$(CC) -std=c99 -Wall -D_GNU_SOURCE -iquote src -o build/plan_test aot/tests/plan_test.c -L. -lyas -Wl,-rpath,.
+	./build/plan_test
+	@./build/fib > /dev/null 2>&1; \
+	got=$$?; \
+	if [ "$$got" != "233" ]; then \
+		echo "make test-aot: FAILED (build/fib exit code $$got, want 233 = fib(13))"; \
+		exit 1; \
+	fi; \
+	echo "PASS build/fib exit code = fib(13) = 233"; \
+	echo "make test-aot: PASSED"
+
+.PHONY: check
+check: test test-aot
+
 .PHONY: clean
 clean:
 	$(RM) $(objects) $(lib_objects) yas libyas.dylib libyas.so src/stdlib.h .test-output.log
+	$(RM) -r build

@@ -1,0 +1,7 @@
+;; Naive recursive fibonacci - deliberately exponential, so the interpreter
+;; vs. AOT timing comparison in docs/AOT.md is not noise. AOT input subset
+;; only: no (import (yas base)) - see docs/AOT.md.
+(define (fib n)
+  (if (< n 2)
+      n
+      (+ (fib (- n 1)) (fib (- n 2)))))

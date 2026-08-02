@@ -152,7 +152,12 @@ evaluator.
 Mark-sweep, triggered on an allocation counter inside `eval_vm()` (every
 100,000 conses). `gc_mark()` walks from `eval_roots`, `ctx_exception`,
 `sym_table`, `kw_table`, `library_registry`, `global_search_paths`, and
-`global_features`, then `gc()` sweeps pairs, then vectors, then hashes.
+`global_features`, then `gc()` sweeps pairs, vectors, hashes, strings,
+ports, bytevectors, vec2/3/4, mat4, and (when built with `YAS_FFI`)
+`FFIFunction`/`FFIStruct` instances. Each type past pairs/vectors/hashes
+follows the same pattern: a `mark`/`next` pair embedded in (or, for the
+bare-pointer types String/Vec2-4/Mat4, a small header wrapping) the
+allocation, threaded through a global intrusive list that `gc()` sweeps.
 
 Two things worth knowing before writing code that holds `Atom`s across
 allocation points:
@@ -163,10 +168,13 @@ allocation points:
   holds a local `Atom` across any call that can trigger `gc()` has no way
   to register it as a root. This is the reason [AOT.md](AOT.md)'s current
   lowering never produces an `Atom` - only unboxed `long`/`double`.
-- **Only pairs, vectors, and hashes are ever freed.** Strings, ports,
-  bytevectors, vec2/3/4, mat4, and all FFI objects are `malloc`'d and
-  never swept - by design, not oversight, but worth knowing before relying
-  on their lifetime being GC-managed.
+- **FFILibrary and FFIPointer are deliberately not GC-managed.** A raw
+  `void*` has no recoverable ownership: it may be a `dlsym` result, an
+  interior pointer into an `FFIStruct`, or a genuinely owned `ffi-malloc`
+  block, and closing a library when its atom becomes unreachable could
+  invalidate a still-live `FFIFunction` extracted from it (it doesn't hold
+  a reference back to its library). Both stay explicitly managed via
+  `ffi-close`/`ffi-free`.
 - `AtomType_Continuation` is not among the types `gc_mark()` traces - a
   continuation value reachable only through application state, not
   through a marked root, is not protected from collection.

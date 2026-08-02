@@ -716,8 +716,8 @@ int builtin_string_append(Atom args, Atom *result)
 		strcat(buf, car(p).value.string);
 		p = cdr(p);
 	}
-	result->type = AtomType_String;
-	result->value.string = buf;
+	*result = make_string(buf);
+	free(buf);
 	return Error_OK;
 }
 

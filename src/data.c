@@ -14,6 +14,15 @@ struct Allocation {
 struct Allocation *global_allocations = NULL;
 struct Vector *global_vectors = NULL;
 struct Hash *global_hashes = NULL;
+static struct StringAlloc *global_strings = NULL;
+static struct Port *global_ports = NULL;
+static struct Bytevector *global_bytevectors = NULL;
+static struct VecAlloc *global_vecs = NULL;
+static struct Mat4Alloc *global_mats = NULL;
+#ifdef YAS_FFI
+struct FFIFunction *global_ffi_functions = NULL;
+FFIStructInstance *global_ffi_structs = NULL;
+#endif
 
 Atom cons(Atom car_val, Atom cdr_val)
 {
@@ -108,11 +117,22 @@ Atom make_char(int32_t codepoint)
 	return a;
 }
 
+static char *gc_alloc_string(size_t len)
+{
+	struct StringAlloc *sa = malloc(sizeof(struct StringAlloc) + len + 1);
+	sa->mark = 0;
+	sa->next = global_strings;
+	global_strings = sa;
+	return sa->data;
+}
+
 Atom make_string(const char *s)
 {
 	Atom a;
+	size_t len = strlen(s);
 	a.type = AtomType_String;
-	a.value.string = strdup(s);
+	a.value.string = gc_alloc_string(len);
+	memcpy(a.value.string, s, len + 1);
 	return a;
 }
 
@@ -120,7 +140,7 @@ Atom make_string_n(const char *s, size_t len)
 {
 	Atom a;
 	a.type = AtomType_String;
-	a.value.string = malloc(len + 1);
+	a.value.string = gc_alloc_string(len);
 	memcpy(a.value.string, s, len);
 	a.value.string[len] = '\0';
 	return a;
@@ -377,6 +397,52 @@ void gc_mark(Atom root)
 		return;
 	}
 
+	if (root.type == AtomType_String) {
+		struct StringAlloc *sa = (struct StringAlloc *)
+			((char *) root.value.string
+				- offsetof(struct StringAlloc, data));
+		sa->mark = 1;
+		return;
+	}
+
+	if (root.type == AtomType_Port) {
+		root.value.port->mark = 1;
+		return;
+	}
+
+	if (root.type == AtomType_Bytevector) {
+		root.value.bytevector->mark = 1;
+		return;
+	}
+
+	if (root.type == AtomType_Vec2 || root.type == AtomType_Vec3 || root.type == AtomType_Vec4) {
+		struct VecAlloc *va = (struct VecAlloc *)
+			((char *) root.value.vec
+				- offsetof(struct VecAlloc, v));
+		va->mark = 1;
+		return;
+	}
+
+	if (root.type == AtomType_Mat4) {
+		struct Mat4Alloc *ma = (struct Mat4Alloc *)
+			((char *) root.value.mat4
+				- offsetof(struct Mat4Alloc, m));
+		ma->mark = 1;
+		return;
+	}
+
+#ifdef YAS_FFI
+	if (root.type == AtomType_FFIFunction) {
+		if (root.value.ffi_fn) root.value.ffi_fn->mark = 1;
+		return;
+	}
+
+	if (root.type == AtomType_FFIStruct) {
+		if (root.value.ffi_struct) root.value.ffi_struct->mark = 1;
+		return;
+	}
+#endif
+
 	if (!(root.type == AtomType_Pair
 		|| root.type == AtomType_Closure
 		|| root.type == AtomType_Macro))
@@ -454,6 +520,108 @@ void gc()
 			ph = &h->next;
 		}
 	}
+
+	/* Sweep Strings */
+	struct StringAlloc **ps = &global_strings;
+	while (*ps != NULL) {
+		struct StringAlloc *sa = *ps;
+		if (!sa->mark) {
+			*ps = sa->next;
+			free(sa);
+		} else {
+			sa->mark = 0;
+			ps = &sa->next;
+		}
+	}
+
+	/* Sweep Ports (unmarked but still open ports are closed before freeing) */
+	struct Port **pp = &global_ports;
+	while (*pp != NULL) {
+		struct Port *port = *pp;
+		if (!port->mark) {
+			*pp = port->next;
+			if (port->is_open) {
+				Atom tmp;
+				tmp.type = AtomType_Port;
+				tmp.value.port = port;
+				port_close(tmp);
+			}
+			free(port->path);
+			free(port);
+		} else {
+			port->mark = 0;
+			pp = &port->next;
+		}
+	}
+
+	/* Sweep Bytevectors */
+	struct Bytevector **pbv = &global_bytevectors;
+	while (*pbv != NULL) {
+		struct Bytevector *bv = *pbv;
+		if (!bv->mark) {
+			*pbv = bv->next;
+			free(bv->data);
+			free(bv);
+		} else {
+			bv->mark = 0;
+			pbv = &bv->next;
+		}
+	}
+
+	/* Sweep Vec2/Vec3/Vec4 */
+	struct VecAlloc **pva = &global_vecs;
+	while (*pva != NULL) {
+		struct VecAlloc *va = *pva;
+		if (!va->mark) {
+			*pva = va->next;
+			free(va);
+		} else {
+			va->mark = 0;
+			pva = &va->next;
+		}
+	}
+
+	/* Sweep Mat4 */
+	struct Mat4Alloc **pma = &global_mats;
+	while (*pma != NULL) {
+		struct Mat4Alloc *ma = *pma;
+		if (!ma->mark) {
+			*pma = ma->next;
+			free(ma);
+		} else {
+			ma->mark = 0;
+			pma = &ma->next;
+		}
+	}
+
+#ifdef YAS_FFI
+	/* Sweep FFIFunctions */
+	struct FFIFunction **pfn = &global_ffi_functions;
+	while (*pfn != NULL) {
+		struct FFIFunction *fn = *pfn;
+		if (!fn->mark) {
+			*pfn = fn->next;
+			ffi_free_function(fn);
+		} else {
+			fn->mark = 0;
+			pfn = &fn->next;
+		}
+	}
+
+	/* Sweep FFIStruct instances (the type registry entry is not owned here) */
+	FFIStructInstance **pfs = &global_ffi_structs;
+	while (*pfs != NULL) {
+		FFIStructInstance *inst = *pfs;
+		if (!inst->mark) {
+			*pfs = inst->next;
+			free(inst->data);
+			free(inst);
+		} else {
+			inst->mark = 0;
+			pfs = &inst->next;
+		}
+	}
+#endif
 }
 
 /* Port operations */
@@ -469,6 +637,11 @@ Atom make_port(void *handle, const char *path, int is_input, int is_binary, int 
 	p->provider_id = provider_id;
 	a.type = AtomType_Port;
 	a.value.port = p;
+
+	p->mark = 0;
+	p->next = global_ports;
+	global_ports = p;
+
 	return a;
 }
 
@@ -481,6 +654,11 @@ Atom make_bytevector(size_t size)
 	bv->data = calloc(size, 1);
 	a.type = AtomType_Bytevector;
 	a.value.bytevector = bv;
+
+	bv->mark = 0;
+	bv->next = global_bytevectors;
+	global_bytevectors = bv;
+
 	return a;
 }
 
@@ -493,6 +671,11 @@ Atom make_bytevector_from_data(const unsigned char *data, size_t size)
 	memcpy(bv->data, data, size);
 	a.type = AtomType_Bytevector;
 	a.value.bytevector = bv;
+
+	bv->mark = 0;
+	bv->next = global_bytevectors;
+	global_bytevectors = bv;
+
 	return a;
 }
 
@@ -512,11 +695,29 @@ size_t bytevector_length(Atom bv)
 }
 
 /* SIMD Vector/Matrix constructors */
+static vec4_t *gc_alloc_vec(void)
+{
+	struct VecAlloc *va = malloc(sizeof(struct VecAlloc));
+	va->mark = 0;
+	va->next = global_vecs;
+	global_vecs = va;
+	return &va->v;
+}
+
+static mat4_t *gc_alloc_mat4(void)
+{
+	struct Mat4Alloc *ma = malloc(sizeof(struct Mat4Alloc));
+	ma->mark = 0;
+	ma->next = global_mats;
+	global_mats = ma;
+	return &ma->m;
+}
+
 Atom make_vec2(float x, float y)
 {
 	Atom a;
 	a.type = AtomType_Vec2;
-	a.value.vec = malloc(sizeof(vec4_t));
+	a.value.vec = gc_alloc_vec();
 #ifdef SIMD_X86
 	a.value.vec->v = _mm_set_ps(0, 0, y, x);
 #elif defined(SIMD_ARM_NEON)
@@ -537,7 +738,7 @@ Atom make_vec3(float x, float y, float z)
 {
 	Atom a;
 	a.type = AtomType_Vec3;
-	a.value.vec = malloc(sizeof(vec4_t));
+	a.value.vec = gc_alloc_vec();
 #ifdef SIMD_X86
 	a.value.vec->v = _mm_set_ps(0, z, y, x);
 #elif defined(SIMD_ARM_NEON)
@@ -558,7 +759,7 @@ Atom make_vec4(float x, float y, float z, float w)
 {
 	Atom a;
 	a.type = AtomType_Vec4;
-	a.value.vec = malloc(sizeof(vec4_t));
+	a.value.vec = gc_alloc_vec();
 #ifdef SIMD_X86
 	a.value.vec->v = _mm_set_ps(w, z, y, x);
 #elif defined(SIMD_ARM_NEON)
@@ -579,7 +780,7 @@ Atom make_mat4_identity(void)
 {
 	Atom a;
 	a.type = AtomType_Mat4;
-	a.value.mat4 = malloc(sizeof(mat4_t));
+	a.value.mat4 = gc_alloc_mat4();
 	/* Column-major identity matrix */
 	for (int c = 0; c < 4; c++) {
 #ifdef SIMD_X86
@@ -615,7 +816,7 @@ Atom make_mat4_from_floats(const float *values)
 {
 	Atom a;
 	a.type = AtomType_Mat4;
-	a.value.mat4 = malloc(sizeof(mat4_t));
+	a.value.mat4 = gc_alloc_mat4();
 	/* Values are column-major: first 4 = column 0, etc. */
 	for (int c = 0; c < 4; c++) {
 #ifdef SIMD_X86

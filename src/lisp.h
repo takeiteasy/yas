@@ -163,11 +163,37 @@ struct Port {
 	int is_binary;
 	int is_open;
 	int provider_id;        /* 0 = stdio, >0 = custom provider */
+	int mark;
+	struct Port *next;
 };
 
 struct Bytevector {
 	unsigned char *data;
 	size_t size;
+	int mark;
+	struct Bytevector *next;
+};
+
+/* GC headers for otherwise-bare-pointer atom payloads (String, Vec2/3/4,
+ * Mat4). The atom stores a pointer into the header's trailing/embedded
+ * data; gc_mark() recovers the header via offsetof, mirroring how `cons`
+ * recovers `struct Allocation` from a `struct Pair *`. */
+struct StringAlloc {
+	int mark;
+	struct StringAlloc *next;
+	char data[];
+};
+
+struct VecAlloc {
+	int mark;
+	struct VecAlloc *next;
+	vec4_t v;
+};
+
+struct Mat4Alloc {
+	int mark;
+	struct Mat4Alloc *next;
+	mat4_t m;
 };
 
 typedef struct Atom Atom;
@@ -534,6 +560,8 @@ typedef struct FFIStructType {
 typedef struct FFIStructInstance {
 	FFIStructType *type;   /* Pointer to struct type definition */
 	void *data;            /* Pointer to packed struct data */
+	int mark;
+	struct FFIStructInstance *next;
 } FFIStructInstance;
 
 /* Global struct type registry */
@@ -551,7 +579,19 @@ struct FFIFunction {
 	void **ffi_arg_types;   /* ffi_type** for each arg (needed for structs) */
 	void *ffi_ret_type;     /* ffi_type* for return (needed for structs) */
 	int arg_count;
+	int mark;
+	struct FFIFunction *next;
 };
+
+/* GC-tracked lists for FFIFunction/FFIStructInstance (data.c sweeps these).
+ * FFILibrary (dlopen handle) and FFIPointer (raw void*) are deliberately
+ * NOT tracked here: ownership of a raw pointer can't be inferred (it may be
+ * a dlsym result, an interior pointer into a struct, or a genuinely owned
+ * ffi-malloc block), and closing a library when its atom becomes
+ * unreachable could invalidate a still-live FFIFunction extracted from it.
+ * Both remain explicitly managed via ffi-close / ffi-free. */
+extern struct FFIFunction *global_ffi_functions;
+extern FFIStructInstance *global_ffi_structs;
 
 /* FFI core functions (ffi.c) */
 void *ffi_load_library(const char *path);

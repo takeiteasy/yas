@@ -397,9 +397,9 @@ static int read_expr_internal(const char *input, const char **end, Atom *result,
 			}
 			*dst = '\0';
 			*end = p + 1;
-			
-			result->type = AtomType_String;
-			result->value.string = buf;
+
+			*result = make_string(buf);
+			free(buf);
 			return Error_OK;
 		}
 		

@@ -185,6 +185,10 @@ struct FFIFunction *ffi_prepare(void *fn_ptr, Atom ret_type, Atom arg_types)
 
 	fn->cif = cif;
 
+	fn->mark = 0;
+	fn->next = global_ffi_functions;
+	global_ffi_functions = fn;
+
 	return fn;
 }
 
@@ -752,6 +756,9 @@ int builtin_ffi_make_struct(Atom args, Atom *result)
 	FFIStructInstance *inst = malloc(sizeof(FFIStructInstance));
 	inst->type = st;
 	inst->data = calloc(1, st->size);
+	inst->mark = 0;
+	inst->next = global_ffi_structs;
+	global_ffi_structs = inst;
 
 	/* Pack field values */
 	Atom values = cdr(args);

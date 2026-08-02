@@ -18,6 +18,8 @@ make && make test    # build the interpreter, run the test suite
 
 ## Docs
 
+- [Getting started](docs/GETTING_STARTED.md) - a first program, REPL, modules
+- [Language reference](docs/LANGUAGE_REFERENCE.md) - syntax and stdlib
 - [Architecture](docs/ARCHITECTURE.md) - value representation, evaluator,
   GC, module system
 - [Building](docs/BUILDING.md) - build targets, FFI, AOT

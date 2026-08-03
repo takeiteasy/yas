@@ -141,34 +141,43 @@ trigger site in `aot/aot.c` / `src/aot_shim.h`:
    forward-declared. Worked around by never forward-declaring a comptime
    function - restructuring so mutually-recursive logic is inlined instead.
 
-2. **Indirect calls through a `dlsym`'d function pointer crash at runtime
-   if the cast happens inline at the call site** -
-   `((int(*)(int,int))dlsym(h,"f"))(a,b)` compiles but crashes when run,
-   regardless of block (`#pragma cccc comptime`) vs. attribute
-   (`[[cccc::comptime]]`) style, or call-site vs. global-generation
-   category. Assigning the cast result to a named variable first, then
-   calling through the name, works reliably. Always do the latter.
+2. **Fixed upstream (cccc #885).** Indirect calls through a `dlsym`'d
+   function pointer used to crash at runtime if the cast happened inline
+   at the call site - `((int(*)(int,int))dlsym(h,"f"))(a,b))` compiled but
+   crashed when run. `aot/aot.c` still assigns each dlsym result to a
+   named variable before calling through it, simply because that reads
+   better with sixteen of them, not because the inline form is unsafe now.
 
-3. **Function-pointer `typedef`s declared *inside* comptime-executed code**
-   (a `#pragma cccc comptime begin/end` block, or a `[[cccc::comptime]]`
-   function body) **are rejected at compile time** - "pointer/string
-   variables are not supported yet (ticket #188 scope: int/float/struct
-   only)". Declaring the typedef at plain file scope avoids it; plain
-   file-scope declarations are part of the "conservative snapshot"
-   comptime code can see (per cccc's own docs on global-generation macros).
+3. **Fixed upstream (cccc #886).** A function-pointer `typedef` declared
+   *inside* comptime-executed code (a `#pragma cccc comptime begin/end`
+   block, or a `[[cccc::comptime]]` function body) used to be rejected at
+   compile time - "pointer/string variables are not supported yet (ticket
+   #188 scope: int/float/struct only)" - because the dispatcher that
+   decides "function, variable, or something else" had no case for a type
+   declaration. `aot/aot.c`'s `fp_*` typedefs still live at plain file
+   scope, but only because the file-scope statics they type (`plan_fn`,
+   `plan_error`, ...) need to be there regardless of this fix.
 
-4. **String values referenced via anything other than a literal or a local
-   variable, inside a comptime function body, are unreliable** - not just
-   the ticket #188 case above. A file-scope `const char *` global, or even
-   an object-like `#define` (`#define X "s"` then `helper(X)`), used as an
-   argument somewhere in a comptime call chain produces either an
-   "undefined variable" error or an outright crash, inconsistently,
-   despite ordinary C preprocessing already having replaced the macro with
-   a literal before any parsing should occur. A plain string literal or a
-   local `const char *` variable both work reliably. This is why
-   `aot/aot.c` picks its `dlopen` path via two whole function definitions
-   selected by a file-scope `#ifdef`/`#else`/`#endif`, rather than a
-   `#define` referenced from inside one function.
+4. **Fixed upstream (cccc #887), in part.** An identifier referenced
+   inside a comptime function body that cccc's parser can't resolve -
+   including a `#define`d string used as an argument in a comptime call
+   chain, or a file-scope `const char *` global - used to sometimes crash
+   the host (SIGSEGV) instead of producing a clean "undefined variable"
+   compile error; that crash is what's fixed. The underlying restriction
+   is not a bug and is not fixed: cccc's comptime pass deliberately
+   isolates the comptime compile from the runtime translation unit's
+   `#define`s (see cccc's docs/MACROS.md, "Pre-parse macro declaration
+   context") - a `#define`, even though ordinary C preprocessing would
+   already have replaced it with a literal everywhere else in the file, is
+   simply invisible inside a comptime function body unless the header
+   defining it is routed `@shared`, the value is passed via `-D`, or
+   `--comptime-include-all` is used. A file-scope *initialized* global
+   (`const char *g = "...";`) remains unsupported outright (no escape
+   hatch) - filed upstream as a separate follow-up. This is why
+   `aot/aot.c` still picks its `dlopen` path via a plain-text sentinel
+   substituted by `make aot`'s `sed` step, rather than a `#define` read
+   from inside `aot_bind()`: that restriction is intended, ongoing cccc
+   behavior, not something to work around and retire.
 
 5. **A `#define`d integer constant used as a local array size inside a
    comptime function body** is sometimes rejected as an "undefined

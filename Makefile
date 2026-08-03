@@ -84,20 +84,18 @@ AOT_SRC ?= aot/examples/fib.ys
 AOT_MAIN ?= aot/fib_main.c
 
 # Substitute the absolute libyas path into aot.c (plain text, before cccc
-# ever sees it - see the comment above the dlopen calls in aot/aot.c for
-# why this can't be a #define read inside the comptime function body),
-# then concatenate the YAS_AOT_SOURCE_PATH #define + aot.c + the host
-# "main" file into one physical source file. Also plain concatenation, not
-# an #include: a global-generation comptime function loses sight of its
-# own file-scope statics when invoked across an #include boundary, even
-# though the preprocessed token stream is identical either way (see the
-# note near the top of aot/aot.c). `make aot` is therefore the only
-# supported way to build an AOT example - not a direct cccc invocation.
+# ever sees it - see the comment above the dlopen call in aot/aot.c for why
+# this can't be a #define read inside the comptime function body), then
+# concatenate the YAS_AOT_SOURCE_PATH #define + aot.c + the host "main"
+# file into one physical source file. Also plain concatenation, not an
+# #include: a global-generation comptime function loses sight of its own
+# file-scope statics when invoked across an #include boundary, even though
+# the preprocessed token stream is identical either way (see the note near
+# the top of aot/aot.c). `make aot` is therefore the only supported way to
+# build an AOT example - not a direct cccc invocation.
 build/aot_gen.c: aot/aot.c src/aot_plan.h src/aot_plan_ops.h $(libyas)
 	@mkdir -p build
-	sed -e "s#AOT_LIBYAS_DYLIB_ABS#$(YAS_ROOT)/libyas.dylib#" \
-	    -e "s#AOT_LIBYAS_SO_ABS#$(YAS_ROOT)/libyas.so#" \
-	    aot/aot.c > $@
+	sed -e "s#AOT_LIBYAS_ABS#$(YAS_ROOT)/$(libyas)#" aot/aot.c > $@
 
 build/fib.gen.c: build/aot_gen.c $(AOT_MAIN)
 	@mkdir -p build

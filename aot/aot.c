@@ -18,10 +18,6 @@
  * the way. In particular, everything below sticks to patterns verified to
  * be safe:
  *
- *   - Function-pointer typedefs live at plain file scope, never inside a
- *     `[[cccc::comptime]]` function body.
- *   - Every dlsym'd function pointer is assigned to a named variable
- *     before being called - never cast-and-called inline.
  *   - `Obj *` / `Node *` / `Type *` values never live in a file-scope
  *     global or struct field - only in this function's own locals.
  *   - The entry point (`yas_aot_compile`) is global-generation style
@@ -30,21 +26,15 @@
  *     auto-stringifies its call-site argument into an ordinary local
  *     parameter. A `Node *`-returning call-site-expansion entry was tried
  *     first specifically to dodge macro/global string values, but that
- *     traded one bug for a worse one - see the next two points.
+ *     traded one bug for a worse one - see the next point.
  *   - No `#define`d string value is ever referenced *inside* a
  *     `[[cccc::comptime]]` function body (as opposed to a plain
- *     parameter, which is fine). Empirically, an object-like `#define`
- *     used as a string argument inside a comptime function's body - even
- *     though ordinary preprocessing should already have replaced it with
- *     a literal - unpredictably produces either an "undefined variable"
- *     error or a crash (minimal repro: `#define X "s"` then `helper(X)`
- *     inside a marked function). Matches the "pointer/string variables
- *     are not supported yet" restriction (ticket #188) applying more
- *     broadly than just C variables. That's why `AOT_LIBYAS_PATH` doesn't
- *     exist as a macro below: `aot_bind()` is defined twice, once per
- *     platform, each with the literal written directly in its own body,
- *     picked by an `#ifdef` that wraps the *whole function*, not a value
- *     inside one.
+ *     parameter, which is fine): cccc's comptime pass deliberately does
+ *     not forward source-file `#define`s into comptime function bodies
+ *     (see cccc's docs/MACROS.md, "Pre-parse macro declaration context").
+ *     That's why `AOT_LIBYAS_ABS` (below) is a plain-text sentinel
+ *     substituted by `make aot`'s `sed` step before cccc ever sees this
+ *     file, rather than a `#define` read from inside `aot_bind()`.
  *   - The call `yas_aot_compile("path/to/file.ys");` must appear in
  *     *this* file, not in a separate file that `#include`s it. A
  *     global-generation function invoked from across an `#include`
@@ -52,9 +42,10 @@
  *     `plan_fn`/`plan_error`/... pointers below) even though the
  *     preprocessed token stream is identical either way - reproduced
  *     directly (call appended to this file: works; the identical call one
- *     `#include` away in aot/fib.c: "undefined variable 'plan_fn'"). The
- *     host `.c` file (aot/fib.c) therefore just does
- *     `#define YAS_AOT_SOURCE_PATH "..."` and `#include "aot.c"`; the
+ *     `#include` away in aot/fib_main.c: "undefined variable 'plan_fn'").
+ *     `make aot` therefore concatenates a `YAS_AOT_SOURCE_PATH` #define,
+ *     this file, and the host "main" file (aot/fib_main.c) into one
+ *     physical source (see the Makefile) rather than using `#include`; the
  *     actual call is the one line at the bottom of this file.
  *   - No recursive or mutually-recursive `[[cccc::comptime]]` helper
  *     functions, and no forward declarations of one - cccc's comptime VM
@@ -62,22 +53,21 @@
  *     before its definition, reproduced as a two-line minimal case. This
  *     file's comptime functions are only ever called in sequence, never
  *     each other, and never before their own definition.
+ *
+ * Two earlier workarounds this file used to need no longer apply, fixed
+ * upstream in cccc: indirect calls through a dlsym'd function pointer via
+ * an inline cast used to crash at runtime (cccc #885) -- every dlsym
+ * result below is still assigned to a named variable before use, simply
+ * because that reads better, not because the inline form is unsafe now --
+ * and a function-pointer typedef declared inside comptime-executed code
+ * used to be rejected as though it were a comptime pointer *variable*
+ * (cccc #886) -- the `fp_*` typedefs below stay at file scope regardless,
+ * because the file-scope statics they type need them there.
  */
 
 #include @comptime "../src/aot_plan.h"
 #include @comptime "../src/aot_plan_ops.h"
 #include @comptime <dlfcn.h>
-
-/* NOTE: deliberately not read through a #define referenced from inside a
- * [[cccc::comptime]] function body. Empirically, an object-like #define
- * used as a *string* argument somewhere in a comptime call chain - even
- * though ordinary preprocessing should have already replaced it with a
- * literal - unpredictably produces either an "undefined variable" error
- * or a crash (minimal repro: a one-line `#define X "s"` used as
- * `helper(X)` inside a marked function). Matches the "pointer/string
- * variables are not supported yet" restriction (ticket #188) applying
- * more broadly than just C variables. Hardcoded per-platform literals at
- * the call site (aot_bind, below) avoid it entirely. */
 
 typedef struct YasPlan *(*fp_plan)(const char *);
 typedef const char     *(*fp_error)(struct YasPlan *);
@@ -113,24 +103,18 @@ static fp_op_b                 plan_op_b;
 static fp_op_i                 plan_op_i;
 static fp_op_f                 plan_op_f;
 
-/* The #ifdef/#else/#endif choosing the extension is deliberately kept
- * outside the function body - see the note above about #define/macro
- * string values inside comptime function bodies. Two whole function
- * definitions, picked by ordinary top-level conditional compilation,
- * side-steps it entirely (each definition itself contains only a literal
- * string, exactly like the working case). */
-#ifdef __APPLE__
 [[cccc::comptime]]
 int aot_bind(void)
 {
-	/* AOT_LIBYAS_DYLIB_ABS: substituted with the build's absolute repo
-	 * path by `make aot` (plain text substitution, before this file ever
-	 * reaches cccc) - not a relative "./libyas.dylib", because cccc's own
-	 * bundled headers (implicit-reflection.h -> stdbool.h etc.) are only
-	 * found when cccc runs with its own repo as CWD, which is what `make
-	 * aot` actually does; a CWD-relative dlopen target would then look for
-	 * libyas next to cccc, not next to yas. See docs/AOT.md. */
-	void *h = dlopen("AOT_LIBYAS_DYLIB_ABS", RTLD_NOW);
+	/* AOT_LIBYAS_ABS: substituted with the build's absolute, per-platform
+	 * libyas path by `make aot` (plain text substitution, before this
+	 * file ever reaches cccc) - not a relative "./libyas.dylib" /
+	 * "./libyas.so", because cccc's own bundled headers
+	 * (implicit-reflection.h -> stdbool.h etc.) are only found when cccc
+	 * runs with its own repo as CWD, which is what `make aot` actually
+	 * does; a CWD-relative dlopen target would then look for libyas next
+	 * to cccc, not next to yas. See docs/AOT.md. */
+	void *h = dlopen("AOT_LIBYAS_ABS", RTLD_NOW);
 	if (!h) return 0;
 	plan_fn                 = (fp_plan)dlsym(h, "yas_aot_plan");
 	plan_error               = (fp_error)dlsym(h, "yas_plan_error");
@@ -153,35 +137,6 @@ int aot_bind(void)
 	    && plan_fn_local_count && plan_fn_local_is_float && plan_op_count
 	    && plan_op_kind && plan_op_a && plan_op_b && plan_op_i && plan_op_f;
 }
-#else
-[[cccc::comptime]]
-int aot_bind(void)
-{
-	/* AOT_LIBYAS_SO_ABS: same substitution as AOT_LIBYAS_DYLIB_ABS above. */
-	void *h = dlopen("AOT_LIBYAS_SO_ABS", RTLD_NOW);
-	if (!h) return 0;
-	plan_fn                 = (fp_plan)dlsym(h, "yas_aot_plan");
-	plan_error               = (fp_error)dlsym(h, "yas_plan_error");
-	plan_free                 = (fp_free)dlsym(h, "yas_plan_free");
-	plan_fn_count             = (fp_fn_count)dlsym(h, "yas_plan_fn_count");
-	plan_fn_name              = (fp_fn_name)dlsym(h, "yas_plan_fn_name");
-	plan_fn_is_float          = (fp_fn_is_float)dlsym(h, "yas_plan_fn_is_float");
-	plan_fn_param_count       = (fp_fn_param_count)dlsym(h, "yas_plan_fn_param_count");
-	plan_fn_param_name        = (fp_fn_param_name)dlsym(h, "yas_plan_fn_param_name");
-	plan_fn_local_count       = (fp_fn_local_count)dlsym(h, "yas_plan_fn_local_count");
-	plan_fn_local_is_float    = (fp_fn_local_is_float)dlsym(h, "yas_plan_fn_local_is_float");
-	plan_op_count              = (fp_op_count)dlsym(h, "yas_plan_op_count");
-	plan_op_kind               = (fp_op_kind)dlsym(h, "yas_plan_op_kind");
-	plan_op_a                  = (fp_op_a)dlsym(h, "yas_plan_op_a");
-	plan_op_b                  = (fp_op_b)dlsym(h, "yas_plan_op_b");
-	plan_op_i                  = (fp_op_i)dlsym(h, "yas_plan_op_i");
-	plan_op_f                  = (fp_op_f)dlsym(h, "yas_plan_op_f");
-	return plan_fn && plan_error && plan_free && plan_fn_count && plan_fn_name
-	    && plan_fn_is_float && plan_fn_param_count && plan_fn_param_name
-	    && plan_fn_local_count && plan_fn_local_is_float && plan_op_count
-	    && plan_op_kind && plan_op_a && plan_op_b && plan_op_i && plan_op_f;
-}
-#endif
 
 /* Global-generation macro: called at file scope (see aot/fib.c) as a bare
  * `yas_aot_compile("...");` statement, runs before the main parse. `path`
@@ -301,7 +256,7 @@ void yas_aot_compile(char *path)
 }
 
 #ifndef YAS_AOT_SOURCE_PATH
-#error "define YAS_AOT_SOURCE_PATH before #include \"aot.c\" - see aot/fib.c"
+#error "define YAS_AOT_SOURCE_PATH before concatenating aot.c - see the Makefile's build/fib.gen.c rule"
 #endif
 
 /* Must live here, not in the file that #includes this one - see the note

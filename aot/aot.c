@@ -22,31 +22,20 @@
  *     global or struct field - only in this function's own locals.
  *   - The entry point (`yas_aot_compile`) is global-generation style
  *     (`void`, taking a `char *path`, invoked as a bare statement at file
- *     scope - see the bottom of this file), which correctly
- *     auto-stringifies its call-site argument into an ordinary local
- *     parameter. A `Node *`-returning call-site-expansion entry was tried
- *     first specifically to dodge macro/global string values, but that
- *     traded one bug for a worse one - see the next point.
+ *     scope - see aot/fib_main.c), which correctly auto-stringifies its
+ *     call-site argument into an ordinary local parameter. A
+ *     `Node *`-returning call-site-expansion entry was tried first
+ *     specifically to dodge macro/global string values, but that traded
+ *     one bug for a worse one - see the next point.
  *   - No `#define`d string value is ever referenced *inside* a
  *     `[[cccc::comptime]]` function body (as opposed to a plain
  *     parameter, which is fine): cccc's comptime pass deliberately does
  *     not forward source-file `#define`s into comptime function bodies
  *     (see cccc's docs/MACROS.md, "Pre-parse macro declaration context").
- *     That's why `AOT_LIBYAS_PATH` (below) is a plain-text sentinel
- *     substituted by `make aot`'s `sed` step before cccc ever sees this
- *     file, rather than a `#define` read from inside `aot_bind()`.
- *   - The call `yas_aot_compile("path/to/file.ys");` must appear in
- *     *this* file, not in a separate file that `#include`s it. A
- *     global-generation function invoked from across an `#include`
- *     boundary loses sight of its own file-scope statics (the very
- *     `plan_fn`/`plan_error`/... pointers below) even though the
- *     preprocessed token stream is identical either way - reproduced
- *     directly (call appended to this file: works; the identical call one
- *     `#include` away in aot/fib_main.c: "undefined variable 'plan_fn'").
- *     `make aot` therefore concatenates a `YAS_AOT_SOURCE_PATH` #define,
- *     this file, and the host "main" file (aot/fib_main.c) into one
- *     physical source (see the Makefile) rather than using `#include`; the
- *     actual call is the one line at the bottom of this file.
+ *     `-D`/command-line defines are the documented exception - they
+ *     survive comptime isolation - which is why `AOT_LIBYAS_PATH` (below,
+ *     now `YAS_LIBYAS_PATH`) arrives via `-D` rather than a source
+ *     `#define`.
  *   - No recursive or mutually-recursive `[[cccc::comptime]]` helper
  *     functions, and no forward declarations of one - cccc's comptime VM
  *     crashes (SIGSEGV) on a forward-declared comptime function used
@@ -106,15 +95,14 @@ static fp_op_f                 plan_op_f;
 [[cccc::comptime]]
 int aot_bind(void)
 {
-	/* AOT_LIBYAS_PATH: substituted with the build's relative, per-platform
-	 * libyas path ("./libyas.dylib" / "./libyas.so") by `make aot` (plain
-	 * text substitution, before this file ever reaches cccc -- can't be a
-	 * #define read from inside this function, see the file-level comment
-	 * above). This runs at cccc's own compile time (aot_bind is
-	 * [[cccc::comptime]]), so it resolves relative to cccc's CWD, which is
-	 * this repo's root -- see the Makefile's `aot` target. See
-	 * docs/AOT.md. */
-	void *h = dlopen("AOT_LIBYAS_PATH", RTLD_NOW);
+	/* YAS_LIBYAS_PATH: the build's relative, per-platform libyas path
+	 * ("./libyas.dylib" / "./libyas.so"), supplied via `make aot`'s `-D`
+	 * flag (see the file-level comment above on why a source #define
+	 * can't be read from inside this function instead). This runs at
+	 * cccc's own compile time (aot_bind is [[cccc::comptime]]), so it
+	 * resolves relative to cccc's CWD, which is this repo's root -- see
+	 * the Makefile's `aot` target. See docs/AOT.md. */
+	void *h = dlopen(YAS_LIBYAS_PATH, RTLD_NOW);
 	if (!h) return 0;
 	plan_fn                 = (fp_plan)dlsym(h, "yas_aot_plan");
 	plan_error               = (fp_error)dlsym(h, "yas_plan_error");
@@ -138,8 +126,8 @@ int aot_bind(void)
 	    && plan_op_kind && plan_op_a && plan_op_b && plan_op_i && plan_op_f;
 }
 
-/* Global-generation macro: called at file scope (see aot/fib.c) as a bare
- * `yas_aot_compile("...");` statement, runs before the main parse. `path`
+/* Global-generation macro: called at file scope (see aot/fib_main.c) as a
+ * bare `yas_aot_compile("...");` statement, runs before the main parse. `path`
  * arrives de-stringified (quotes stripped by cccc) as an ordinary
  * function parameter - a ordinary local, not a macro or a global, so none
  * of the string-value restriction above applies to it. */
@@ -254,11 +242,3 @@ void yas_aot_compile(char *path)
 
 	plan_free(plan);
 }
-
-#ifndef YAS_AOT_SOURCE_PATH
-#error "define YAS_AOT_SOURCE_PATH before concatenating aot.c - see the Makefile's build/fib.gen.c rule"
-#endif
-
-/* Must live here, not in the file that #includes this one - see the note
- * near the top of this file. */
-yas_aot_compile(YAS_AOT_SOURCE_PATH);

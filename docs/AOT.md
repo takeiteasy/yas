@@ -170,14 +170,17 @@ trigger site in `aot/aot.c` / `src/aot_shim.h`:
    context") - a `#define`, even though ordinary C preprocessing would
    already have replaced it with a literal everywhere else in the file, is
    simply invisible inside a comptime function body unless the header
-   defining it is routed `@shared`, the value is passed via `-D`, or
-   `--comptime-include-all` is used. A file-scope *initialized* global
-   (`const char *g = "...";`) remains unsupported outright (no escape
-   hatch) - filed upstream as a separate follow-up. This is why
-   `aot/aot.c` still picks its `dlopen` path via a plain-text sentinel
-   substituted by `make aot`'s `sed` step, rather than a `#define` read
-   from inside `aot_bind()`: that restriction is intended, ongoing cccc
-   behavior, not something to work around and retire.
+   defining it is routed `@shared`, the value is passed via `-D`, `#define
+   @shared` opts in that one macro in place (cccc #888 - there is an
+   escape hatch for a source `#define` now, contrary to what this section
+   used to say), or `--comptime-include-all` is used. A file-scope
+   *initialized* global (`const char *g = "...";`) remains unsupported
+   outright (no escape hatch) - filed upstream as a separate follow-up.
+   `aot/aot.c` still picks its `dlopen` path via `-D YAS_LIBYAS_PATH=...`
+   rather than a source `#define` (see the Makefile's `aot` target) - not
+   because no mechanism exists, but because the value is build-machine-
+   specific (a relative `libyas.dylib`/`libyas.so` path chosen by `make`),
+   which is exactly what `-D` is for.
 
 5. **A `#define`d integer constant used as a local array size inside a
    comptime function body** is sometimes rejected as an "undefined
@@ -194,19 +197,21 @@ trigger site in `aot/aot.c` / `src/aot_shim.h`:
    relevant to the final design (which doesn't use the block form at all),
    kept here since it was found along the way.
 
-7. **A global-generation entry point (`void f(char *path)`, invoked as a
-   bare `f("...");` statement) loses sight of its own file-scope statics
-   once invoked across an `#include` boundary** - even though the
-   preprocessed token stream is byte-identical to writing the call
-   directly in the same physical file. Reproduced directly: appending
-   `yas_aot_compile("...");` to the end of `aot.c` itself compiles and
-   runs; the identical call one `#include "aot.c"` away, in a separate
-   driver file, fails with `undefined variable 'plan_fn'` (a file-scope
-   static declared earlier in `aot.c`). This is why the actual
-   `yas_aot_compile(...)` invocation lives at the bottom of `aot/aot.c`
-   itself, and why `make aot` builds by *concatenating* `aot.c` with a
-   host "main" file (`aot/fib_main.c`) rather than having the host file
-   `#include` it.
+7. **Fixed upstream (cccc #890).** A global-generation entry point (`void
+   f(char *path)`, invoked as a bare `f("...");` statement) used to lose
+   sight of its own file-scope statics once invoked across an `#include`
+   boundary, even though the preprocessed token stream is byte-identical
+   to writing the call directly in the same physical file. Reproduced
+   directly: appending `yas_aot_compile("...");` to the end of `aot.c`
+   itself compiled and ran; the identical call one `#include "aot.c"`
+   away, in a separate driver file, failed with `undefined variable
+   'plan_fn'` (a file-scope static declared earlier in `aot.c`). `aot.c`
+   and `aot/fib_main.c` no longer need to be concatenated into one
+   physical source to work around this - see cccc's docs/MACROS.md,
+   "Pre-parse macro declaration context", for the fixed rule. `make aot`
+   passes the two files to cccc as separate positional arguments rather
+   than using `#include` between them, for an unrelated reason: see point
+   10 below.
 
 8. **Fixed upstream (cccc #891).** cccc's own bundled headers
    (`implicit-reflection.h` -> `stdbool.h` etc.) used to be found only
@@ -228,11 +233,33 @@ trigger site in `aot/aot.c` / `src/aot_shim.h`:
    `#include <stdio.h>` and `printf`s the untruncated `fib(30)` result
    directly, instead of squeezing `fib(13)` through the process exit code.
 
+10. **`-c=native` re-emits a `#include`d file verbatim, which breaks if
+    that file itself uses `#include @comptime`/`#include @shared` syntax
+    (cccc #896, open).** `-c=native` serializes the runtime TU to a temp C
+    file for the system compiler and re-emits the primary file's own
+    `#include` directives into it verbatim. That's fine for an ordinary
+    header, but `aot/aot.c` uses `#include @comptime` (cccc-only syntax,
+    never valid to a system compiler) - so `aot/fib_main.c #include
+    "aot.c"` compiled and ran fine as ordinary bytecode (cccc #890 is
+    fixed), but broke under `-c=native` specifically, with the system
+    compiler failing on `aot.c`'s `#include @comptime` lines once they
+    were re-emitted into the temp file. Worked around by passing
+    `aot/fib_main.c` and `aot/aot.c` to cccc as two separate positional
+    source files instead of using `#include` between them at all (see the
+    Makefile's `aot` target) - cccc merges and fully preprocesses both
+    files itself before any native serialization happens, so no
+    `#include` referencing a `@comptime`-using file ever reaches the
+    system compiler. `$(AOT_MAIN)` must be listed first so its `#include
+    <stdio.h>` is the one cccc captures and re-emits.
+
 None of these affect the *generated* program - only the comptime tooling
 used to produce it. Points 7-9 were the most disruptive for reusing this
 pattern elsewhere while they lasted, since they constrained how any
 cccc-based build had to be invoked, not just what comptime code could
-contain; 8 and 9 no longer apply as of cccc #891.
+contain; 8 and 9 no longer apply as of cccc #891, and 7 no longer applies
+as of cccc #890. Point 10 is a narrower, `-c=native`-specific gap with a
+one-line workaround (positional files instead of `#include`), not a
+blocker for the design.
 
 ## Future work
 

@@ -83,37 +83,35 @@ CCCC ?= $(CCCC_DIR)/cccc
 AOT_SRC ?= aot/examples/fib.ys
 AOT_MAIN ?= aot/fib_main.c
 
-# Substitute the libyas path into aot.c (plain text, before cccc ever sees
-# it - see the comment above the dlopen call in aot/aot.c for why this
-# can't be a #define read inside the comptime function body), then
-# concatenate the YAS_AOT_SOURCE_PATH #define + aot.c + the host "main"
-# file into one physical source file. Also plain concatenation, not an
-# #include: a global-generation comptime function loses sight of its own
-# file-scope statics when invoked across an #include boundary, even though
-# the preprocessed token stream is identical either way (see the note near
-# the top of aot/aot.c). `make aot` is therefore the only supported way to
-# build an AOT example - not a direct cccc invocation.
+# aot/fib_main.c and aot/aot.c are passed to cccc as two positional source
+# files, not concatenated or #include'd: cccc #890 fixed a comptime function
+# losing sight of file-scope statics declared alongside it across an
+# #include boundary, but -c=native has a separate, narrower gap (cccc #896)
+# where its temp-file re-emission chokes on a #include'd file that itself
+# uses #include @comptime syntax - passing both files as separate positional
+# arguments avoids that entirely, since cccc merges and preprocesses them
+# itself before any native serialization happens. $(AOT_MAIN) must come
+# first so its #include <stdio.h> is the one cccc captures and re-emits for
+# the native compiler. YAS_LIBYAS_PATH and YAS_AOT_SOURCE_PATH arrive via
+# `-D`, not a source #define: cccc's comptime pass deliberately doesn't
+# forward source-file #defines into comptime function bodies (see cccc's
+# docs/MACROS.md, "Pre-parse macro declaration context"), but a
+# command-line `-D` value is the documented exception, so it's the correct
+# escape hatch for a build-machine-specific path like this one.
 #
 # Relative, not absolute: aot_bind()'s dlopen() runs at cccc's own compile
 # time (it's [[cccc::comptime]]), with cccc's CWD being wherever `make aot`
 # invokes it from -- this repo's root, below -- so "./$(libyas)" resolves
 # correctly without needing an absolute path.
-build/aot_gen.c: aot/aot.c src/aot_plan.h src/aot_plan_ops.h $(libyas)
-	@mkdir -p build
-	sed -e "s#AOT_LIBYAS_PATH#./$(libyas)#" aot/aot.c > $@
-
-build/fib.gen.c: build/aot_gen.c $(AOT_MAIN)
-	@mkdir -p build
-	{ echo '#define YAS_AOT_SOURCE_PATH "$(AOT_SRC)"'; \
-	  cat build/aot_gen.c $(AOT_MAIN); } > $@
-
 .PHONY: aot
-aot: build/fib.gen.c
-	$(CCCC) -c=native -o build/fib build/fib.gen.c
+aot: aot/aot.c $(AOT_SRC) $(AOT_MAIN) $(libyas)
+	@mkdir -p build
+	$(CCCC) -c=native -DYAS_LIBYAS_PATH='"./$(libyas)"' -DYAS_AOT_SOURCE_PATH='"$(AOT_SRC)"' -o build/fib $(AOT_MAIN) aot/aot.c
 
 .PHONY: aot-gen
-aot-gen: build/fib.gen.c
-	$(CCCC) -G -o build/fib.expanded.c build/fib.gen.c
+aot-gen: aot/aot.c $(AOT_SRC) $(AOT_MAIN) $(libyas)
+	@mkdir -p build
+	$(CCCC) -G -DYAS_LIBYAS_PATH='"./$(libyas)"' -DYAS_AOT_SOURCE_PATH='"$(AOT_SRC)"' -o build/fib.expanded.c $(AOT_MAIN) aot/aot.c
 	@echo "generated C: build/fib.expanded.c"
 
 .PHONY: test-aot

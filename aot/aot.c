@@ -55,7 +55,6 @@
  */
 
 #include @comptime "../src/aot_plan.h"
-#include @comptime "../src/aot_plan_ops.h"
 #include @comptime <dlfcn.h>
 
 typedef struct YasPlan *(*fp_plan)(const char *);

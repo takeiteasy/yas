@@ -1,8 +1,7 @@
 /* aot_plan.c - see aot_plan.h for the why. Ordinary C; test with a plain
  * `cc` + libyas, no cccc involved (see aot/tests/plan_test.c). */
 #include "aot_plan.h"
-#include "aot_plan_ops.h"
-#include "aot_shim.h"
+#include "lisp.h"
 
 #include <stdarg.h>
 #include <stdio.h>
@@ -14,6 +13,181 @@
 #define MAX_LOCALS  64
 #define MAX_CONSTS  32
 #define MAX_SCOPE   (MAX_PARAMS + MAX_LOCALS)
+
+/* ---- boxed-Atom reader front end ----
+ *
+ * A pointer-only view onto the yas reader, kept private to this file.
+ * `Atom` (lisp.h) is a 16-byte union passed by value; this pass never
+ * needs it directly, so every form gets boxed on the heap and only
+ * pointers/long/double/const char* flow through the rest of aot_plan.c
+ * below. That's not a hard requirement of *this* file (it's ordinary C,
+ * not comptime code - see aot_plan.h), but keeping the boundary here
+ * means the exact same reader front end could still be reused by a
+ * comptime-side caller later without redesigning it, and it keeps
+ * lisp.h's platform SIMD intrinic includes (xmmintrin.h / arm_neon.h /
+ * ...) contained to this one translation unit instead of leaking into
+ * aot_plan.h's public surface.
+ *
+ * Note: `YasForm`/`YasForms` are forward-declared as plain `struct X`
+ * opaque handles below (not `typedef struct X X;`) even though they're
+ * private to this file - matching the convention the rest of the AOT
+ * pass uses for anything that might ever be @shared into a comptime TU,
+ * so this stays safe to lift back out into its own header if a second
+ * caller ever needs it. See docs/AOT.md for the full write-up of why
+ * that idiom matters here specifically. */
+
+typedef enum {
+	YAS_FORM_NIL,
+	YAS_FORM_PAIR,
+	YAS_FORM_SYMBOL,
+	YAS_FORM_INTEGER,
+	YAS_FORM_FLOAT,
+	YAS_FORM_STRING,
+	YAS_FORM_CHAR,
+	YAS_FORM_KEYWORD,
+	YAS_FORM_OTHER /* vectors/hashes/etc: valid as a literal reader form but
+	                * not meaningful to the AOT lowerer */
+} YasFormKind;
+
+struct YasForm {
+	Atom atom;
+};
+
+struct YasForms {
+	struct YasForm **items;
+	int count;
+	int capacity;
+	char *error; /* NULL on success */
+};
+
+static struct YasForm *box(Atom a)
+{
+	struct YasForm *f = malloc(sizeof(struct YasForm));
+	f->atom = a;
+	return f;
+}
+
+static void forms_push(struct YasForms *forms, Atom a)
+{
+	if (forms->count == forms->capacity) {
+		forms->capacity = forms->capacity ? forms->capacity * 2 : 16;
+		forms->items = realloc(forms->items, sizeof(struct YasForm *) * forms->capacity);
+	}
+	forms->items[forms->count++] = box(a);
+}
+
+/* Read every top-level form from `path`. Returns NULL only on failure to
+ * open the file; a read syntax error is reported via yas_aot_error()
+ * instead, matching main.c's load_file() loop (including its handling of
+ * Error_Skip for reader-conditional-excluded forms, which eval_source()
+ * gets wrong - see docs/ARCHITECTURE.md). */
+static struct YasForms *yas_aot_read_file(const char *path)
+{
+	struct YasForms *forms = calloc(1, sizeof(struct YasForms));
+
+	char *text = slurp(path);
+	if (!text) {
+		forms->error = malloc(256);
+		snprintf(forms->error, 256, "could not read file: %s", path);
+		return forms;
+	}
+
+	const char *p = text;
+	ErrorContext err = {0};
+	err.pos.filename = path;
+	err.pos.source = text;
+
+	while (1) {
+		err.code = Error_OK;
+		err.message[0] = '\0';
+
+		Atom expr;
+		Error read_err = read_expr(p, &p, &expr, &err);
+		if (read_err == Error_Skip) {
+			/* Reader conditional excluded this form (#+feature / #-feature).
+			 * Unlike eval_source(), we must not treat this as EOF. */
+			continue;
+		}
+		if (read_err) {
+			if (err.message[0] != '\0') {
+				forms->error = malloc(ERROR_MSG_MAX + 64);
+				snprintf(forms->error, ERROR_MSG_MAX + 64, "%s:%d:%d: %s",
+				         path, err.pos.line, err.pos.column, err.message);
+			}
+			break;
+		}
+
+		forms_push(forms, expr);
+	}
+
+	free(text);
+	return forms;
+}
+
+static const char *yas_aot_error(struct YasForms *forms) { return forms->error; }
+static int yas_aot_count(struct YasForms *forms) { return forms->count; }
+
+static struct YasForm *yas_aot_at(struct YasForms *forms, int index)
+{
+	if (index < 0 || index >= forms->count) return NULL;
+	return forms->items[index];
+}
+
+static void yas_aot_free(struct YasForms *forms)
+{
+	if (!forms) return;
+	for (int i = 0; i < forms->count; i++) free(forms->items[i]);
+	free(forms->items);
+	free(forms->error);
+	free(forms);
+}
+
+static YasFormKind yas_aot_kind(struct YasForm *form)
+{
+	if (!form) return YAS_FORM_NIL;
+	switch (form->atom.type) {
+	case AtomType_Nil:     return YAS_FORM_NIL;
+	case AtomType_Pair:    return YAS_FORM_PAIR;
+	case AtomType_Symbol:  return YAS_FORM_SYMBOL;
+	case AtomType_Integer: return YAS_FORM_INTEGER;
+	case AtomType_Float:   return YAS_FORM_FLOAT;
+	case AtomType_String:  return YAS_FORM_STRING;
+	case AtomType_Char:    return YAS_FORM_CHAR;
+	case AtomType_Keyword: return YAS_FORM_KEYWORD;
+	default:               return YAS_FORM_OTHER;
+	}
+}
+
+static struct YasForm *yas_aot_car(struct YasForm *form)
+{
+	if (!form || form->atom.type != AtomType_Pair) return NULL;
+	return box(car(form->atom));
+}
+
+static struct YasForm *yas_aot_cdr(struct YasForm *form)
+{
+	if (!form || form->atom.type != AtomType_Pair) return NULL;
+	return box(cdr(form->atom));
+}
+
+static long yas_aot_int(struct YasForm *form)
+{
+	return form && form->atom.type == AtomType_Integer ? form->atom.value.integer : 0;
+}
+
+static double yas_aot_float(struct YasForm *form)
+{
+	return form && form->atom.type == AtomType_Float ? form->atom.value.floatval : 0.0;
+}
+
+/* Interned, uppercase (the reader upcases all symbols - see read.c). Valid
+ * for the process lifetime; do not free. */
+static const char *yas_aot_sym(struct YasForm *form)
+{
+	return form && form->atom.type == AtomType_Symbol ? form->atom.value.symbol : NULL;
+}
+
+/* ---- the AOT compiler proper (see aot_plan.h) ---- */
 
 typedef struct {
 	int kind;   /* YasOpKind */

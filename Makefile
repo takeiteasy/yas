@@ -30,9 +30,9 @@ src/stdlib.h: embed.py $(wildcard std/yas/*.ys)
 src/module.o: src/stdlib.h
 src/module.pic.o: src/stdlib.h
 
-# libyas: the reader (aot_shim.c) exposed as a shared library, so cccc's
-# comptime pass can dlopen it. Everything except main.c - a library has no
-# business with the REPL/CLI entry point.
+# libyas: the AOT plan compiler (aot_plan.c) exposed as a shared library,
+# so cccc's comptime pass can dlopen it. Everything except main.c - a
+# library has no business with the REPL/CLI entry point.
 lib_sources=$(filter-out src/main.c,$(sources))
 lib_objects=$(lib_sources:.c=.pic.o)
 

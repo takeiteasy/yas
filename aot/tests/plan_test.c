@@ -25,7 +25,6 @@
  * (see the Makefile's `test-aot` target)
  */
 #include "aot_plan.h"
-#include "aot_plan_ops.h"
 
 #include <stdio.h>
 #include <stdlib.h>

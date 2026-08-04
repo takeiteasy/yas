@@ -27,9 +27,9 @@ long fib(long n) {
 ```sh
 make libyas     # shared lib exposing the reader + plan compiler
 make aot        # builds aot/examples/fib.ys -> build/fib
-./build/fib; echo $?    # 233 == fib(13)
+./build/fib     # fib(30) = 832040
 make aot-gen    # dump the expanded C to build/fib.expanded.c
-make test-aot   # plan_test.c (no cccc) + build/fib's exit code
+make test-aot   # plan_test.c (no cccc) + build/fib's output
 ```
 
 Requires a [cccc](https://github.com) checkout as a sibling directory
@@ -208,27 +208,31 @@ trigger site in `aot/aot.c` / `src/aot_shim.h`:
    host "main" file (`aot/fib_main.c`) rather than having the host file
    `#include` it.
 
-8. **cccc's own bundled headers (`implicit-reflection.h` -> `stdbool.h`
-   etc.) are only found when cccc's process CWD is its own repository
-   root**, not relative to the compiled file's location or an absolute
-   `-I`/`--sysroot`/`--use-system-headers`/`--no-builtin-includes`
-   combination tried. This is why `make aot` does `cd $(CCCC_DIR) &&
-   ./cccc ...` and passes only absolute paths - both for the source files
-   handed to cccc and for the `libyas`/`.ys` paths `dlopen`ed from inside
-   the comptime pass (a CWD-relative `dlopen("./libyas.dylib")` would
-   otherwise look for it next to cccc, not next to yas).
+8. **Fixed upstream (cccc #891).** cccc's own bundled headers
+   (`implicit-reflection.h` -> `stdbool.h` etc.) used to be found only
+   when cccc's process CWD was its own repository root, not relative to
+   the compiled file's location or any `-I`/`--sysroot`/
+   `--use-system-headers`/`--no-builtin-includes` combination. `make aot`
+   used to work around this with `cd $(CCCC_DIR) && ./cccc ...` and
+   absolute paths everywhere - both for the source files handed to cccc
+   and for the `libyas`/`.ys` paths `dlopen`ed from inside the comptime
+   pass. Now that cccc resolves its own headers from any CWD with no
+   flags, `make aot` runs `$(CCCC)` directly from this repo's root with
+   ordinary relative paths, and `aot_bind()`'s `dlopen("./libyas.dylib")`
+   resolves correctly since that's now cccc's own CWD when it runs.
 
-9. **A plain runtime `#include <stdio.h>` collides cccc's own bundled
-   `stdio.h` polyfill with the real system one** ("typedef redefinition:
-   `FILE`"/`fpos_t`"), with or without `--sysroot`/`--use-system-headers`.
-   Not worked around (not needed): `aot/fib_main.c` reports its result
-   through the process exit code instead of `printf`, which needs no
-   headers at all.
+9. **Fixed upstream (cccc #891).** A plain runtime `#include <stdio.h>`
+   used to collide cccc's own bundled `stdio.h` polyfill with the real
+   system one ("typedef redefinition: `FILE`"/`fpos_t`"), with or without
+   `--sysroot`/`--use-system-headers`. `aot/fib_main.c` now uses a plain
+   `#include <stdio.h>` and `printf`s the untruncated `fib(30)` result
+   directly, instead of squeezing `fib(13)` through the process exit code.
 
 None of these affect the *generated* program - only the comptime tooling
-used to produce it. Points 7-9 are arguably the most disruptive for
-reusing this pattern elsewhere, since they constrain how any cccc-based
-build must be invoked, not just what comptime code may contain.
+used to produce it. Points 7-9 were the most disruptive for reusing this
+pattern elsewhere while they lasted, since they constrained how any
+cccc-based build had to be invoked, not just what comptime code could
+contain; 8 and 9 no longer apply as of cccc #891.
 
 ## Future work
 

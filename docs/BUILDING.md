@@ -30,9 +30,9 @@ default; override with `CCCC_DIR=/path/to/cccc`).
 ```sh
 make libyas               # shared lib: reader + plan compiler, dlopen'd by cccc
 make aot                   # builds aot/examples/fib.ys -> build/fib
-./build/fib; echo $?        # 233 == fib(13)
+./build/fib                 # fib(30) = 832040
 make aot-gen                # dump the expanded C to build/fib.expanded.c
-make test-aot                # plan_test.c (plain C, no cccc) + build/fib's exit code
+make test-aot                # plan_test.c (plain C, no cccc) + build/fib's output
 make check                   # test + test-aot
 ```
 

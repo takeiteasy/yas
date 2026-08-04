@@ -32,7 +32,7 @@
  *     parameter, which is fine): cccc's comptime pass deliberately does
  *     not forward source-file `#define`s into comptime function bodies
  *     (see cccc's docs/MACROS.md, "Pre-parse macro declaration context").
- *     That's why `AOT_LIBYAS_ABS` (below) is a plain-text sentinel
+ *     That's why `AOT_LIBYAS_PATH` (below) is a plain-text sentinel
  *     substituted by `make aot`'s `sed` step before cccc ever sees this
  *     file, rather than a `#define` read from inside `aot_bind()`.
  *   - The call `yas_aot_compile("path/to/file.ys");` must appear in
@@ -106,15 +106,15 @@ static fp_op_f                 plan_op_f;
 [[cccc::comptime]]
 int aot_bind(void)
 {
-	/* AOT_LIBYAS_ABS: substituted with the build's absolute, per-platform
-	 * libyas path by `make aot` (plain text substitution, before this
-	 * file ever reaches cccc) - not a relative "./libyas.dylib" /
-	 * "./libyas.so", because cccc's own bundled headers
-	 * (implicit-reflection.h -> stdbool.h etc.) are only found when cccc
-	 * runs with its own repo as CWD, which is what `make aot` actually
-	 * does; a CWD-relative dlopen target would then look for libyas next
-	 * to cccc, not next to yas. See docs/AOT.md. */
-	void *h = dlopen("AOT_LIBYAS_ABS", RTLD_NOW);
+	/* AOT_LIBYAS_PATH: substituted with the build's relative, per-platform
+	 * libyas path ("./libyas.dylib" / "./libyas.so") by `make aot` (plain
+	 * text substitution, before this file ever reaches cccc -- can't be a
+	 * #define read from inside this function, see the file-level comment
+	 * above). This runs at cccc's own compile time (aot_bind is
+	 * [[cccc::comptime]]), so it resolves relative to cccc's CWD, which is
+	 * this repo's root -- see the Makefile's `aot` target. See
+	 * docs/AOT.md. */
+	void *h = dlopen("AOT_LIBYAS_PATH", RTLD_NOW);
 	if (!h) return 0;
 	plan_fn                 = (fp_plan)dlsym(h, "yas_aot_plan");
 	plan_error               = (fp_error)dlsym(h, "yas_plan_error");

@@ -70,18 +70,22 @@ test: yas
 # reflection API. See docs/AOT.md for the design and aot/aot.c for the
 # implementation notes (several cccc quirks/bugs worked around there).
 #
-# Requires cccc (https://github.com - sibling checkout by default;
-# override with `make aot CCCC_DIR=/path/to/cccc`). cccc is run directly
-# from this repo's own root (ordinary relative paths below) -- it used to
-# need `cd $(CCCC_DIR)` because its bundled headers only resolved relative
-# to its own CWD, fixed upstream in cccc #891 (headers now resolve from
-# any CWD with no flags).
+# Requires cccc (https://github.com) on $PATH; override with
+# `make aot CCCC=/path/to/cccc` if it isn't. cccc is run directly from
+# this repo's own root (ordinary relative paths below) -- it used to need
+# `cd` into cccc's own checkout because its bundled headers only resolved
+# relative to its own CWD, fixed upstream in cccc #891 (headers now
+# resolve from any CWD with no flags).
 # ============================================================
-CCCC_DIR ?= $(abspath ../cccc)
-CCCC ?= $(CCCC_DIR)/cccc
+CCCC ?= cccc
 
 AOT_SRC ?= aot/examples/fib.ys
 AOT_MAIN ?= aot/fib_main.c
+# Output basename under build/ - defaults to the fib example. Override
+# alongside AOT_SRC/AOT_MAIN when building a different .ys file, so it
+# doesn't collide with build/fib (which `test-aot` below always checks
+# against the *default* fib example, regardless of these overrides).
+AOT_OUT ?= fib
 
 # aot/fib_main.c and aot/aot.c are passed to cccc as two positional source
 # files, not concatenated or #include'd: cccc #890 fixed a comptime function
@@ -106,16 +110,20 @@ AOT_MAIN ?= aot/fib_main.c
 .PHONY: aot
 aot: aot/aot.c $(AOT_SRC) $(AOT_MAIN) $(libyas)
 	@mkdir -p build
-	$(CCCC) -c=native -DYAS_LIBYAS_PATH='"./$(libyas)"' -DYAS_AOT_SOURCE_PATH='"$(AOT_SRC)"' -o build/fib $(AOT_MAIN) aot/aot.c
+	$(CCCC) -c=native -DYAS_LIBYAS_PATH='"./$(libyas)"' -DYAS_AOT_SOURCE_PATH='"$(AOT_SRC)"' -o build/$(AOT_OUT) $(AOT_MAIN) aot/aot.c
 
 .PHONY: aot-gen
 aot-gen: aot/aot.c $(AOT_SRC) $(AOT_MAIN) $(libyas)
 	@mkdir -p build
-	$(CCCC) -G -DYAS_LIBYAS_PATH='"./$(libyas)"' -DYAS_AOT_SOURCE_PATH='"$(AOT_SRC)"' -o build/fib.expanded.c $(AOT_MAIN) aot/aot.c
-	@echo "generated C: build/fib.expanded.c"
+	$(CCCC) -G -DYAS_LIBYAS_PATH='"./$(libyas)"' -DYAS_AOT_SOURCE_PATH='"$(AOT_SRC)"' -o build/$(AOT_OUT).expanded.c $(AOT_MAIN) aot/aot.c
+	@echo "generated C: build/$(AOT_OUT).expanded.c"
 
 .PHONY: test-aot
-test-aot: libyas aot
+# Pinned to the default fib example regardless of ambient AOT_SRC/AOT_MAIN/
+# AOT_OUT overrides in the environment - this is a fixed regression check,
+# not a generic "test whatever `make aot` was last pointed at" target.
+test-aot: libyas
+	$(MAKE) aot AOT_SRC=aot/examples/fib.ys AOT_MAIN=aot/fib_main.c AOT_OUT=fib
 	$(CC) -std=c99 -Wall -D_GNU_SOURCE -iquote src -o build/plan_test aot/tests/plan_test.c -L. -lyas -Wl,-rpath,.
 	./build/plan_test
 	@out=$$(./build/fib); \

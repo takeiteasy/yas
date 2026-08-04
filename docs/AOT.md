@@ -32,8 +32,8 @@ make aot-gen    # dump the expanded C to build/fib.expanded.c
 make test-aot   # plan_test.c (no cccc) + build/fib's output
 ```
 
-Requires a [cccc](https://github.com) checkout as a sibling directory
-(`../cccc`) or `make aot CCCC_DIR=/path/to/cccc`.
+Requires [cccc](https://github.com) on `$PATH`; override with
+`make aot CCCC=/path/to/cccc` if it isn't.
 
 ## Supported subset
 

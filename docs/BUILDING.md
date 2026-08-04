@@ -23,9 +23,9 @@ Off by default.
 
 ## AOT compilation
 
-See [AOT.md](AOT.md) for the design. Requires a
-[cccc](https://github.com) checkout as a sibling directory (`../cccc` by
-default; override with `CCCC_DIR=/path/to/cccc`).
+See [AOT.md](AOT.md) for the design. Requires
+[cccc](https://github.com) on `$PATH`; override with `CCCC=/path/to/cccc`
+if it isn't.
 
 ```sh
 make libyas               # shared lib: reader + plan compiler, dlopen'd by cccc
@@ -36,10 +36,12 @@ make test-aot                # plan_test.c (plain C, no cccc) + build/fib's outp
 make check                   # test + test-aot
 ```
 
-To compile a different `.ys` file:
+To compile a different `.ys` file, override `AOT_OUT` too so the result
+doesn't land on `build/fib` (which `test-aot` always rebuilds and checks
+against the default `fib` example, regardless of these overrides):
 
 ```sh
-make aot AOT_SRC=aot/examples/misc.ys AOT_MAIN=path/to/your_main.c
+make aot AOT_SRC=aot/examples/misc.ys AOT_MAIN=path/to/your_main.c AOT_OUT=misc
 ```
 
 `AOT_MAIN` is a plain C file providing `main()`; whatever functions the

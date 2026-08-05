@@ -254,6 +254,30 @@ trigger site in `aot/aot.c` / `src/aot_plan.h`:
     system compiler. `$(AOT_MAIN)` must be listed first so its `#include
     <stdio.h>` is the one cccc captures and re-emits.
 
+11. **Fixed upstream (cccc #907).** A file-scope declaration whose only
+    `struct`/`union`/`enum` tag reference sits inside a function
+    declarator's parameter list - not the declaration's own type - used to
+    be misidentified as if that nested tag were the declaration's own,
+    corrupting where cccc's comptime declaration index thought the
+    declarator list started. The declaration's real name (a typedef,
+    object, or prototype identifier) was then never registered under that
+    name at all, so any comptime body referencing it later got a bogus
+    parse error ("expected ','" / "undefined variable") instead of a
+    clean lookup. This is why `aot.c`'s `fp_error` typedef -
+    `typedef const char *(*fp_error)(struct YasPlan *);` - failed to
+    parse: `struct YasPlan` there is the parameter type, not `fp_error`'s
+    own tag, but cccc's tag scan matched it anyway and never registered
+    `fp_error` as a resolvable typedef. Not specific to `const char *`
+    returns (an `int`-returning function pointer with the same
+    struct-pointer-parameter shape failed identically) or to `-c=native`
+    (reproduces on the default bytecode path too) - the underlying rule is
+    broader: any declaration taking a struct/union/enum pointer parameter,
+    including a plain prototype like `int f(struct S *);`, was invisible
+    to the comptime declaration index whenever a comptime body needed to
+    resolve its name. `aot/aot.c`'s sixteen `fp_*` typedefs and their
+    `dlsym`-bound statics needed no changes once cccc's tag scan was fixed
+    to only recognize a tag at the declaration's own top level.
+
 None of these affect the *generated* program - only the comptime tooling
 used to produce it. Points 7-9 were the most disruptive for reusing this
 pattern elsewhere while they lasted, since they constrained how any
@@ -261,7 +285,7 @@ cccc-based build had to be invoked, not just what comptime code could
 contain; 8 and 9 no longer apply as of cccc #891, and 7 no longer applies
 as of cccc #890. Point 10 is a narrower, `-c=native`-specific gap with a
 one-line workaround (positional files instead of `#include`), not a
-blocker for the design.
+blocker for the design. Point 11 no longer applies as of cccc #907.
 
 ## Future work
 

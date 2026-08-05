@@ -1,105 +1,105 @@
-#include "lisp.h"
+#include "yas.h"
 
-int builtin_vectorp(Atom args, Atom *result)
+int yas_builtin_vectorp(YasAtom args, YasAtom *result)
 {
-	if (nilp(args) || !nilp(cdr(args)))
-		return raise_error("args-error", "vector?: expected 1 argument");
-	*result = (car(args).type == AtomType_Vector) ? make_sym("T") : nil;
-	return Error_OK;
+	if (yas_nilp(args) || !yas_nilp(yas_cdr(args)))
+		return yas_raise_error("args-error", "vector?: expected 1 argument");
+	*result = (yas_car(args).type == YAS_ATOM_TYPE_VECTOR) ? yas_make_sym("T") : yas_nil;
+	return YAS_ERROR_OK;
 }
 
 /* (vector-length vec) */
-int builtin_vector_length(Atom args, Atom *result)
+int yas_builtin_vector_length(YasAtom args, YasAtom *result)
 {
-	if (nilp(args) || !nilp(cdr(args)))
-		return raise_error("args-error", "vector-length: expected 1 argument");
-	Atom a = car(args);
-	if (a.type != AtomType_Vector)
-		return raise_error("type-error", "vector-length: expected vector");
-	*result = make_int(vector_length(a));
-	return Error_OK;
+	if (yas_nilp(args) || !yas_nilp(yas_cdr(args)))
+		return yas_raise_error("args-error", "vector-length: expected 1 argument");
+	YasAtom a = yas_car(args);
+	if (a.type != YAS_ATOM_TYPE_VECTOR)
+		return yas_raise_error("type-error", "vector-length: expected vector");
+	*result = yas_make_int(yas_vector_length(a));
+	return YAS_ERROR_OK;
 }
 
 /* (vector-append v1 v2 ...) */
-int builtin_vector_append(Atom args, Atom *result)
+int yas_builtin_vector_append(YasAtom args, YasAtom *result)
 {
 	size_t total_len = 0;
-	Atom p = args;
-	while (!nilp(p)) {
-		if (car(p).type != AtomType_Vector)
-			return raise_error("type-error", "vector-append: arguments must be vectors");
-		total_len += vector_length(car(p));
-		p = cdr(p);
+	YasAtom p = args;
+	while (!yas_nilp(p)) {
+		if (yas_car(p).type != YAS_ATOM_TYPE_VECTOR)
+			return yas_raise_error("type-error", "vector-append: arguments must be vectors");
+		total_len += yas_vector_length(yas_car(p));
+		p = yas_cdr(p);
 	}
-	*result = make_vector(total_len, nil);
+	*result = yas_make_vector(total_len, yas_nil);
 	size_t idx = 0;
 	p = args;
-	while (!nilp(p)) {
-		Atom v = car(p);
-		for (size_t i = 0; i < vector_length(v); i++) {
-			vector_set(*result, idx++, vector_ref(v, i));
+	while (!yas_nilp(p)) {
+		YasAtom v = yas_car(p);
+		for (size_t i = 0; i < yas_vector_length(v); i++) {
+			yas_vector_set(*result, idx++, yas_vector_ref(v, i));
 		}
-		p = cdr(p);
+		p = yas_cdr(p);
 	}
-	return Error_OK;
+	return YAS_ERROR_OK;
 }
 
 /* Vector operations */
-int builtin_make_vector(Atom args, Atom *result)
+int yas_builtin_make_vector(YasAtom args, YasAtom *result)
 {
-	if (nilp(args))
-		return raise_error("args-error", "make-vector: expected size argument");
+	if (yas_nilp(args))
+		return yas_raise_error("args-error", "make-vector: expected size argument");
 	
-	Atom size_arg = car(args);
-	if (size_arg.type != AtomType_Integer)
-		return raise_error("type-error", "make-vector: size must be integer");
+	YasAtom size_arg = yas_car(args);
+	if (size_arg.type != YAS_ATOM_TYPE_INTEGER)
+		return yas_raise_error("type-error", "make-vector: size must be integer");
 	
-	Atom fill = nil;
-	if (!nilp(cdr(args))) {
-		fill = car(cdr(args));
-		if (!nilp(cdr(cdr(args))))
-			return raise_error("args-error", "make-vector: expected 1 or 2 arguments");
+	YasAtom fill = yas_nil;
+	if (!yas_nilp(yas_cdr(args))) {
+		fill = yas_car(yas_cdr(args));
+		if (!yas_nilp(yas_cdr(yas_cdr(args))))
+			return yas_raise_error("args-error", "make-vector: expected 1 or 2 arguments");
 	}
 	
-	*result = make_vector((size_t)size_arg.value.integer, fill);
-	return Error_OK;
+	*result = yas_make_vector((size_t)size_arg.value.integer, fill);
+	return YAS_ERROR_OK;
 }
 
-int builtin_vector_ref(Atom args, Atom *result)
+int yas_builtin_vector_ref(YasAtom args, YasAtom *result)
 {
-	if (nilp(args) || nilp(cdr(args)) || !nilp(cdr(cdr(args))))
-		return raise_error("args-error", "vector-ref: expected 2 arguments");
+	if (yas_nilp(args) || yas_nilp(yas_cdr(args)) || !yas_nilp(yas_cdr(yas_cdr(args))))
+		return yas_raise_error("args-error", "vector-ref: expected 2 arguments");
 	
-	Atom vec = car(args);
-	Atom idx = car(cdr(args));
+	YasAtom vec = yas_car(args);
+	YasAtom idx = yas_car(yas_cdr(args));
 	
-	if (vec.type != AtomType_Vector || idx.type != AtomType_Integer)
-		return raise_error("type-error", "vector-ref: arguments must be vector and integer");
+	if (vec.type != YAS_ATOM_TYPE_VECTOR || idx.type != YAS_ATOM_TYPE_INTEGER)
+		return yas_raise_error("type-error", "vector-ref: arguments must be vector and integer");
 	
-	if (idx.value.integer < 0 || (size_t)idx.value.integer >= vector_length(vec))
-		return raise_error("args-error", "vector-ref: index out of bounds");
+	if (idx.value.integer < 0 || (size_t)idx.value.integer >= yas_vector_length(vec))
+		return yas_raise_error("args-error", "vector-ref: index out of bounds");
 	
-	*result = vector_ref(vec, (size_t)idx.value.integer);
-	return Error_OK;
+	*result = yas_vector_ref(vec, (size_t)idx.value.integer);
+	return YAS_ERROR_OK;
 }
 
-int builtin_vector_set(Atom args, Atom *result)
+int yas_builtin_vector_set(YasAtom args, YasAtom *result)
 {
-	if (nilp(args) || nilp(cdr(args)) || nilp(cdr(cdr(args))) ||
-	    !nilp(cdr(cdr(cdr(args)))))
-		return raise_error("args-error", "vector-set!: expected 3 arguments");
+	if (yas_nilp(args) || yas_nilp(yas_cdr(args)) || yas_nilp(yas_cdr(yas_cdr(args))) ||
+	    !yas_nilp(yas_cdr(yas_cdr(yas_cdr(args)))))
+		return yas_raise_error("args-error", "vector-set!: expected 3 arguments");
 	
-	Atom vec = car(args);
-	Atom idx = car(cdr(args));
-	Atom val = car(cdr(cdr(args)));
+	YasAtom vec = yas_car(args);
+	YasAtom idx = yas_car(yas_cdr(args));
+	YasAtom val = yas_car(yas_cdr(yas_cdr(args)));
 	
-	if (vec.type != AtomType_Vector || idx.type != AtomType_Integer)
-		return raise_error("type-error", "vector-set!: arguments must be vector, integer and value");
+	if (vec.type != YAS_ATOM_TYPE_VECTOR || idx.type != YAS_ATOM_TYPE_INTEGER)
+		return yas_raise_error("type-error", "vector-set!: arguments must be vector, integer and value");
 	
-	if (idx.value.integer < 0 || (size_t)idx.value.integer >= vector_length(vec))
-		return raise_error("args-error", "vector-set!: index out of bounds");
+	if (idx.value.integer < 0 || (size_t)idx.value.integer >= yas_vector_length(vec))
+		return yas_raise_error("args-error", "vector-set!: index out of bounds");
 	
-	vector_set(vec, (size_t)idx.value.integer, val);
+	yas_vector_set(vec, (size_t)idx.value.integer, val);
 	*result = val;
-	return Error_OK;
+	return YAS_ERROR_OK;
 }

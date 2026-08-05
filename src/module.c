@@ -1,16 +1,16 @@
-#include "lisp.h"
+#include "yas.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
-Atom library_registry = { AtomType_Nil };
+YasAtom yas_library_registry = { YAS_ATOM_TYPE_NIL };
 
 /* Search paths - modifiable at runtime via *search-paths* */
-Atom global_search_paths = { AtomType_Nil };
+YasAtom yas_global_search_paths = { YAS_ATOM_TYPE_NIL };
 
 /* Forward declarations */
-static Atom make_library(Atom name);
-static int process_import_set(Atom import_set, Atom target_env);
+static YasAtom make_library(YasAtom name);
+static int process_import_set(YasAtom import_set, YasAtom target_env);
 
 /* Unified Native Module System */
 typedef void (*NativeLoader)(void);
@@ -21,32 +21,32 @@ typedef struct {
 } NativeModule;
 
 /* Forward declarations */
-static Atom make_library(Atom name);
-static int process_import_set(Atom import_set, Atom target_env);
-void load_base_library(void);
-void load_hash_library(void);
-void load_vector_library(void);
-void load_text_library(void);
-void load_io_library(void);
-void load_math_library(void);
+static YasAtom make_library(YasAtom name);
+static int process_import_set(YasAtom import_set, YasAtom target_env);
+void yas_load_base_library(void);
+void yas_load_hash_library(void);
+void yas_load_vector_library(void);
+void yas_load_text_library(void);
+void yas_load_io_library(void);
+void yas_load_math_library(void);
 
 /* Helper to register builtins */
-static void reg_builtin(Atom env, Atom exports, const char *name, Builtin fn) {
-	Atom sym = make_sym(name);
-	env_define(env, sym, make_builtin(fn));
-	hash_set(exports, sym, sym);
+static void reg_builtin(YasAtom env, YasAtom exports, const char *name, YasBuiltin fn) {
+	YasAtom sym = yas_make_sym(name);
+	yas_env_define(env, sym, yas_make_builtin(fn));
+	yas_hash_set(exports, sym, sym);
 }
 
-static void reg_sym(Atom env, Atom exports, const char *name, Atom val) {
-	Atom sym = make_sym(name);
-	env_define(env, sym, val);
-	hash_set(exports, sym, sym);
+static void reg_sym(YasAtom env, YasAtom exports, const char *name, YasAtom val) {
+	YasAtom sym = yas_make_sym(name);
+	yas_env_define(env, sym, val);
+	yas_hash_set(exports, sym, sym);
 }
 
-Atom define_native_module(const char *name_str, Atom *out_env, Atom *out_exports) {
+YasAtom yas_define_native_module(const char *name_str, YasAtom *out_env, YasAtom *out_exports) {
 	/* Parse "yas/primitives" -> (YAS PRIMITIVES) */
-	Atom name = nil;
-	Atom tail = nil;
+	YasAtom name = yas_nil;
+	YasAtom tail = yas_nil;
 	
 	char *s = strdup(name_str);
 	char *token = strtok(s, "/");
@@ -58,238 +58,238 @@ Atom define_native_module(const char *name_str, Atom *out_env, Atom *out_exports
 			p++;
 		}
 		
-		Atom sym = make_sym(token);
-		Atom node = cons(sym, nil);
-		if (nilp(name)) {
+		YasAtom sym = yas_make_sym(token);
+		YasAtom node = yas_cons(sym, yas_nil);
+		if (yas_nilp(name)) {
 			name = tail = node;
 		} else {
-			cdr(tail) = node;
+			yas_cdr(tail) = node;
 			tail = node;
 		}
 		token = strtok(NULL, "/");
 	}
 	free(s);
 	
-	Atom lib = make_library(name);
+	YasAtom lib = make_library(name);
 	
-	*out_env = hash_ref(lib, make_sym("*env*"), nil);
-	*out_exports = hash_ref(lib, make_sym("*exports*"), nil);
+	*out_env = yas_hash_ref(lib, yas_make_sym("*env*"), yas_nil);
+	*out_exports = yas_hash_ref(lib, yas_make_sym("*exports*"), yas_nil);
 	
-	Atom key = make_string(name_str);
-	hash_set(library_registry, key, lib);
+	YasAtom key = yas_make_string(name_str);
+	yas_hash_set(yas_library_registry, key, lib);
 	
 	return lib;
 }
 
 /* Native loaders - merge with Lisp library names */
-void load_base_library(void) {
-	if (nilp(library_registry)) library_registry = make_hash();
-	Atom env, exports;
+void yas_load_base_library(void) {
+	if (yas_nilp(yas_library_registry)) yas_library_registry = yas_make_hash();
+	YasAtom env, exports;
 	/* unified: registers to "yas/base" */
-	define_native_module("yas/base", &env, &exports);
+	yas_define_native_module("yas/base", &env, &exports);
 	
 	/* Register core primitives */
-	reg_builtin(env, exports, "CAR", builtin_car);
-	reg_builtin(env, exports, "CDR", builtin_cdr);
-	reg_builtin(env, exports, "CONS", builtin_cons);
-	reg_builtin(env, exports, "+", builtin_add);
-	reg_builtin(env, exports, "-", builtin_subtract);
-	reg_builtin(env, exports, "*", builtin_multiply);
-	reg_builtin(env, exports, "/", builtin_divide);
-	reg_builtin(env, exports, "=", builtin_numeq);
-	reg_builtin(env, exports, "<", builtin_less);
-	reg_builtin(env, exports, "EQ?", builtin_eq);
-	reg_builtin(env, exports, "PAIR?", builtin_pairp);
-	reg_builtin(env, exports, "PROCEDURE?", builtin_procp);
-	reg_builtin(env, exports, "FLOAT?", builtin_floatp);
-	reg_builtin(env, exports, "INTEGER?", builtin_integerp);
-	reg_builtin(env, exports, "STRING?", builtin_stringp);
-	reg_builtin(env, exports, "THROW", builtin_throw);
-	reg_builtin(env, exports, "ERROR", builtin_error);
-	reg_builtin(env, exports, "EXIT", builtin_exit);
-	reg_builtin(env, exports, "PRINT", builtin_print);
-	reg_builtin(env, exports, "LENGTH", builtin_list_length);
-	reg_builtin(env, exports, "APPEND", builtin_list_append);
-	reg_sym(env, exports, "T", make_sym("T"));
-	reg_builtin(env, exports, "PROCEDURE-DOC", builtin_procedure_doc);
+	reg_builtin(env, exports, "CAR", yas_builtin_car);
+	reg_builtin(env, exports, "CDR", yas_builtin_cdr);
+	reg_builtin(env, exports, "CONS", yas_builtin_cons);
+	reg_builtin(env, exports, "+", yas_builtin_add);
+	reg_builtin(env, exports, "-", yas_builtin_subtract);
+	reg_builtin(env, exports, "*", yas_builtin_multiply);
+	reg_builtin(env, exports, "/", yas_builtin_divide);
+	reg_builtin(env, exports, "=", yas_builtin_numeq);
+	reg_builtin(env, exports, "<", yas_builtin_less);
+	reg_builtin(env, exports, "EQ?", yas_builtin_eq);
+	reg_builtin(env, exports, "PAIR?", yas_builtin_pairp);
+	reg_builtin(env, exports, "PROCEDURE?", yas_builtin_procp);
+	reg_builtin(env, exports, "FLOAT?", yas_builtin_floatp);
+	reg_builtin(env, exports, "INTEGER?", yas_builtin_integerp);
+	reg_builtin(env, exports, "STRING?", yas_builtin_stringp);
+	reg_builtin(env, exports, "THROW", yas_builtin_throw);
+	reg_builtin(env, exports, "ERROR", yas_builtin_error);
+	reg_builtin(env, exports, "EXIT", yas_builtin_exit);
+	reg_builtin(env, exports, "PRINT", yas_builtin_print);
+	reg_builtin(env, exports, "LENGTH", yas_builtin_list_length);
+	reg_builtin(env, exports, "APPEND", yas_builtin_list_append);
+	reg_sym(env, exports, "T", yas_make_sym("T"));
+	reg_builtin(env, exports, "PROCEDURE-DOC", yas_builtin_procedure_doc);
 	
 	/* Global features list */
-	reg_sym(env, exports, "*FEATURES*", global_features);
+	reg_sym(env, exports, "*FEATURES*", yas_global_features);
 	
 	/* Search path management */
-	reg_builtin(env, exports, "GET-SEARCH-PATHS", builtin_get_search_paths);
-	reg_builtin(env, exports, "SET-SEARCH-PATHS!", builtin_set_search_paths);
-	reg_builtin(env, exports, "ADD-SEARCH-PATH!", builtin_add_search_path);
+	reg_builtin(env, exports, "GET-SEARCH-PATHS", yas_builtin_get_search_paths);
+	reg_builtin(env, exports, "SET-SEARCH-PATHS!", yas_builtin_set_search_paths);
+	reg_builtin(env, exports, "ADD-SEARCH-PATH!", yas_builtin_add_search_path);
 }
 
-void load_hash_library(void) {
-	if (nilp(library_registry)) library_registry = make_hash();
-	Atom env, exports;
-	define_native_module("yas/hash", &env, &exports);	
+void yas_load_hash_library(void) {
+	if (yas_nilp(yas_library_registry)) yas_library_registry = yas_make_hash();
+	YasAtom env, exports;
+	yas_define_native_module("yas/hash", &env, &exports);	
 	
-	reg_builtin(env, exports, "HASH?", builtin_hashp);
-	reg_builtin(env, exports, "MAKE-HASH", builtin_make_hash);
-	reg_builtin(env, exports, "HASH-REF", builtin_hash_ref);
-	reg_builtin(env, exports, "HASH-SET!", builtin_hash_set);
-	reg_builtin(env, exports, "HASH-REMOVE!", builtin_hash_remove);
-	reg_builtin(env, exports, "HASH-LENGTH", builtin_hash_length);
-	reg_builtin(env, exports, "HASH-JOIN", builtin_hash_join);
-	reg_builtin(env, exports, "HASH-KEYS", builtin_hash_keys);
+	reg_builtin(env, exports, "HASH?", yas_builtin_hashp);
+	reg_builtin(env, exports, "MAKE-HASH", yas_builtin_make_hash);
+	reg_builtin(env, exports, "HASH-REF", yas_builtin_hash_ref);
+	reg_builtin(env, exports, "HASH-SET!", yas_builtin_hash_set);
+	reg_builtin(env, exports, "HASH-REMOVE!", yas_builtin_hash_remove);
+	reg_builtin(env, exports, "HASH-LENGTH", yas_builtin_hash_length);
+	reg_builtin(env, exports, "HASH-JOIN", yas_builtin_hash_join);
+	reg_builtin(env, exports, "HASH-KEYS", yas_builtin_hash_keys);
 	
-	reg_builtin(env, exports, "SET-METATABLE!", builtin_set_metatable);
-	reg_builtin(env, exports, "GET-METATABLE", builtin_get_metatable);
+	reg_builtin(env, exports, "SET-METATABLE!", yas_builtin_set_metatable);
+	reg_builtin(env, exports, "GET-METATABLE", yas_builtin_get_metatable);
 	
-	reg_builtin(env, exports, "SERIALIZE", builtin_serialize);
-	reg_builtin(env, exports, "DESERIALIZE", builtin_deserialize);
-	reg_builtin(env, exports, "READ-STRING", builtin_read_string);
+	reg_builtin(env, exports, "SERIALIZE", yas_builtin_serialize);
+	reg_builtin(env, exports, "DESERIALIZE", yas_builtin_deserialize);
+	reg_builtin(env, exports, "READ-STRING", yas_builtin_read_string);
 }
 
-void load_vector_library(void) {
-	if (nilp(library_registry)) library_registry = make_hash();
-	Atom env, exports;
-	define_native_module("yas/vector", &env, &exports);
+void yas_load_vector_library(void) {
+	if (yas_nilp(yas_library_registry)) yas_library_registry = yas_make_hash();
+	YasAtom env, exports;
+	yas_define_native_module("yas/vector", &env, &exports);
 	
-	reg_builtin(env, exports, "VECTOR?", builtin_vectorp);
-	reg_builtin(env, exports, "MAKE-VECTOR", builtin_make_vector);
-	reg_builtin(env, exports, "VECTOR-REF", builtin_vector_ref);
-	reg_builtin(env, exports, "VECTOR-SET!", builtin_vector_set);
-	reg_builtin(env, exports, "VECTOR-LENGTH", builtin_vector_length);
-	reg_builtin(env, exports, "VECTOR-APPEND", builtin_vector_append);
+	reg_builtin(env, exports, "VECTOR?", yas_builtin_vectorp);
+	reg_builtin(env, exports, "MAKE-VECTOR", yas_builtin_make_vector);
+	reg_builtin(env, exports, "VECTOR-REF", yas_builtin_vector_ref);
+	reg_builtin(env, exports, "VECTOR-SET!", yas_builtin_vector_set);
+	reg_builtin(env, exports, "VECTOR-LENGTH", yas_builtin_vector_length);
+	reg_builtin(env, exports, "VECTOR-APPEND", yas_builtin_vector_append);
 }
 
-void load_text_library(void) {
-	if (nilp(library_registry)) library_registry = make_hash();
-	Atom env, exports;
-	define_native_module("yas/text", &env, &exports);
+void yas_load_text_library(void) {
+	if (yas_nilp(yas_library_registry)) yas_library_registry = yas_make_hash();
+	YasAtom env, exports;
+	yas_define_native_module("yas/text", &env, &exports);
 	
-	reg_builtin(env, exports, "CHAR?", builtin_charp);
-	reg_builtin(env, exports, "CHAR->INTEGER", builtin_char_to_integer);
-	reg_builtin(env, exports, "INTEGER->CHAR", builtin_integer_to_char);
-	reg_builtin(env, exports, "CHAR=?", builtin_char_eq);
-	reg_builtin(env, exports, "CHAR<?", builtin_char_lt);
+	reg_builtin(env, exports, "CHAR?", yas_builtin_charp);
+	reg_builtin(env, exports, "CHAR->INTEGER", yas_builtin_char_to_integer);
+	reg_builtin(env, exports, "INTEGER->CHAR", yas_builtin_integer_to_char);
+	reg_builtin(env, exports, "CHAR=?", yas_builtin_char_eq);
+	reg_builtin(env, exports, "CHAR<?", yas_builtin_char_lt);
 	
-	reg_builtin(env, exports, "STRING->BYTES", builtin_string_to_bytes);
-	reg_builtin(env, exports, "BYTES->STRING", builtin_bytes_to_string);
-	reg_builtin(env, exports, "STRING-REF", builtin_string_ref);
-	reg_builtin(env, exports, "STRING=?", builtin_string_eq);
-	reg_builtin(env, exports, "STRING-BYTE-LENGTH", builtin_string_byte_length);
-	reg_builtin(env, exports, "STRING-LENGTH", builtin_string_length);
-	reg_builtin(env, exports, "STRING-APPEND", builtin_string_append);
-	reg_builtin(env, exports, "->STRING", builtin_tostring);
+	reg_builtin(env, exports, "STRING->BYTES", yas_builtin_string_to_bytes);
+	reg_builtin(env, exports, "BYTES->STRING", yas_builtin_bytes_to_string);
+	reg_builtin(env, exports, "STRING-REF", yas_builtin_string_ref);
+	reg_builtin(env, exports, "STRING=?", yas_builtin_string_eq);
+	reg_builtin(env, exports, "STRING-BYTE-LENGTH", yas_builtin_string_byte_length);
+	reg_builtin(env, exports, "STRING-LENGTH", yas_builtin_string_length);
+	reg_builtin(env, exports, "STRING-APPEND", yas_builtin_string_append);
+	reg_builtin(env, exports, "->STRING", yas_builtin_tostring);
 	
 	/* Format helper builtins */
-	reg_builtin(env, exports, "NUMBER->STRING", builtin_number_to_string);
-	reg_builtin(env, exports, "STRING-UPCASE", builtin_string_upcase);
-	reg_builtin(env, exports, "STRING-DOWNCASE", builtin_string_downcase);
-	reg_builtin(env, exports, "STRING-CAPITALIZE", builtin_string_capitalize);
-	reg_builtin(env, exports, "MAKE-STRING", builtin_make_string);
-	reg_builtin(env, exports, "SUBSTRING", builtin_substring);
+	reg_builtin(env, exports, "NUMBER->STRING", yas_builtin_number_to_string);
+	reg_builtin(env, exports, "STRING-UPCASE", yas_builtin_string_upcase);
+	reg_builtin(env, exports, "STRING-DOWNCASE", yas_builtin_string_downcase);
+	reg_builtin(env, exports, "STRING-CAPITALIZE", yas_builtin_string_capitalize);
+	reg_builtin(env, exports, "MAKE-STRING", yas_builtin_make_string);
+	reg_builtin(env, exports, "SUBSTRING", yas_builtin_substring);
 	
-	reg_builtin(env, exports, "KEYWORD?", builtin_keywordp);
-	reg_builtin(env, exports, "KEYWORD->STRING", builtin_keyword_to_string);
-	reg_builtin(env, exports, "STRING->KEYWORD", builtin_string_to_keyword);
+	reg_builtin(env, exports, "KEYWORD?", yas_builtin_keywordp);
+	reg_builtin(env, exports, "KEYWORD->STRING", yas_builtin_keyword_to_string);
+	reg_builtin(env, exports, "STRING->KEYWORD", yas_builtin_string_to_keyword);
 }
 
-void load_io_library(void) {
-	if (nilp(library_registry)) library_registry = make_hash();
-	Atom env, exports;
-	define_native_module("yas/io", &env, &exports);
+void yas_load_io_library(void) {
+	if (yas_nilp(yas_library_registry)) yas_library_registry = yas_make_hash();
+	YasAtom env, exports;
+	yas_define_native_module("yas/io", &env, &exports);
 	
-	reg_builtin(env, exports, "OPEN-INPUT-FILE", builtin_open_input_file);
-	reg_builtin(env, exports, "OPEN-OUTPUT-FILE", builtin_open_output_file);
-	reg_builtin(env, exports, "CLOSE-PORT", builtin_close_port);
-	reg_builtin(env, exports, "PORT?", builtin_portp);
-	reg_builtin(env, exports, "INPUT-PORT?", builtin_input_portp);
-	reg_builtin(env, exports, "OUTPUT-PORT?", builtin_output_portp);
-	reg_builtin(env, exports, "PORT-OPEN?", builtin_port_openp);
-	reg_builtin(env, exports, "READ-CHAR", builtin_read_char);
-	reg_builtin(env, exports, "READ-LINE", builtin_read_line);
-	reg_builtin(env, exports, "READ-ALL", builtin_read_all);
-	reg_builtin(env, exports, "READ-BYTE", builtin_read_byte);
-	reg_builtin(env, exports, "READ-BYTES", builtin_read_bytes);
-	reg_builtin(env, exports, "WRITE-CHAR", builtin_write_char);
-	reg_builtin(env, exports, "WRITE-STRING", builtin_write_string);
-	reg_builtin(env, exports, "WRITE-BYTE", builtin_write_byte);
-	reg_builtin(env, exports, "WRITE-BYTES", builtin_write_bytes);
-	reg_builtin(env, exports, "NEWLINE", builtin_newline);
-	reg_builtin(env, exports, "FLUSH-PORT", builtin_flush_port);
-	reg_builtin(env, exports, "FILE-EXISTS?", builtin_file_exists);
-	reg_builtin(env, exports, "DELETE-FILE", builtin_delete_file);
-	reg_builtin(env, exports, "RENAME-FILE", builtin_rename_file);
+	reg_builtin(env, exports, "OPEN-INPUT-FILE", yas_builtin_open_input_file);
+	reg_builtin(env, exports, "OPEN-OUTPUT-FILE", yas_builtin_open_output_file);
+	reg_builtin(env, exports, "CLOSE-PORT", yas_builtin_close_port);
+	reg_builtin(env, exports, "PORT?", yas_builtin_portp);
+	reg_builtin(env, exports, "INPUT-PORT?", yas_builtin_input_portp);
+	reg_builtin(env, exports, "OUTPUT-PORT?", yas_builtin_output_portp);
+	reg_builtin(env, exports, "PORT-OPEN?", yas_builtin_port_openp);
+	reg_builtin(env, exports, "READ-CHAR", yas_builtin_read_char);
+	reg_builtin(env, exports, "READ-LINE", yas_builtin_read_line);
+	reg_builtin(env, exports, "READ-ALL", yas_builtin_read_all);
+	reg_builtin(env, exports, "READ-BYTE", yas_builtin_read_byte);
+	reg_builtin(env, exports, "READ-BYTES", yas_builtin_read_bytes);
+	reg_builtin(env, exports, "WRITE-CHAR", yas_builtin_write_char);
+	reg_builtin(env, exports, "WRITE-STRING", yas_builtin_write_string);
+	reg_builtin(env, exports, "WRITE-BYTE", yas_builtin_write_byte);
+	reg_builtin(env, exports, "WRITE-BYTES", yas_builtin_write_bytes);
+	reg_builtin(env, exports, "NEWLINE", yas_builtin_newline);
+	reg_builtin(env, exports, "FLUSH-PORT", yas_builtin_flush_port);
+	reg_builtin(env, exports, "FILE-EXISTS?", yas_builtin_file_exists);
+	reg_builtin(env, exports, "DELETE-FILE", yas_builtin_delete_file);
+	reg_builtin(env, exports, "RENAME-FILE", yas_builtin_rename_file);
 	
-	reg_builtin(env, exports, "MAKE-BYTEVECTOR", builtin_make_bytevector);
-	reg_builtin(env, exports, "BYTEVECTOR?", builtin_bytevectorp);
-	reg_builtin(env, exports, "BYTEVECTOR-LENGTH", builtin_bytevector_length);
-	reg_builtin(env, exports, "BYTEVECTOR-U8-REF", builtin_bytevector_u8_ref);
-	reg_builtin(env, exports, "BYTEVECTOR-U8-SET!", builtin_bytevector_u8_set);
-	reg_builtin(env, exports, "BYTEVECTOR->STRING", builtin_bytevector_to_string);
-	reg_builtin(env, exports, "STRING->BYTEVECTOR", builtin_string_to_bytevector);
+	reg_builtin(env, exports, "MAKE-BYTEVECTOR", yas_builtin_make_bytevector);
+	reg_builtin(env, exports, "BYTEVECTOR?", yas_builtin_bytevectorp);
+	reg_builtin(env, exports, "BYTEVECTOR-LENGTH", yas_builtin_bytevector_length);
+	reg_builtin(env, exports, "BYTEVECTOR-U8-REF", yas_builtin_bytevector_u8_ref);
+	reg_builtin(env, exports, "BYTEVECTOR-U8-SET!", yas_builtin_bytevector_u8_set);
+	reg_builtin(env, exports, "BYTEVECTOR->STRING", yas_builtin_bytevector_to_string);
+	reg_builtin(env, exports, "STRING->BYTEVECTOR", yas_builtin_string_to_bytevector);
 	
-	reg_builtin(env, exports, "IO-SANDBOX-ALLOW!", builtin_io_sandbox_allow);
-	reg_builtin(env, exports, "IO-SANDBOX-DENY!", builtin_io_sandbox_deny);
-	reg_builtin(env, exports, "IO-SANDBOX-MODE", builtin_io_sandbox_mode);
+	reg_builtin(env, exports, "IO-SANDBOX-ALLOW!", yas_builtin_io_sandbox_allow);
+	reg_builtin(env, exports, "IO-SANDBOX-DENY!", yas_builtin_io_sandbox_deny);
+	reg_builtin(env, exports, "IO-SANDBOX-MODE", yas_builtin_io_sandbox_mode);
 }
 
-void load_math_library(void) {
-	if (nilp(library_registry)) library_registry = make_hash();
-	Atom env, exports;
-	define_native_module("yas/math", &env, &exports);
+void yas_load_math_library(void) {
+	if (yas_nilp(yas_library_registry)) yas_library_registry = yas_make_hash();
+	YasAtom env, exports;
+	yas_define_native_module("yas/math", &env, &exports);
 	
-	reg_builtin(env, exports, "VEC2?", builtin_vec2p);
-	reg_builtin(env, exports, "VEC3?", builtin_vec3p);
-	reg_builtin(env, exports, "VEC4?", builtin_vec4p);
-	reg_builtin(env, exports, "MAT4?", builtin_mat4p);
-	reg_builtin(env, exports, "VEC2", builtin_vec2);
-	reg_builtin(env, exports, "VEC3", builtin_vec3);
-	reg_builtin(env, exports, "VEC4", builtin_vec4);
-	reg_builtin(env, exports, "MAT4-IDENTITY", builtin_mat4_identity);
-	reg_builtin(env, exports, "MAT4", builtin_mat4);
-	reg_builtin(env, exports, "VEC-X", builtin_vec_x);
-	reg_builtin(env, exports, "VEC-Y", builtin_vec_y);
-	reg_builtin(env, exports, "VEC-Z", builtin_vec_z);
-	reg_builtin(env, exports, "VEC-W", builtin_vec_w);
-	reg_builtin(env, exports, "VEC-REF", builtin_vec_ref);
-	reg_builtin(env, exports, "VEC-SET!", builtin_vec_set);
-	reg_builtin(env, exports, "MAT4*", builtin_mat4_multiply);
-	reg_builtin(env, exports, "MAT4-TRANSPOSE", builtin_mat4_transpose);
-	reg_builtin(env, exports, "MAT4-INVERSE", builtin_mat4_inverse);
+	reg_builtin(env, exports, "VEC2?", yas_builtin_vec2p);
+	reg_builtin(env, exports, "VEC3?", yas_builtin_vec3p);
+	reg_builtin(env, exports, "VEC4?", yas_builtin_vec4p);
+	reg_builtin(env, exports, "MAT4?", yas_builtin_mat4p);
+	reg_builtin(env, exports, "VEC2", yas_builtin_vec2);
+	reg_builtin(env, exports, "VEC3", yas_builtin_vec3);
+	reg_builtin(env, exports, "VEC4", yas_builtin_vec4);
+	reg_builtin(env, exports, "MAT4-IDENTITY", yas_builtin_mat4_identity);
+	reg_builtin(env, exports, "MAT4", yas_builtin_mat4);
+	reg_builtin(env, exports, "VEC-X", yas_builtin_vec_x);
+	reg_builtin(env, exports, "VEC-Y", yas_builtin_vec_y);
+	reg_builtin(env, exports, "VEC-Z", yas_builtin_vec_z);
+	reg_builtin(env, exports, "VEC-W", yas_builtin_vec_w);
+	reg_builtin(env, exports, "VEC-REF", yas_builtin_vec_ref);
+	reg_builtin(env, exports, "VEC-SET!", yas_builtin_vec_set);
+	reg_builtin(env, exports, "MAT4*", yas_builtin_mat4_multiply);
+	reg_builtin(env, exports, "MAT4-TRANSPOSE", yas_builtin_mat4_transpose);
+	reg_builtin(env, exports, "MAT4-INVERSE", yas_builtin_mat4_inverse);
 }
 
 #ifdef YAS_FFI
-void load_ffi_library(void) {
-	if (nilp(library_registry)) library_registry = make_hash();
-	Atom env, exports;
-	define_native_module("yas/ffi", &env, &exports);
+void yas_load_ffi_library(void) {
+	if (yas_nilp(yas_library_registry)) yas_library_registry = yas_make_hash();
+	YasAtom env, exports;
+	yas_define_native_module("yas/ffi", &env, &exports);
 	
-	reg_builtin(env, exports, "FFI-OPEN", builtin_ffi_open);
-	reg_builtin(env, exports, "FFI-CLOSE", builtin_ffi_close);
-	reg_builtin(env, exports, "FFI-LOOKUP", builtin_ffi_lookup);
-	reg_builtin(env, exports, "FFI-DEFINE", builtin_ffi_define);
-	reg_builtin(env, exports, "FFI-CALL", builtin_ffi_call);
-	reg_builtin(env, exports, "FFI-MALLOC", builtin_ffi_malloc);
-	reg_builtin(env, exports, "FFI-FREE", builtin_ffi_free);
-	reg_builtin(env, exports, "FFI-POINTER-REF", builtin_ffi_pointer_ref);
-	reg_builtin(env, exports, "FFI-POINTER-SET!", builtin_ffi_pointer_set);
-	reg_builtin(env, exports, "FFI-NULL", builtin_ffi_null);
-	reg_builtin(env, exports, "FFI-NULL?", builtin_ffi_nullp);
+	reg_builtin(env, exports, "FFI-OPEN", yas_builtin_ffi_open);
+	reg_builtin(env, exports, "FFI-CLOSE", yas_builtin_ffi_close);
+	reg_builtin(env, exports, "FFI-LOOKUP", yas_builtin_ffi_lookup);
+	reg_builtin(env, exports, "FFI-DEFINE", yas_builtin_ffi_define);
+	reg_builtin(env, exports, "FFI-CALL", yas_builtin_ffi_call);
+	reg_builtin(env, exports, "FFI-MALLOC", yas_builtin_ffi_malloc);
+	reg_builtin(env, exports, "FFI-FREE", yas_builtin_ffi_free);
+	reg_builtin(env, exports, "FFI-POINTER-REF", yas_builtin_ffi_pointer_ref);
+	reg_builtin(env, exports, "FFI-POINTER-SET!", yas_builtin_ffi_pointer_set);
+	reg_builtin(env, exports, "FFI-NULL", yas_builtin_ffi_null);
+	reg_builtin(env, exports, "FFI-NULL?", yas_builtin_ffi_nullp);
 
 	/* Struct support (internal builtins, wrapped by macros in ffi.ys) */
-	reg_builtin(env, exports, "%FFI-DEFSTRUCT", builtin_ffi_defstruct);
-	reg_builtin(env, exports, "%MAKE-FFI-STRUCT", builtin_ffi_make_struct);
-	reg_builtin(env, exports, "%FFI-STRUCT-REF", builtin_ffi_struct_ref);
-	reg_builtin(env, exports, "%FFI-STRUCT-SET!", builtin_ffi_struct_set);
+	reg_builtin(env, exports, "%FFI-DEFSTRUCT", yas_builtin_ffi_defstruct);
+	reg_builtin(env, exports, "%MAKE-FFI-STRUCT", yas_builtin_ffi_make_struct);
+	reg_builtin(env, exports, "%FFI-STRUCT-REF", yas_builtin_ffi_struct_ref);
+	reg_builtin(env, exports, "%FFI-STRUCT-SET!", yas_builtin_ffi_struct_set);
 }
 #endif
 
 static const NativeModule native_modules[] = {
-	{ "yas/base", load_base_library },
-	{ "yas/hash", load_hash_library },
-	{ "yas/vector", load_vector_library },
-	{ "yas/text", load_text_library },
-	{ "yas/io", load_io_library },
-	{ "yas/math", load_math_library },
+	{ "yas/base", yas_load_base_library },
+	{ "yas/hash", yas_load_hash_library },
+	{ "yas/vector", yas_load_vector_library },
+	{ "yas/text", yas_load_text_library },
+	{ "yas/io", yas_load_io_library },
+	{ "yas/math", yas_load_math_library },
 #ifdef YAS_FFI
-	{ "yas/ffi", load_ffi_library },
+	{ "yas/ffi", yas_load_ffi_library },
 #endif
 	{ NULL, NULL }
 };
@@ -298,14 +298,14 @@ static const NativeModule native_modules[] = {
  * front (rather than lazily, on first `import`). Not called internally -
  * yas's own import path populates library_registry lazily as libraries
  * are requested, so this branch never runs for the interpreter/AOT paths. */
-void load_all_modules(void)
+void yas_load_all_modules(void)
 {
-	if (nilp(library_registry)) library_registry = make_hash();
+	if (yas_nilp(yas_library_registry)) yas_library_registry = yas_make_hash();
 	
 	/* Initialize default search paths if not set */
-	if (nilp(global_search_paths)) {
-		global_search_paths = cons(make_string("./lib"), 
-		                           cons(make_string("."), nil));
+	if (yas_nilp(yas_global_search_paths)) {
+		yas_global_search_paths = yas_cons(yas_make_string("./lib"), 
+		                           yas_cons(yas_make_string("."), yas_nil));
 	}
 	
 	for (int i = 0; native_modules[i].name; i++)
@@ -313,19 +313,19 @@ void load_all_modules(void)
 }
 
 /* Convert (example math) -> "example/math" (lowercase) */
-char *library_name_to_string(Atom name)
+char *yas_library_name_to_string(YasAtom name)
 {
 	char buffer[256];
 	buffer[0] = '\0';
 	
-	Atom p = name;
+	YasAtom p = name;
 	int first = 1;
 	
-	while (!nilp(p)) {
-		if (p.type != AtomType_Pair || car(p).type != AtomType_Symbol)
+	while (!yas_nilp(p)) {
+		if (p.type != YAS_ATOM_TYPE_PAIR || yas_car(p).type != YAS_ATOM_TYPE_SYMBOL)
 			return NULL;
 			
-		const char *sym = car(p).value.symbol;
+		const char *sym = yas_car(p).value.symbol;
 		if (!first) strcat(buffer, "/");
 		
 		/* Append symbol lowercased */
@@ -337,7 +337,7 @@ char *library_name_to_string(Atom name)
 		}
 		*dest = '\0';
 		
-		p = cdr(p);
+		p = yas_cdr(p);
 		first = 0;
 	}
 	
@@ -348,11 +348,11 @@ char *library_name_to_string(Atom name)
 static char *find_library_file(const char *lib_path)
 {
 	char *full_path = malloc(1024);
-	Atom paths = global_search_paths;
+	YasAtom paths = yas_global_search_paths;
 	
-	while (!nilp(paths)) {
-		Atom dir = car(paths);
-		if (dir.type == AtomType_String) {
+	while (!yas_nilp(paths)) {
+		YasAtom dir = yas_car(paths);
+		if (dir.type == YAS_ATOM_TYPE_STRING) {
 			sprintf(full_path, "%s/%s.ys", dir.value.string, lib_path);
 			FILE *f = fopen(full_path, "r");
 			if (f) {
@@ -360,7 +360,7 @@ static char *find_library_file(const char *lib_path)
 				return full_path;
 			}
 		}
-		paths = cdr(paths);
+		paths = yas_cdr(paths);
 	}
 	
 	free(full_path);
@@ -368,33 +368,33 @@ static char *find_library_file(const char *lib_path)
 }
 
 /* Create a new library record */
-static Atom make_library(Atom name) {
-	Atom lib = make_hash();
-	hash_set(lib, make_sym("*name*"), name);
-	hash_set(lib, make_sym("*env*"), env_create(nil));
-	hash_set(lib, make_sym("*exports*"), make_hash()); /* exports map: ext->int */
+static YasAtom make_library(YasAtom name) {
+	YasAtom lib = yas_make_hash();
+	yas_hash_set(lib, yas_make_sym("*name*"), name);
+	yas_hash_set(lib, yas_make_sym("*env*"), yas_env_create(yas_nil));
+	yas_hash_set(lib, yas_make_sym("*exports*"), yas_make_hash()); /* exports map: ext->int */
 	return lib;
 }
 
 #include "stdlib.h"
 
-Atom library_load(Atom name_parts)
+YasAtom yas_library_load(YasAtom name_parts)
 {
-	char *key_str = library_name_to_string(name_parts);
-	if (!key_str) return nil;
+	char *key_str = yas_library_name_to_string(name_parts);
+	if (!key_str) return yas_nil;
 	
-	if (nilp(library_registry)) library_registry = make_hash();
+	if (yas_nilp(yas_library_registry)) yas_library_registry = yas_make_hash();
 	
 	/* Initialize default search paths if not set */
-	if (nilp(global_search_paths)) {
-		global_search_paths = cons(make_string("./lib"), 
-		                           cons(make_string("."), nil));
+	if (yas_nilp(yas_global_search_paths)) {
+		yas_global_search_paths = yas_cons(yas_make_string("./lib"), 
+		                           yas_cons(yas_make_string("."), yas_nil));
 	}
 	
-	Atom key = make_string(key_str);
-	Atom lib = hash_ref(library_registry, key, nil);
+	YasAtom key = yas_make_string(key_str);
+	YasAtom lib = yas_hash_ref(yas_library_registry, key, yas_nil);
 	
-	if (!nilp(lib)) {
+	if (!yas_nilp(lib)) {
 		free(key_str);
 		return lib;
 	}
@@ -406,14 +406,14 @@ Atom library_load(Atom name_parts)
 			native_modules[i].loader();
 			
 			/* Get the library object (created by loader) */
-			lib = hash_ref(library_registry, key, nil);
+			lib = yas_hash_ref(yas_library_registry, key, yas_nil);
 			
 			/* Now check for Lisp source in stdlib to merge into this library */
 			for (int j = 0; stdlib_files[j].name; j++) {
 				if (strcmp(key_str, stdlib_files[j].name) == 0) {
 					/* Found Lisp source. Eval into specific lib environment. */
-					Atom ignore;
-					int err = eval_source(stdlib_files[j].source, key_str, env_create(nil), &ignore);
+					YasAtom ignore;
+					int err = yas_eval_source(stdlib_files[j].source, key_str, yas_env_create(yas_nil), &ignore);
 
 					/* Wait, eval_source evaluates in a FRESH env or passed env?
 					   It passes env.
@@ -441,14 +441,14 @@ Atom library_load(Atom name_parts)
 			/* We need to set registry BEFORE eval to allow recursive refs if needed? 
 			   Or define-library does it. define-library does it. */
 			
-			Atom ignore;
-			int err = eval_source(stdlib_files[i].source, key_str, env_create(nil), &ignore);
+			YasAtom ignore;
+			int err = yas_eval_source(stdlib_files[i].source, key_str, yas_env_create(yas_nil), &ignore);
 			
 			free(key_str);
-			if (err) return nil;
+			if (err) return yas_nil;
 			
 			/* Fetch created lib from registry */
-			lib = hash_ref(library_registry, key, nil);
+			lib = yas_hash_ref(yas_library_registry, key, yas_nil);
 			return lib;
 		}
 	}
@@ -459,21 +459,21 @@ Atom library_load(Atom name_parts)
 	
 	if (!path) {
 		printf("Library not found: ");
-		print_expr(name_parts);
+		yas_print_expr(name_parts);
 		printf("\n");
-		return nil;
+		return yas_nil;
 	}
 	
 	/* Create placeholder */
 	lib = make_library(name_parts);
-	key_str = library_name_to_string(name_parts);
-	key = make_string(key_str); 
-	hash_set(library_registry, key, lib);
+	key_str = yas_library_name_to_string(name_parts);
+	key = yas_make_string(key_str); 
+	yas_hash_set(yas_library_registry, key, lib);
 	free(key_str);
 	
 	/* Load the file - ensure native modules are loaded first */
-	if (nilp(library_registry)) {
-		load_all_modules();
+	if (yas_nilp(yas_library_registry)) {
+		yas_load_all_modules();
 	}
 	
 	/* Convert to absolute path to avoid resolve_include_path mangling it */
@@ -481,33 +481,33 @@ Atom library_load(Atom name_parts)
 	if (!abs_path) {
 		printf("Error: Could not resolve path: %s\n", path);
 		free(path);
-		return nil;
+		return yas_nil;
 	}
 	free(path);
 	path = abs_path;
 	
 	/* Load the file */
-	Atom ignore;
-	int err = eval_file(path, env_create(nil), &ignore, 0);
+	YasAtom ignore;
+	int err = yas_eval_file(path, yas_env_create(yas_nil), &ignore, 0);
 	
 	if (err) {
 		printf("Error loading library file %s: ", path);
 		switch (err) {
-		case Error_Syntax: printf("Syntax error\n"); break;
-		case Error_Unbound: printf("Symbol not bound\n"); break;
-		case Error_Args: printf("Argument error\n"); break;
-		case Error_Type: printf("Type error\n"); break;
-		case Error_Exception:
+		case YAS_ERROR_SYNTAX: printf("Syntax error\n"); break;
+		case YAS_ERROR_UNBOUND: printf("Symbol not bound\n"); break;
+		case YAS_ERROR_ARGS: printf("Argument error\n"); break;
+		case YAS_ERROR_TYPE: printf("Type error\n"); break;
+		case YAS_ERROR_EXCEPTION:
 			printf("Exception: ");
-			extern Atom ctx_exception;
-			print_expr(ctx_exception);
+			extern YasAtom yas_ctx_exception;
+			yas_print_expr(yas_ctx_exception);
 			putchar('\n');
 			break;
 		default:
 			printf("Error code %d\n", err);
 		}
 		free(path);
-		return nil;
+		return yas_nil;
 	}
 	
 	free(path);
@@ -517,97 +517,97 @@ Atom library_load(Atom name_parts)
 /* Import resolution logic */
 
 /* Resolve import set to a Hash of {name -> value} */
-static Atom resolve_import_set(Atom set) {
-	if (set.type == AtomType_Pair) {
-		Atom op = car(set);
-		if (op.type == AtomType_Symbol) {
+static YasAtom resolve_import_set(YasAtom set) {
+	if (set.type == YAS_ATOM_TYPE_PAIR) {
+		YasAtom op = yas_car(set);
+		if (op.type == YAS_ATOM_TYPE_SYMBOL) {
 			const char *s = op.value.symbol;
 			if (strcmp(s, "ONLY") == 0) {
 				/* (only set id ...) */
-				Atom child_map = resolve_import_set(car(cdr(set)));
-				if (nilp(child_map)) return nil;
+				YasAtom child_map = resolve_import_set(yas_car(yas_cdr(set)));
+				if (yas_nilp(child_map)) return yas_nil;
 				
-				Atom result = make_hash();
-				Atom ids = cdr(cdr(set));
-				while (!nilp(ids)) {
-					Atom id = car(ids);
-					Atom val = hash_ref(child_map, id, nil);
+				YasAtom result = yas_make_hash();
+				YasAtom ids = yas_cdr(yas_cdr(set));
+				while (!yas_nilp(ids)) {
+					YasAtom id = yas_car(ids);
+					YasAtom val = yas_hash_ref(child_map, id, yas_nil);
 					
-					hash_set(result, id, val);
-					ids = cdr(ids);
+					yas_hash_set(result, id, val);
+					ids = yas_cdr(ids);
 				}
 				return result;
 			} else if (strcmp(s, "EXCEPT") == 0) {
 				/* (except set id ...) */
-				Atom child_map = resolve_import_set(car(cdr(set)));
-				if (nilp(child_map)) return nil;
+				YasAtom child_map = resolve_import_set(yas_car(yas_cdr(set)));
+				if (yas_nilp(child_map)) return yas_nil;
 				
-				Atom result = make_hash();
-				struct Hash *h = child_map.value.hash;
+				YasAtom result = yas_make_hash();
+				struct YasHash *h = child_map.value.hash;
 				
 				/* Collect excepted ids into a list for easier check? Or naive search */
-				Atom exceptions = cdr(cdr(set));
+				YasAtom exceptions = yas_cdr(yas_cdr(set));
 				
 				for (size_t i = 0; i < h->size; i++) {
-					Atom key = h->keys[i];
+					YasAtom key = h->keys[i];
 					int skip = 0;
 					
-					Atom p = exceptions;
-					while (!nilp(p)) {
-						if (car(p).value.symbol == key.value.symbol) {
+					YasAtom p = exceptions;
+					while (!yas_nilp(p)) {
+						if (yas_car(p).value.symbol == key.value.symbol) {
 							skip = 1; break;
 						}
-						p = cdr(p);
+						p = yas_cdr(p);
 					}
 					
 					if (!skip) {
-						hash_set(result, key, h->values[i]);
+						yas_hash_set(result, key, h->values[i]);
 					}
 				}
 				return result;
 			} else if (strcmp(s, "PREFIX") == 0) {
 				/* (prefix set p) */
-				Atom child_map = resolve_import_set(car(cdr(set)));
-				Atom prefix = car(cdr(cdr(set)));
-				if (prefix.type != AtomType_Symbol) return nil;
+				YasAtom child_map = resolve_import_set(yas_car(yas_cdr(set)));
+				YasAtom prefix = yas_car(yas_cdr(yas_cdr(set)));
+				if (prefix.type != YAS_ATOM_TYPE_SYMBOL) return yas_nil;
 				
-				Atom result = make_hash();
-				struct Hash *h = child_map.value.hash;
+				YasAtom result = yas_make_hash();
+				struct YasHash *h = child_map.value.hash;
 				
 				for (size_t i = 0; i < h->size; i++) {
-					Atom key = h->keys[i];
+					YasAtom key = h->keys[i];
 					/* Concat prefix + key */
 					char buf[256];
 					snprintf(buf, sizeof(buf), "%s%s", prefix.value.symbol, key.value.symbol);
-					Atom new_key = make_sym(buf);
+					YasAtom new_key = yas_make_sym(buf);
 					
-					hash_set(result, new_key, h->values[i]);
+					yas_hash_set(result, new_key, h->values[i]);
 				}
 				return result;
 			} else if (strcmp(s, "RENAME") == 0) {
 				/* (rename set (old new) ...) */
-				Atom child_map = resolve_import_set(car(cdr(set)));
-				Atom renames = cdr(cdr(set));
+				YasAtom child_map = resolve_import_set(yas_car(yas_cdr(set)));
+				YasAtom renames = yas_cdr(yas_cdr(set));
 				
-				Atom result = make_hash();
-				struct Hash *h = child_map.value.hash;
+				YasAtom result = yas_make_hash();
+				struct YasHash *h = child_map.value.hash;
 				
 				/* Copy all, applying renames if match */
 				/* This approach: iterate original keys, check if renamed. */
 				for (size_t i = 0; i < h->size; i++) {
-					Atom key = h->keys[i];
-					Atom new_key = key;
+					YasAtom key = h->keys[i];
+					YasAtom new_key = key;
 					
-					Atom p = renames;
-					while (!nilp(p)) {
-						Atom pair = car(p); // (old new)
-						if (car(pair).value.symbol == key.value.symbol) {
-							new_key = car(cdr(pair));
+					YasAtom p = renames;
+					while (!yas_nilp(p)) {
+						YasAtom pair = yas_car(p); // (old new)
+						if (yas_car(pair).value.symbol == key.value.symbol) {
+							new_key = yas_car(yas_cdr(pair));
 							break;
 						}
-						p = cdr(p);
+						p = yas_cdr(p);
 					}
-					hash_set(result, new_key, h->values[i]);
+					yas_hash_set(result, new_key, h->values[i]);
 				}
 				return result;
 			}
@@ -615,165 +615,165 @@ static Atom resolve_import_set(Atom set) {
 	}
 	
 	/* Base case: Library name */
-	Atom lib = library_load(set);
-	if (nilp(lib)) return nil;
+	YasAtom lib = yas_library_load(set);
+	if (yas_nilp(lib)) return yas_nil;
 	
-	Atom exports_map = hash_ref(lib, make_sym("*exports*"), nil);
-	Atom lib_env = hash_ref(lib, make_sym("*env*"), nil);
+	YasAtom exports_map = yas_hash_ref(lib, yas_make_sym("*exports*"), yas_nil);
+	YasAtom lib_env = yas_hash_ref(lib, yas_make_sym("*env*"), yas_nil);
 	
-	Atom result = make_hash();
-	if (nilp(exports_map) || exports_map.type != AtomType_Hash) return result;
+	YasAtom result = yas_make_hash();
+	if (yas_nilp(exports_map) || exports_map.type != YAS_ATOM_TYPE_HASH) return result;
 	
-	struct Hash *h = exports_map.value.hash;
+	struct YasHash *h = exports_map.value.hash;
 	for (size_t i = 0; i < h->size; i++) {
-		Atom ext = h->keys[i];
-		Atom internal = h->values[i];
-		Atom val;
+		YasAtom ext = h->keys[i];
+		YasAtom internal = h->values[i];
+		YasAtom val;
 		/* Try internal first (for renames), then external (for direct exports) */
-		if (env_get(lib_env, internal, &val) == Error_OK) {
-			hash_set(result, ext, val);
-		} else if (env_get(lib_env, ext, &val) == Error_OK) {
+		if (yas_env_get(lib_env, internal, &val) == YAS_ERROR_OK) {
+			yas_hash_set(result, ext, val);
+		} else if (yas_env_get(lib_env, ext, &val) == YAS_ERROR_OK) {
 			/* Direct export - internal == external */
-			hash_set(result, ext, val);
+			yas_hash_set(result, ext, val);
 		}
 	}
 	
 	return result;
 }
 
-static int process_import_set(Atom import_set, Atom target_env) {
-	Atom bindings = resolve_import_set(import_set);
-	if (nilp(bindings) && !nilp(import_set)) {
+static int process_import_set(YasAtom import_set, YasAtom target_env) {
+	YasAtom bindings = resolve_import_set(import_set);
+	if (yas_nilp(bindings) && !yas_nilp(import_set)) {
 		printf("Failed to resolve import set: ");
-		print_expr(import_set);
+		yas_print_expr(import_set);
 		printf("\n");
-		return Error_Unbound; 
+		return YAS_ERROR_UNBOUND; 
 	}
-	if (bindings.type != AtomType_Hash) return Error_Type;
+	if (bindings.type != YAS_ATOM_TYPE_HASH) return YAS_ERROR_TYPE;
 	
-	struct Hash *h = bindings.value.hash;
+	struct YasHash *h = bindings.value.hash;
 	for (size_t i = 0; i < h->size; i++) {
-		Atom key = h->keys[i];
-		Atom val = h->values[i];
-		env_define(target_env, key, val);
+		YasAtom key = h->keys[i];
+		YasAtom val = h->values[i];
+		yas_env_define(target_env, key, val);
 	}
-	return Error_OK;
+	return YAS_ERROR_OK;
 }
 
-int module_import(Atom args, Atom env, Atom *result) {
+int yas_module_import(YasAtom args, YasAtom env, YasAtom *result) {
 	/* (import set1 set2 ...) */
-	Atom p = args;
-	while (!nilp(p)) {
-		int err = process_import_set(car(p), env);
+	YasAtom p = args;
+	while (!yas_nilp(p)) {
+		int err = process_import_set(yas_car(p), env);
 		if (err) return err;
-		p = cdr(p);
+		p = yas_cdr(p);
 	}
-	*result = nil; 
-	return Error_OK;
+	*result = yas_nil; 
+	return YAS_ERROR_OK;
 }
 
-int module_define_library(Atom args, Atom *result) {
+int yas_module_define_library(YasAtom args, YasAtom *result) {
 	/* (define-library (name) decl ...) */
-	if (nilp(args)) return Error_Args;
+	if (yas_nilp(args)) return YAS_ERROR_ARGS;
 	
-	Atom name = car(args);
-	char *key_str = library_name_to_string(name);
-	if (!key_str) return Error_Type;
+	YasAtom name = yas_car(args);
+	char *key_str = yas_library_name_to_string(name);
+	if (!key_str) return YAS_ERROR_TYPE;
 	
-	Atom key = make_string(key_str);
+	YasAtom key = yas_make_string(key_str);
 	free(key_str);
 	
 	/* Get or create library record */
-	Atom lib = hash_ref(library_registry, key, nil);
-	if (nilp(lib)) {
+	YasAtom lib = yas_hash_ref(yas_library_registry, key, yas_nil);
+	if (yas_nilp(lib)) {
 		lib = make_library(name);
-		hash_set(library_registry, key, lib);
+		yas_hash_set(yas_library_registry, key, lib);
 	}
 	
-	Atom lib_env = hash_ref(lib, make_sym("*env*"), nil);
-	Atom lib_exports = hash_ref(lib, make_sym("*exports*"), nil);
+	YasAtom lib_env = yas_hash_ref(lib, yas_make_sym("*env*"), yas_nil);
+	YasAtom lib_exports = yas_hash_ref(lib, yas_make_sym("*exports*"), yas_nil);
 	
-	Atom decls = cdr(args);
-	while (!nilp(decls)) {
-		Atom decl = car(decls);
-		if (decl.type != AtomType_Pair) return Error_Syntax;
+	YasAtom decls = yas_cdr(args);
+	while (!yas_nilp(decls)) {
+		YasAtom decl = yas_car(decls);
+		if (decl.type != YAS_ATOM_TYPE_PAIR) return YAS_ERROR_SYNTAX;
 		
-		Atom op = car(decl);
-		Atom dargs = cdr(decl);
+		YasAtom op = yas_car(decl);
+		YasAtom dargs = yas_cdr(decl);
 		
-		if (op.type == AtomType_Symbol) {
+		if (op.type == YAS_ATOM_TYPE_SYMBOL) {
 			if (strcmp(op.value.symbol, "EXPORT") == 0) {
 				/* (export id1 (rename int ext) ...) */
-				Atom p = dargs;
-				while (!nilp(p)) {
-					Atom spec = car(p);
-					if (spec.type == AtomType_Symbol) {
-						hash_set(lib_exports, spec, spec);
-					} else if (spec.type == AtomType_Pair 
-							&& car(spec).type == AtomType_Symbol
-							&& strcmp(car(spec).value.symbol, "RENAME") == 0) {
+				YasAtom p = dargs;
+				while (!yas_nilp(p)) {
+					YasAtom spec = yas_car(p);
+					if (spec.type == YAS_ATOM_TYPE_SYMBOL) {
+						yas_hash_set(lib_exports, spec, spec);
+					} else if (spec.type == YAS_ATOM_TYPE_PAIR 
+							&& yas_car(spec).type == YAS_ATOM_TYPE_SYMBOL
+							&& strcmp(yas_car(spec).value.symbol, "RENAME") == 0) {
 						/* (rename int ext) */
-						Atom args = cdr(spec); // (int ext)
-						if (!nilp(args) && !nilp(cdr(args))) {
-							Atom internal = car(args);
-							Atom external = car(cdr(args));
-							hash_set(lib_exports, external, internal);
+						YasAtom args = yas_cdr(spec); // (int ext)
+						if (!yas_nilp(args) && !yas_nilp(yas_cdr(args))) {
+							YasAtom internal = yas_car(args);
+							YasAtom external = yas_car(yas_cdr(args));
+							yas_hash_set(lib_exports, external, internal);
 						}
 					}
-					p = cdr(p);
+					p = yas_cdr(p);
 				}
 			} else if (strcmp(op.value.symbol, "IMPORT") == 0) {
 				/* Process imports - these add symbols to lib_env */
-				Atom import_list = dargs;
-				while (!nilp(import_list)) {
-					Atom import_set = car(import_list);
+				YasAtom import_list = dargs;
+				while (!yas_nilp(import_list)) {
+					YasAtom import_set = yas_car(import_list);
 					int import_err = process_import_set(import_set, lib_env);
 					if (import_err) {
 						printf("Error importing dependency in library ");
-						print_expr(name);
+						yas_print_expr(name);
 						printf(": ");
 						switch (import_err) {
-						case Error_Unbound: printf("Symbol not bound\n"); break;
-						case Error_Type: printf("Type error\n"); break;
-						case Error_Args: printf("Argument error\n"); break;
+						case YAS_ERROR_UNBOUND: printf("Symbol not bound\n"); break;
+						case YAS_ERROR_TYPE: printf("Type error\n"); break;
+						case YAS_ERROR_ARGS: printf("Argument error\n"); break;
 						default: printf("Error code %d\n", import_err);
 						}
 						printf("  Import set: ");
-						print_expr(import_set);
+						yas_print_expr(import_set);
 						printf("\n");
 						return import_err;
 					}
-					import_list = cdr(import_list);
+					import_list = yas_cdr(import_list);
 				}
 			} else if (strcmp(op.value.symbol, "BEGIN") == 0) {
-				Atom p = dargs;
-				while (!nilp(p)) {
-					Atom expr = car(p);
-					Atom ignore;
-					int err = eval_expr(expr, lib_env, &ignore);
+				YasAtom p = dargs;
+				while (!yas_nilp(p)) {
+					YasAtom expr = yas_car(p);
+					YasAtom ignore;
+					int err = yas_eval_expr(expr, lib_env, &ignore);
 					if (err) return err;
-					p = cdr(p);
+					p = yas_cdr(p);
 				}
 			} else if (strcmp(op.value.symbol, "INCLUDE") == 0 ||
 					   strcmp(op.value.symbol, "INCLUDE-CI") == 0) {
 				/* (include "file") */
 				int ci = (strcmp(op.value.symbol, "INCLUDE-CI") == 0);
-				Atom p = dargs;
-				while (!nilp(p)) {
-					Atom f = car(p);
-					if (f.type == AtomType_String) {
-						Atom ignore;
-						int err = eval_file(f.value.string, lib_env, &ignore, ci);
+				YasAtom p = dargs;
+				while (!yas_nilp(p)) {
+					YasAtom f = yas_car(p);
+					if (f.type == YAS_ATOM_TYPE_STRING) {
+						YasAtom ignore;
+						int err = yas_eval_file(f.value.string, lib_env, &ignore, ci);
 						if (err) return err;
 					}
-					p = cdr(p);
+					p = yas_cdr(p);
 				}
 			}
 		}
 		
-		decls = cdr(decls);
+		decls = yas_cdr(decls);
 	}
 	
 	*result = name;
-	return Error_OK;
+	return YAS_ERROR_OK;
 }

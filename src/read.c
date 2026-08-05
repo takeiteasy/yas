@@ -1,4 +1,4 @@
-#include "lisp.h"
+#include "yas.h"
 #include <ctype.h>
 #include <stdlib.h>
 #include <string.h>
@@ -6,7 +6,7 @@
 
 /* Compute line and column from source start to current position */
 static void compute_pos(const char *source, const char *current,
-                        const char *filename, ReaderPos *pos)
+                        const char *filename, YasReaderPos *pos)
 {
 	pos->source = source;
 	pos->filename = filename;
@@ -24,20 +24,20 @@ static void compute_pos(const char *source, const char *current,
 }
 
 /* Set error with position and message */
-static void set_error(ErrorContext *err, Error code, const char *source,
+static void set_error(YasErrorContext *err, YasError code, const char *source,
                       const char *pos_ptr, const char *filename,
                       const char *message)
 {
 	if (!err) return;
 	err->code = code;
 	compute_pos(source, pos_ptr, filename, &err->pos);
-	snprintf(err->message, ERROR_MSG_MAX, "%s", message);
+	snprintf(err->message, YAS_ERROR_MSG_MAX, "%s", message);
 }
 
 /* Print error with position and context */
-void error_print(ErrorContext *err)
+void yas_error_print(YasErrorContext *err)
 {
-	if (!err || err->code == Error_OK) return;
+	if (!err || err->code == YAS_ERROR_OK) return;
 
 	/* Print location and message */
 	printf("%s:%d:%d: error: %s\n",
@@ -80,7 +80,7 @@ void error_print(ErrorContext *err)
 }
 
 static int lex(const char *str, const char **start, const char **end,
-               const char *source, const char *filename, ErrorContext *err)
+               const char *source, const char *filename, YasErrorContext *err)
 {
 	const char *ws = " \t\n";
 	const char *delim = "(); \t\n\"";
@@ -91,7 +91,7 @@ static int lex(const char *str, const char **start, const char **end,
 	if (str[0] == '\0') {
 		*start = *end = NULL;
 		/* Don't set error message here - caller provides context */
-		return Error_Syntax;
+		return YAS_ERROR_SYNTAX;
 	}
 
 	*start = str;
@@ -132,19 +132,19 @@ static int lex(const char *str, const char **start, const char **end,
 		str = strchr(str, '\n');
 		if (!str) {
 			*start = *end = NULL;
-			set_error(err, Error_Syntax, source, str, filename,
+			set_error(err, YAS_ERROR_SYNTAX, source, str, filename,
 			          "Unexpected end of input after comment");
-			return Error_Syntax;
+			return YAS_ERROR_SYNTAX;
 		}
 		return lex(str, start, end, source, filename, err);
 	} else
 		*end = str + strcspn(str, delim);
 
-	return Error_OK;
+	return YAS_ERROR_OK;
 }
 
-static int parse_simple(const char *start, const char *end, Atom *result,
-                        const char *source, const char *filename, ErrorContext *err)
+static int parse_simple(const char *start, const char *end, YasAtom *result,
+                        const char *source, const char *filename, YasErrorContext *err)
 {
 	char *buf, *p;
 
@@ -159,16 +159,16 @@ static int parse_simple(const char *start, const char *end, Atom *result,
 			if (start[1] == 'x' || start[1] == 'X') {
 				long val = strtol(start + 2, &p, 16);
 				if (p == end) {
-					result->type = AtomType_Integer;
+					result->type = YAS_ATOM_TYPE_INTEGER;
 					result->value.integer = val;
-					return Error_OK;
+					return YAS_ERROR_OK;
 				}
 			} else if (start[1] == 'b' || start[1] == 'B') {
 				long val = strtol(start + 2, &p, 2);
 				if (p == end) {
-					result->type = AtomType_Integer;
+					result->type = YAS_ATOM_TYPE_INTEGER;
 					result->value.integer = val;
-					return Error_OK;
+					return YAS_ERROR_OK;
 				}
 			}
 		}
@@ -182,15 +182,15 @@ static int parse_simple(const char *start, const char *end, Atom *result,
 		if (has_dot) {
 			double fval = strtod(start, &p);
 			if (p == end) {
-				*result = make_float(fval);
-				return Error_OK;
+				*result = yas_make_float(fval);
+				return YAS_ERROR_OK;
 			}
 		} else {
 			long val = strtol(start, &p, 10);
 			if (p == end) {
-				result->type = AtomType_Integer;
+				result->type = YAS_ATOM_TYPE_INTEGER;
 				result->value.integer = val;
-				return Error_OK;
+				return YAS_ERROR_OK;
 			}
 		}
 	}
@@ -203,9 +203,9 @@ static int parse_simple(const char *start, const char *end, Atom *result,
 		while (start != end)
 			*p++ = toupper(*start), ++start;
 		*p = '\0';
-		*result = make_keyword(buf);
+		*result = yas_make_keyword(buf);
 		free(buf);
-		return Error_OK;
+		return YAS_ERROR_OK;
 	}
 
 	/* NIL or symbol */
@@ -216,96 +216,96 @@ static int parse_simple(const char *start, const char *end, Atom *result,
 	*p = '\0';
 
 	if (strcmp(buf, "NIL") == 0)
-		*result = nil;
+		*result = yas_nil;
 	else
-		*result = make_sym(buf);
+		*result = yas_make_sym(buf);
 
 	free(buf);
 
-	return Error_OK;
+	return YAS_ERROR_OK;
 }
 
-static int read_list(const char *start, const char **end, Atom *result,
-                     const char *source, const char *filename, ErrorContext *err)
+static int read_list(const char *start, const char **end, YasAtom *result,
+                     const char *source, const char *filename, YasErrorContext *err)
 {
-	Atom p;
+	YasAtom p;
 
 	*end = start;
-	p = *result = nil;
+	p = *result = yas_nil;
 
 	for (;;) {
 		const char *token;
-		Atom item;
-		Error e;
+		YasAtom item;
+		YasError e;
 
 		e = lex(*end, &token, end, source, filename, err);
 		if (e) {
 			/* If lex failed (likely EOF), provide better error message */
-			if (err && e == Error_Syntax) {
-				set_error(err, Error_Syntax, source, start - 1, filename,
+			if (err && e == YAS_ERROR_SYNTAX) {
+				set_error(err, YAS_ERROR_SYNTAX, source, start - 1, filename,
 				          "Unterminated list - missing ')'");
 			}
 			return e;
 		}
 
 		if (token[0] == ')')
-			return Error_OK;
+			return YAS_ERROR_OK;
 
 		if (token[0] == '.' && *end - token == 1) {
 			/* Improper list */
-			if (nilp(p)) {
-				set_error(err, Error_Syntax, source, token, filename,
+			if (yas_nilp(p)) {
+				set_error(err, YAS_ERROR_SYNTAX, source, token, filename,
 				          "Unexpected '.' at start of list");
-				return Error_Syntax;
+				return YAS_ERROR_SYNTAX;
 			}
 
-			e = read_expr(*end, end, &item, err);
+			e = yas_read_expr(*end, end, &item, err);
 			if (e)
 				return e;
 
-			cdr(p) = item;
+			yas_cdr(p) = item;
 
 			/* Read the closing ')' */
 			e = lex(*end, &token, end, source, filename, err);
 			if (e) {
-				set_error(err, Error_Syntax, source, *end, filename,
+				set_error(err, YAS_ERROR_SYNTAX, source, *end, filename,
 				          "Expected ')' after dotted pair");
 				return e;
 			}
 			if (token[0] != ')') {
-				set_error(err, Error_Syntax, source, token, filename,
+				set_error(err, YAS_ERROR_SYNTAX, source, token, filename,
 				          "Only one expression allowed after '.'");
-				return Error_Syntax;
+				return YAS_ERROR_SYNTAX;
 			}
 
-			return Error_OK;
+			return YAS_ERROR_OK;
 		}
 
-		e = read_expr(token, end, &item, err);
-		if (e == Error_Skip) {
+		e = yas_read_expr(token, end, &item, err);
+		if (e == YAS_ERROR_SKIP) {
 			/* Feature conditional excluded this expression, continue reading */
 			continue;
 		}
 		if (e)
 			return e;
 
-		if (nilp(p)) {
+		if (yas_nilp(p)) {
 			/* First item */
-			*result = cons(item, nil);
+			*result = yas_cons(item, yas_nil);
 			p = *result;
 		} else {
-			cdr(p) = cons(item, nil);
-			p = cdr(p);
+			yas_cdr(p) = yas_cons(item, yas_nil);
+			p = yas_cdr(p);
 		}
 	}
 }
 
 /* Internal implementation with source tracking */
-static int read_expr_internal(const char *input, const char **end, Atom *result,
-                              const char *source, const char *filename, ErrorContext *err)
+static int read_expr_internal(const char *input, const char **end, YasAtom *result,
+                              const char *source, const char *filename, YasErrorContext *err)
 {
 	const char *token;
-	Error e;
+	YasError e;
 
 	e = lex(input, &token, end, source, filename, err);
 	if (e)
@@ -314,32 +314,32 @@ static int read_expr_internal(const char *input, const char **end, Atom *result,
 	if (token[0] == '(') {
 		return read_list(*end, end, result, source, filename, err);
 	} else if (token[0] == ')') {
-		set_error(err, Error_Syntax, source, token, filename,
+		set_error(err, YAS_ERROR_SYNTAX, source, token, filename,
 		          "Unexpected ')'");
-		return Error_Syntax;
+		return YAS_ERROR_SYNTAX;
 	} else if (token[0] == '\'') {
-		*result = cons(make_sym("QUOTE"), cons(nil, nil));
-		e = read_expr_internal(*end, end, &car(cdr(*result)), source, filename, err);
+		*result = yas_cons(yas_make_sym("QUOTE"), yas_cons(yas_nil, yas_nil));
+		e = read_expr_internal(*end, end, &yas_car(yas_cdr(*result)), source, filename, err);
 		if (e && err) {
-			set_error(err, Error_Syntax, source, token, filename,
+			set_error(err, YAS_ERROR_SYNTAX, source, token, filename,
 			          "Expected expression after quote");
 		}
 		return e;
 	} else if (token[0] == '`') {
-		*result = cons(make_sym("QUASIQUOTE"), cons(nil, nil));
-		e = read_expr_internal(*end, end, &car(cdr(*result)), source, filename, err);
+		*result = yas_cons(yas_make_sym("QUASIQUOTE"), yas_cons(yas_nil, yas_nil));
+		e = read_expr_internal(*end, end, &yas_car(yas_cdr(*result)), source, filename, err);
 		if (e && err) {
-			set_error(err, Error_Syntax, source, token, filename,
+			set_error(err, YAS_ERROR_SYNTAX, source, token, filename,
 			          "Expected expression after quasiquote");
 		}
 		return e;
 	} else if (token[0] == ',') {
-		*result = cons(make_sym(
+		*result = yas_cons(yas_make_sym(
 			token[1] == '@' ? "UNQUOTE-SPLICING" : "UNQUOTE"),
-			cons(nil, nil));
-		e = read_expr_internal(*end, end, &car(cdr(*result)), source, filename, err);
+			yas_cons(yas_nil, yas_nil));
+		e = read_expr_internal(*end, end, &yas_car(yas_cdr(*result)), source, filename, err);
 		if (e && err) {
-			set_error(err, Error_Syntax, source, token, filename,
+			set_error(err, YAS_ERROR_SYNTAX, source, token, filename,
 			          "Expected expression after unquote");
 		}
 		return e;
@@ -371,9 +371,9 @@ static int read_expr_internal(const char *input, const char **end, Atom *result,
 				len++;
 			}
 			if (!*p) {
-				set_error(err, Error_Syntax, source, token, filename,
+				set_error(err, YAS_ERROR_SYNTAX, source, token, filename,
 				          "Unterminated string");
-				return Error_Syntax;
+				return YAS_ERROR_SYNTAX;
 			}
 			
 			char *buf = malloc(len + 1);
@@ -398,14 +398,14 @@ static int read_expr_internal(const char *input, const char **end, Atom *result,
 			*dst = '\0';
 			*end = p + 1;
 
-			*result = make_string(buf);
+			*result = yas_make_string(buf);
 			free(buf);
-			return Error_OK;
+			return YAS_ERROR_OK;
 		}
 		
 		/* Has interpolation - build (string-append ...) form */
-		Atom parts = nil;
-		Atom parts_tail = nil;
+		YasAtom parts = yas_nil;
+		YasAtom parts_tail = yas_nil;
 		p = str_start;
 		
 		while (*p && *p != '"') {
@@ -429,27 +429,27 @@ static int read_expr_internal(const char *input, const char **end, Atom *result,
 				}
 				
 				if (depth != 0) {
-					set_error(err, Error_Syntax, source, p, filename,
+					set_error(err, YAS_ERROR_SYNTAX, source, p, filename,
 					          "Unterminated interpolation - missing }}");
-					return Error_Syntax;
+					return YAS_ERROR_SYNTAX;
 				}
 				
 				/* Parse the expression */
-				Atom expr;
+				YasAtom expr;
 				const char *parse_end;
 				e = read_expr_internal(expr_start, &parse_end, &expr, source, filename, err);
 				if (e) return e;
 				
 				/* Wrap in (->string expr) */
-				Atom tostr_call = cons(make_sym("->STRING"), cons(expr, nil));
+				YasAtom tostr_call = yas_cons(yas_make_sym("->STRING"), yas_cons(expr, yas_nil));
 				
 				/* Add to parts list */
-				Atom new_cell = cons(tostr_call, nil);
-				if (nilp(parts)) {
+				YasAtom new_cell = yas_cons(tostr_call, yas_nil);
+				if (yas_nilp(parts)) {
 					parts = new_cell;
 					parts_tail = new_cell;
 				} else {
-					cdr(parts_tail) = new_cell;
+					yas_cdr(parts_tail) = new_cell;
 					parts_tail = new_cell;
 				}
 				
@@ -493,15 +493,15 @@ static int read_expr_internal(const char *input, const char **end, Atom *result,
 					}
 					*dst = '\0';
 					
-					Atom str_atom = make_string(seg_buf);
+					YasAtom str_atom = yas_make_string(seg_buf);
 					free(seg_buf);
 					
-					Atom new_cell = cons(str_atom, nil);
-					if (nilp(parts)) {
+					YasAtom new_cell = yas_cons(str_atom, yas_nil);
+					if (yas_nilp(parts)) {
 						parts = new_cell;
 						parts_tail = new_cell;
 					} else {
-						cdr(parts_tail) = new_cell;
+						yas_cdr(parts_tail) = new_cell;
 						parts_tail = new_cell;
 					}
 				}
@@ -509,158 +509,158 @@ static int read_expr_internal(const char *input, const char **end, Atom *result,
 		}
 		
 		if (*p != '"') {
-			set_error(err, Error_Syntax, source, token, filename,
+			set_error(err, YAS_ERROR_SYNTAX, source, token, filename,
 			          "Unterminated string");
-			return Error_Syntax;
+			return YAS_ERROR_SYNTAX;
 		}
 		
 		*end = p + 1;  /* Skip closing quote */
 		
 		/* Build (string-append part1 part2 ...) */
-		*result = cons(make_sym("STRING-APPEND"), parts);
-		return Error_OK;
+		*result = yas_cons(yas_make_sym("STRING-APPEND"), parts);
+		return YAS_ERROR_OK;
 	} else if (token[0] == '#' && token[1] == '(') {
 		/* Vector literal #(1 2 3) */
-		Atom list_result;
+		YasAtom list_result;
 		e = read_list(*end, end, &list_result, source, filename, err);
 		if (e) return e;
 		
 		/* Count list length */
 		size_t len = 0;
-		Atom p = list_result;
-		while (!nilp(p)) { len++; p = cdr(p); }
+		YasAtom p = list_result;
+		while (!yas_nilp(p)) { len++; p = yas_cdr(p); }
 		
 		/* Create vector from list */
-		*result = make_vector(len, nil);
+		*result = yas_make_vector(len, yas_nil);
 		p = list_result;
 		for (size_t i = 0; i < len; i++) {
-			vector_set(*result, i, car(p));
-			p = cdr(p);
+			yas_vector_set(*result, i, yas_car(p));
+			p = yas_cdr(p);
 		}
-		return Error_OK;
+		return YAS_ERROR_OK;
 	} else if (token[0] == '#' && strncmp(token, "#vec(", 5) == 0) {
 		/* SIMD vector literal #vec(1 2) or #vec(1 2 3) or #vec(1 2 3 4) */
-		Atom list_result;
+		YasAtom list_result;
 		e = read_list(*end, end, &list_result, source, filename, err);
 		if (e) return e;
 		
 		/* Count list length and collect floats */
 		size_t len = 0;
-		Atom p = list_result;
-		while (!nilp(p)) { len++; p = cdr(p); }
+		YasAtom p = list_result;
+		while (!yas_nilp(p)) { len++; p = yas_cdr(p); }
 		
 		/* Convert list elements to floats */
 		float vals[4] = {0, 0, 0, 0};
 		p = list_result;
 		for (size_t i = 0; i < len && i < 4; i++) {
-			Atom a = car(p);
-			if (a.type == AtomType_Integer)
+			YasAtom a = yas_car(p);
+			if (a.type == YAS_ATOM_TYPE_INTEGER)
 				vals[i] = (float)a.value.integer;
-			else if (a.type == AtomType_Float)
+			else if (a.type == YAS_ATOM_TYPE_FLOAT)
 				vals[i] = (float)a.value.floatval;
 			else {
-				set_error(err, Error_Type, source, token, filename,
+				set_error(err, YAS_ERROR_TYPE, source, token, filename,
 				          "#vec elements must be numbers");
-				return Error_Type;
+				return YAS_ERROR_TYPE;
 			}
-			p = cdr(p);
+			p = yas_cdr(p);
 		}
 		
 		/* Create vec based on element count */
 		if (len == 2)
-			*result = make_vec2(vals[0], vals[1]);
+			*result = yas_make_vec2(vals[0], vals[1]);
 		else if (len == 3)
-			*result = make_vec3(vals[0], vals[1], vals[2]);
+			*result = yas_make_vec3(vals[0], vals[1], vals[2]);
 		else if (len == 4)
-			*result = make_vec4(vals[0], vals[1], vals[2], vals[3]);
+			*result = yas_make_vec4(vals[0], vals[1], vals[2], vals[3]);
 		else {
-			set_error(err, Error_Syntax, source, token, filename,
+			set_error(err, YAS_ERROR_SYNTAX, source, token, filename,
 			          "#vec requires 2, 3, or 4 elements");
-			return Error_Syntax;
+			return YAS_ERROR_SYNTAX;
 		}
-		return Error_OK;
+		return YAS_ERROR_OK;
 	} else if (token[0] == '#' && strncmp(token, "#mat(", 5) == 0) {
 		/* mat4 literal #mat(m00 m01 ... m33) - 16 column-major floats */
-		Atom list_result;
+		YasAtom list_result;
 		e = read_list(*end, end, &list_result, source, filename, err);
 		if (e) return e;
 		
 		/* Count list length */
 		size_t len = 0;
-		Atom p = list_result;
-		while (!nilp(p)) { len++; p = cdr(p); }
+		YasAtom p = list_result;
+		while (!yas_nilp(p)) { len++; p = yas_cdr(p); }
 		
 		if (len != 16) {
-			set_error(err, Error_Syntax, source, token, filename,
+			set_error(err, YAS_ERROR_SYNTAX, source, token, filename,
 			          "#mat requires exactly 16 elements");
-			return Error_Syntax;
+			return YAS_ERROR_SYNTAX;
 		}
 		
 		/* Convert elements to floats */
 		float vals[16];
 		p = list_result;
 		for (size_t i = 0; i < 16; i++) {
-			Atom a = car(p);
-			if (a.type == AtomType_Integer)
+			YasAtom a = yas_car(p);
+			if (a.type == YAS_ATOM_TYPE_INTEGER)
 				vals[i] = (float)a.value.integer;
-			else if (a.type == AtomType_Float)
+			else if (a.type == YAS_ATOM_TYPE_FLOAT)
 				vals[i] = (float)a.value.floatval;
 			else {
-				set_error(err, Error_Type, source, token, filename,
+				set_error(err, YAS_ERROR_TYPE, source, token, filename,
 				          "#mat elements must be numbers");
-				return Error_Type;
+				return YAS_ERROR_TYPE;
 			}
-			p = cdr(p);
+			p = yas_cdr(p);
 		}
 		
-		*result = make_mat4_from_floats(vals);
-		return Error_OK;
+		*result = yas_make_mat4_from_floats(vals);
+		return YAS_ERROR_OK;
 	} else if (token[0] == '#' && strncmp(token, "#hash(", 6) == 0) {
 		/* Hash literal #hash(:key val ...) or #hash(sym val ...) */
-		Atom list_result;
+		YasAtom list_result;
 		e = read_list(*end, end, &list_result, source, filename, err);
 		if (e) return e;
 		
-		*result = make_hash();
-		Atom p = list_result;
-		while (!nilp(p) && !nilp(cdr(p))) {
-			Atom key = car(p);
-			Atom val = car(cdr(p));
+		*result = yas_make_hash();
+		YasAtom p = list_result;
+		while (!yas_nilp(p) && !yas_nilp(yas_cdr(p))) {
+			YasAtom key = yas_car(p);
+			YasAtom val = yas_car(yas_cdr(p));
 			/* Convert keywords to symbols for hash keys */
-			if (key.type == AtomType_Keyword) {
-				key = make_sym(key.value.keyword);
+			if (key.type == YAS_ATOM_TYPE_KEYWORD) {
+				key = yas_make_sym(key.value.keyword);
 			}
-			hash_set(*result, key, val);
-			p = cdr(cdr(p));
+			yas_hash_set(*result, key, val);
+			p = yas_cdr(yas_cdr(p));
 		}
-		return Error_OK;
+		return YAS_ERROR_OK;
 	} else if (token[0] == '#' && (token[1] == '+' || token[1] == '-')) {
 		/* Reader conditionals: #+(feature expr) or #-(feature expr) */
 		int include_if_present = (token[1] == '+');
 		
 		/* Read the feature name (symbol) */
-		Atom feature;
+		YasAtom feature;
 		e = read_expr_internal(*end, end, &feature, source, filename, err);
 		if (e) return e;
 		
 		/* Check if feature is present - supports compound expressions like (or macos linux) */
-		int feature_present = eval_feature_expr(feature);
+		int feature_present = yas_eval_feature_expr(feature);
 
 		/* Decide whether to include the following expression */
 		int include_expr = (include_if_present && feature_present) ||
 		                   (!include_if_present && !feature_present);
 
 		/* Read the expression (we must consume it either way) */
-		Atom expr;
+		YasAtom expr;
 		e = read_expr_internal(*end, end, &expr, source, filename, err);
 		if (e) return e;
 
 		if (include_expr) {
 			*result = expr;
-			return Error_OK;
+			return YAS_ERROR_OK;
 		} else {
 			/* Signal to caller that this expression should be skipped */
-			return Error_Skip;
+			return YAS_ERROR_SKIP;
 		}
 	} else if (token[0] == '#' && token[1] == '\\') {
 		/* Character literal */
@@ -669,9 +669,9 @@ static int read_expr_internal(const char *input, const char **end, Atom *result,
 		int32_t cp;
 		
 		if (len == 0) {
-			set_error(err, Error_Syntax, source, token, filename,
+			set_error(err, YAS_ERROR_SYNTAX, source, token, filename,
 			          "Empty character literal");
-			return Error_Syntax;
+			return YAS_ERROR_SYNTAX;
 		}
 		
 		/* Named characters */
@@ -688,50 +688,50 @@ static int read_expr_internal(const char *input, const char **end, Atom *result,
 			char *endp;
 			cp = strtol(start + 1, &endp, 16);
 			if (endp != *end) {
-				set_error(err, Error_Syntax, source, token, filename,
+				set_error(err, YAS_ERROR_SYNTAX, source, token, filename,
 				          "Invalid hex character literal");
-				return Error_Syntax;
+				return YAS_ERROR_SYNTAX;
 			}
 		} else if (start[0] == 'u' && len == 5) {
 			/* Unicode escape #\uNNNN */
 			char *endp;
 			cp = strtol(start + 1, &endp, 16);
 			if (endp != *end) {
-				set_error(err, Error_Syntax, source, token, filename,
+				set_error(err, YAS_ERROR_SYNTAX, source, token, filename,
 				          "Invalid unicode character literal");
-				return Error_Syntax;
+				return YAS_ERROR_SYNTAX;
 			}
 		} else if (start[0] == 'U' && len == 9) {
 			/* Unicode escape #\UNNNNNNNN */
 			char *endp;
 			cp = strtol(start + 1, &endp, 16);
 			if (endp != *end) {
-				set_error(err, Error_Syntax, source, token, filename,
+				set_error(err, YAS_ERROR_SYNTAX, source, token, filename,
 				          "Invalid unicode character literal");
-				return Error_Syntax;
+				return YAS_ERROR_SYNTAX;
 			}
 		} else if (len == 1) {
 			/* Single character */
 			cp = (unsigned char)start[0];
 		} else {
 			/* Try UTF-8 decode for multi-byte chars like #\λ */
-			int n = utf8_decode(start, &cp);
+			int n = yas_utf8_decode(start, &cp);
 			if (n != (int)len) {
-				set_error(err, Error_Syntax, source, token, filename,
+				set_error(err, YAS_ERROR_SYNTAX, source, token, filename,
 				          "Unknown character name");
-				return Error_Syntax;
+				return YAS_ERROR_SYNTAX;
 			}
 		}
 		
-		*result = make_char(cp);
-		return Error_OK;
+		*result = yas_make_char(cp);
+		return YAS_ERROR_OK;
 	} else {
 		return parse_simple(token, *end, result, source, filename, err);
 	}
 }
 
 /* Public interface - source is the input itself */
-int read_expr(const char *input, const char **end, Atom *result, ErrorContext *err)
+int yas_read_expr(const char *input, const char **end, YasAtom *result, YasErrorContext *err)
 {
 	const char *filename = err && err->pos.filename ? err->pos.filename : "<stdin>";
 	const char *source = err && err->pos.source ? err->pos.source : input;

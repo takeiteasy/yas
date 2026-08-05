@@ -1,108 +1,108 @@
-#include "lisp.h"
+#include "yas.h"
 #include <stdlib.h>
 #include <string.h>
 
-int builtin_stringp(Atom args, Atom *result)
+int yas_builtin_stringp(YasAtom args, YasAtom *result)
 {
-	if (nilp(args) || !nilp(cdr(args)))
-		return raise_error("args-error", "string?: expected 1 argument");
-	*result = (car(args).type == AtomType_String) ? make_sym("T") : nil;
-	return Error_OK;
+	if (yas_nilp(args) || !yas_nilp(yas_cdr(args)))
+		return yas_raise_error("args-error", "string?: expected 1 argument");
+	*result = (yas_car(args).type == YAS_ATOM_TYPE_STRING) ? yas_make_sym("T") : yas_nil;
+	return YAS_ERROR_OK;
 }
 
 /* (string-length str) */
-int builtin_string_length(Atom args, Atom *result)
+int yas_builtin_string_length(YasAtom args, YasAtom *result)
 {
-	if (nilp(args) || !nilp(cdr(args)))
-		return raise_error("args-error", "string-length: expected 1 argument");
-	Atom a = car(args);
-	if (a.type != AtomType_String)
-		return raise_error("type-error", "string-length: expected string");
-	*result = make_int(utf8_strlen(a.value.string));
-	return Error_OK;
+	if (yas_nilp(args) || !yas_nilp(yas_cdr(args)))
+		return yas_raise_error("args-error", "string-length: expected 1 argument");
+	YasAtom a = yas_car(args);
+	if (a.type != YAS_ATOM_TYPE_STRING)
+		return yas_raise_error("type-error", "string-length: expected string");
+	*result = yas_make_int(yas_utf8_strlen(a.value.string));
+	return YAS_ERROR_OK;
 }
 
 /* (string-ref str k) - get k-th character (0-indexed) */
-int builtin_string_ref(Atom args, Atom *result) {
-	if (nilp(args) || nilp(cdr(args)) || !nilp(cdr(cdr(args))))
-		return raise_error("args-error", "string-ref: expected 2 arguments");
+int yas_builtin_string_ref(YasAtom args, YasAtom *result) {
+	if (yas_nilp(args) || yas_nilp(yas_cdr(args)) || !yas_nilp(yas_cdr(yas_cdr(args))))
+		return yas_raise_error("args-error", "string-ref: expected 2 arguments");
 	
-	Atom str = car(args);
-	Atom idx = car(cdr(args));
+	YasAtom str = yas_car(args);
+	YasAtom idx = yas_car(yas_cdr(args));
 	
-	if (str.type != AtomType_String)
-		return raise_error("type-error", "string-ref: first argument must be string");
-	if (idx.type != AtomType_Integer)
-		return raise_error("type-error", "string-ref: second argument must be integer");
+	if (str.type != YAS_ATOM_TYPE_STRING)
+		return yas_raise_error("type-error", "string-ref: first argument must be string");
+	if (idx.type != YAS_ATOM_TYPE_INTEGER)
+		return yas_raise_error("type-error", "string-ref: second argument must be integer");
 	
-	int32_t cp = utf8_codepoint_at(str.value.string, (size_t)idx.value.integer);
+	int32_t cp = yas_utf8_codepoint_at(str.value.string, (size_t)idx.value.integer);
 	if (cp < 0)
-		return raise_error("args-error", "string-ref: index out of bounds");
+		return yas_raise_error("args-error", "string-ref: index out of bounds");
 	
-	*result = make_char(cp);
-	return Error_OK;
+	*result = yas_make_char(cp);
+	return YAS_ERROR_OK;
 }
 
 /* (string=? s1 s2) */
-int builtin_string_eq(Atom args, Atom *result) {
-	if (nilp(args) || nilp(cdr(args)) || !nilp(cdr(cdr(args))))
-		return raise_error("args-error", "string=?: expected 2 arguments");
+int yas_builtin_string_eq(YasAtom args, YasAtom *result) {
+	if (yas_nilp(args) || yas_nilp(yas_cdr(args)) || !yas_nilp(yas_cdr(yas_cdr(args))))
+		return yas_raise_error("args-error", "string=?: expected 2 arguments");
 	
-	Atom a = car(args);
-	Atom b = car(cdr(args));
+	YasAtom a = yas_car(args);
+	YasAtom b = yas_car(yas_cdr(args));
 	
-	if (a.type != AtomType_String || b.type != AtomType_String)
-		return raise_error("type-error", "string=?: arguments must be strings");
+	if (a.type != YAS_ATOM_TYPE_STRING || b.type != YAS_ATOM_TYPE_STRING)
+		return yas_raise_error("type-error", "string=?: arguments must be strings");
 	
-	*result = (strcmp(a.value.string, b.value.string) == 0) ? make_sym("T") : nil;
-	return Error_OK;
+	*result = (strcmp(a.value.string, b.value.string) == 0) ? yas_make_sym("T") : yas_nil;
+	return YAS_ERROR_OK;
 }
 
 /* (string-byte-length str) - byte length (for I/O) */
-int builtin_string_byte_length(Atom args, Atom *result) {
-	if (nilp(args) || !nilp(cdr(args)))
-		return raise_error("args-error", "string-byte-length: expected 1 argument");
+int yas_builtin_string_byte_length(YasAtom args, YasAtom *result) {
+	if (yas_nilp(args) || !yas_nilp(yas_cdr(args)))
+		return yas_raise_error("args-error", "string-byte-length: expected 1 argument");
 	
-	Atom str = car(args);
-	if (str.type != AtomType_String)
-		return raise_error("type-error", "string-byte-length: argument must be string");
+	YasAtom str = yas_car(args);
+	if (str.type != YAS_ATOM_TYPE_STRING)
+		return yas_raise_error("type-error", "string-byte-length: argument must be string");
 	
-	*result = make_int(strlen(str.value.string));
-	return Error_OK;
+	*result = yas_make_int(strlen(str.value.string));
+	return YAS_ERROR_OK;
 }
 
 /* (string-append s1 s2 ...) */
-int builtin_string_append(Atom args, Atom *result)
+int yas_builtin_string_append(YasAtom args, YasAtom *result)
 {
 	size_t total_len = 0;
-	Atom p = args;
-	while (!nilp(p)) {
-		if (car(p).type != AtomType_String)
-			return raise_error("type-error", "string-append: arguments must be strings");
-		total_len += strlen(car(p).value.string);
-		p = cdr(p);
+	YasAtom p = args;
+	while (!yas_nilp(p)) {
+		if (yas_car(p).type != YAS_ATOM_TYPE_STRING)
+			return yas_raise_error("type-error", "string-append: arguments must be strings");
+		total_len += strlen(yas_car(p).value.string);
+		p = yas_cdr(p);
 	}
 	char *buf = malloc(total_len + 1);
 	buf[0] = '\0';
 	p = args;
-	while (!nilp(p)) {
-		strcat(buf, car(p).value.string);
-		p = cdr(p);
+	while (!yas_nilp(p)) {
+		strcat(buf, yas_car(p).value.string);
+		p = yas_cdr(p);
 	}
-	*result = make_string(buf);
+	*result = yas_make_string(buf);
 	free(buf);
-	return Error_OK;
+	return YAS_ERROR_OK;
 }
 
 /* (string-upcase str) - convert string to uppercase */
-int builtin_string_upcase(Atom args, Atom *result)
+int yas_builtin_string_upcase(YasAtom args, YasAtom *result)
 {
-	if (nilp(args) || !nilp(cdr(args)))
-		return raise_error("args-error", "string-upcase: expected 1 argument");
+	if (yas_nilp(args) || !yas_nilp(yas_cdr(args)))
+		return yas_raise_error("args-error", "string-upcase: expected 1 argument");
 	
-	Atom str = car(args);
-	if (str.type != AtomType_String)
-		return raise_error("type-error", "string-upcase: expected string");
+	YasAtom str = yas_car(args);
+	if (str.type != YAS_ATOM_TYPE_STRING)
+		return yas_raise_error("type-error", "string-upcase: expected string");
 	
 	size_t len = strlen(str.value.string);
 	char *buf = malloc(len + 1);
@@ -115,20 +115,20 @@ int builtin_string_upcase(Atom args, Atom *result)
 			buf[i] = c;
 	}
 	
-	*result = make_string(buf);
+	*result = yas_make_string(buf);
 	free(buf);
-	return Error_OK;
+	return YAS_ERROR_OK;
 }
 
 /* (string-downcase str) - convert string to lowercase */
-int builtin_string_downcase(Atom args, Atom *result)
+int yas_builtin_string_downcase(YasAtom args, YasAtom *result)
 {
-	if (nilp(args) || !nilp(cdr(args)))
-		return raise_error("args-error", "string-downcase: expected 1 argument");
+	if (yas_nilp(args) || !yas_nilp(yas_cdr(args)))
+		return yas_raise_error("args-error", "string-downcase: expected 1 argument");
 	
-	Atom str = car(args);
-	if (str.type != AtomType_String)
-		return raise_error("type-error", "string-downcase: expected string");
+	YasAtom str = yas_car(args);
+	if (str.type != YAS_ATOM_TYPE_STRING)
+		return yas_raise_error("type-error", "string-downcase: expected string");
 	
 	size_t len = strlen(str.value.string);
 	char *buf = malloc(len + 1);
@@ -141,20 +141,20 @@ int builtin_string_downcase(Atom args, Atom *result)
 			buf[i] = c;
 	}
 	
-	*result = make_string(buf);
+	*result = yas_make_string(buf);
 	free(buf);
-	return Error_OK;
+	return YAS_ERROR_OK;
 }
 
 /* (string-capitalize str) - capitalize first letter of each word */
-int builtin_string_capitalize(Atom args, Atom *result)
+int yas_builtin_string_capitalize(YasAtom args, YasAtom *result)
 {
-	if (nilp(args) || !nilp(cdr(args)))
-		return raise_error("args-error", "string-capitalize: expected 1 argument");
+	if (yas_nilp(args) || !yas_nilp(yas_cdr(args)))
+		return yas_raise_error("args-error", "string-capitalize: expected 1 argument");
 	
-	Atom str = car(args);
-	if (str.type != AtomType_String)
-		return raise_error("type-error", "string-capitalize: expected string");
+	YasAtom str = yas_car(args);
+	if (str.type != YAS_ATOM_TYPE_STRING)
+		return yas_raise_error("type-error", "string-capitalize: expected string");
 	
 	size_t len = strlen(str.value.string);
 	char *buf = malloc(len + 1);
@@ -178,40 +178,40 @@ int builtin_string_capitalize(Atom args, Atom *result)
 		}
 	}
 	
-	*result = make_string(buf);
+	*result = yas_make_string(buf);
 	free(buf);
-	return Error_OK;
+	return YAS_ERROR_OK;
 }
 
 /* (make-string n [char]) - create string of n copies of char (default space) */
-int builtin_make_string(Atom args, Atom *result)
+int yas_builtin_make_string(YasAtom args, YasAtom *result)
 {
-	if (nilp(args))
-		return raise_error("args-error", "make-string: expected at least 1 argument");
+	if (yas_nilp(args))
+		return yas_raise_error("args-error", "make-string: expected at least 1 argument");
 	
-	Atom n_arg = car(args);
-	if (n_arg.type != AtomType_Integer)
-		return raise_error("type-error", "make-string: first argument must be integer");
+	YasAtom n_arg = yas_car(args);
+	if (n_arg.type != YAS_ATOM_TYPE_INTEGER)
+		return yas_raise_error("type-error", "make-string: first argument must be integer");
 	
 	long n = n_arg.value.integer;
 	if (n < 0)
-		return raise_error("args-error", "make-string: length must be non-negative");
+		return yas_raise_error("args-error", "make-string: length must be non-negative");
 	
 	int32_t cp = ' '; /* default to space */
-	if (!nilp(cdr(args))) {
-		Atom ch = car(cdr(args));
-		if (ch.type == AtomType_Char) {
+	if (!yas_nilp(yas_cdr(args))) {
+		YasAtom ch = yas_car(yas_cdr(args));
+		if (ch.type == YAS_ATOM_TYPE_CHAR) {
 			cp = ch.value.character;
-		} else if (ch.type == AtomType_String && strlen(ch.value.string) > 0) {
-			utf8_decode(ch.value.string, &cp);
+		} else if (ch.type == YAS_ATOM_TYPE_STRING && strlen(ch.value.string) > 0) {
+			yas_utf8_decode(ch.value.string, &cp);
 		} else {
-			return raise_error("type-error", "make-string: second argument must be char or string");
+			return yas_raise_error("type-error", "make-string: second argument must be char or string");
 		}
 	}
 	
 	/* Encode the character to UTF-8 */
 	char encoded[5];
-	int char_len = utf8_encode(cp, encoded);
+	int char_len = yas_utf8_encode(cp, encoded);
 	
 	size_t total_len = n * char_len;
 	char *buf = malloc(total_len + 1);
@@ -221,33 +221,33 @@ int builtin_make_string(Atom args, Atom *result)
 	}
 	buf[total_len] = '\0';
 	
-	*result = make_string(buf);
+	*result = yas_make_string(buf);
 	free(buf);
-	return Error_OK;
+	return YAS_ERROR_OK;
 }
 
 /* (substring str start [end]) - extract substring */
-int builtin_substring(Atom args, Atom *result)
+int yas_builtin_substring(YasAtom args, YasAtom *result)
 {
-	if (nilp(args) || nilp(cdr(args)))
-		return raise_error("args-error", "substring: expected at least 2 arguments");
+	if (yas_nilp(args) || yas_nilp(yas_cdr(args)))
+		return yas_raise_error("args-error", "substring: expected at least 2 arguments");
 	
-	Atom str = car(args);
-	Atom start_arg = car(cdr(args));
+	YasAtom str = yas_car(args);
+	YasAtom start_arg = yas_car(yas_cdr(args));
 	
-	if (str.type != AtomType_String)
-		return raise_error("type-error", "substring: first argument must be string");
-	if (start_arg.type != AtomType_Integer)
-		return raise_error("type-error", "substring: second argument must be integer");
+	if (str.type != YAS_ATOM_TYPE_STRING)
+		return yas_raise_error("type-error", "substring: first argument must be string");
+	if (start_arg.type != YAS_ATOM_TYPE_INTEGER)
+		return yas_raise_error("type-error", "substring: second argument must be integer");
 	
-	size_t str_len = utf8_strlen(str.value.string);
+	size_t str_len = yas_utf8_strlen(str.value.string);
 	long start = start_arg.value.integer;
 	long end = str_len;
 	
-	if (!nilp(cdr(cdr(args)))) {
-		Atom end_arg = car(cdr(cdr(args)));
-		if (end_arg.type != AtomType_Integer)
-			return raise_error("type-error", "substring: third argument must be integer");
+	if (!yas_nilp(yas_cdr(yas_cdr(args)))) {
+		YasAtom end_arg = yas_car(yas_cdr(yas_cdr(args)));
+		if (end_arg.type != YAS_ATOM_TYPE_INTEGER)
+			return yas_raise_error("type-error", "substring: third argument must be integer");
 		end = end_arg.value.integer;
 	}
 	
@@ -256,15 +256,15 @@ int builtin_substring(Atom args, Atom *result)
 	if (start > end) start = end;
 	
 	/* Find byte positions for UTF-8 string */
-	const char *start_ptr = utf8_index_ptr(str.value.string, start);
-	const char *end_ptr = utf8_index_ptr(str.value.string, end);
+	const char *start_ptr = yas_utf8_index_ptr(str.value.string, start);
+	const char *end_ptr = yas_utf8_index_ptr(str.value.string, end);
 	
 	if (!start_ptr || !end_ptr) {
-		*result = make_string("");
-		return Error_OK;
+		*result = yas_make_string("");
+		return YAS_ERROR_OK;
 	}
 	
 	size_t byte_len = end_ptr - start_ptr;
-	*result = make_string_n(start_ptr, byte_len);
-	return Error_OK;
+	*result = yas_make_string_n(start_ptr, byte_len);
+	return YAS_ERROR_OK;
 }

@@ -1,40 +1,40 @@
-#include "lisp.h"
+#include "yas.h"
 
-int builtin_get_search_paths(Atom args, Atom *result)
+int yas_builtin_get_search_paths(YasAtom args, YasAtom *result)
 {
-	if (!nilp(args))
-		return raise_error("args-error", "get-search-paths: expected 0 arguments");
-	*result = global_search_paths;
-	return Error_OK;
+	if (!yas_nilp(args))
+		return yas_raise_error("args-error", "get-search-paths: expected 0 arguments");
+	*result = yas_global_search_paths;
+	return YAS_ERROR_OK;
 }
 
-int builtin_set_search_paths(Atom args, Atom *result)
+int yas_builtin_set_search_paths(YasAtom args, YasAtom *result)
 {
-	if (nilp(args) || !nilp(cdr(args)))
-		return raise_error("args-error", "set-search-paths!: expected 1 argument");
-	Atom paths = car(args);
+	if (yas_nilp(args) || !yas_nilp(yas_cdr(args)))
+		return yas_raise_error("args-error", "set-search-paths!: expected 1 argument");
+	YasAtom paths = yas_car(args);
 	/* Validate it's a list of strings */
-	Atom p = paths;
-	while (!nilp(p)) {
-		if (p.type != AtomType_Pair)
-			return raise_error("type-error", "set-search-paths!: expected list of strings");
-		if (car(p).type != AtomType_String)
-			return raise_error("type-error", "set-search-paths!: paths must be strings");
-		p = cdr(p);
+	YasAtom p = paths;
+	while (!yas_nilp(p)) {
+		if (p.type != YAS_ATOM_TYPE_PAIR)
+			return yas_raise_error("type-error", "set-search-paths!: expected list of strings");
+		if (yas_car(p).type != YAS_ATOM_TYPE_STRING)
+			return yas_raise_error("type-error", "set-search-paths!: paths must be strings");
+		p = yas_cdr(p);
 	}
-	global_search_paths = paths;
+	yas_global_search_paths = paths;
 	*result = paths;
-	return Error_OK;
+	return YAS_ERROR_OK;
 }
 
-int builtin_add_search_path(Atom args, Atom *result)
+int yas_builtin_add_search_path(YasAtom args, YasAtom *result)
 {
-	if (nilp(args) || !nilp(cdr(args)))
-		return raise_error("args-error", "add-search-path!: expected 1 argument");
-	Atom path = car(args);
-	if (path.type != AtomType_String)
-		return raise_error("type-error", "add-search-path!: path must be string");
-	global_search_paths = cons(path, global_search_paths);
-	*result = global_search_paths;
-	return Error_OK;
+	if (yas_nilp(args) || !yas_nilp(yas_cdr(args)))
+		return yas_raise_error("args-error", "add-search-path!: expected 1 argument");
+	YasAtom path = yas_car(args);
+	if (path.type != YAS_ATOM_TYPE_STRING)
+		return yas_raise_error("type-error", "add-search-path!: path must be string");
+	yas_global_search_paths = yas_cons(path, yas_global_search_paths);
+	*result = yas_global_search_paths;
+	return YAS_ERROR_OK;
 }

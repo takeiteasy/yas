@@ -1,36 +1,36 @@
-#include "lisp.h"
+#include "yas.h"
 #include <stdio.h>
 #include <stdlib.h>
 
-int builtin_print(Atom args, Atom *result)
+int yas_builtin_print(YasAtom args, YasAtom *result)
 
 {
-	if (nilp(args)) {
+	if (yas_nilp(args)) {
 		putchar('\n');
-		*result = nil;
-		return Error_OK;
+		*result = yas_nil;
+		return YAS_ERROR_OK;
 	}
 
-	while (!nilp(args)) {
-		print_expr(car(args));
-		if (!nilp(cdr(args)))
+	while (!yas_nilp(args)) {
+		yas_print_expr(yas_car(args));
+		if (!yas_nilp(yas_cdr(args)))
 			putchar(' ');
-		args = cdr(args);
+		args = yas_cdr(args);
 	}
 	putchar('\n');
 	
-	*result = nil;
-	return Error_OK;
+	*result = yas_nil;
+	return YAS_ERROR_OK;
 }
 
 /* (->string value) - convert any value to string */
-int builtin_tostring(Atom args, Atom *result)
+int yas_builtin_tostring(YasAtom args, YasAtom *result)
 {
-	if (nilp(args) || !nilp(cdr(args)))
-		return raise_error("args-error", "->string: expected 1 argument");
+	if (yas_nilp(args) || !yas_nilp(yas_cdr(args)))
+		return yas_raise_error("args-error", "->string: expected 1 argument");
 	
-	char *str = sprint_expr(car(args));
-	*result = make_string(str);
+	char *str = yas_sprint_expr(yas_car(args));
+	*result = yas_make_string(str);
 	free(str);
-	return Error_OK;
+	return YAS_ERROR_OK;
 }

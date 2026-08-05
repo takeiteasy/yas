@@ -21,7 +21,7 @@
  * Built into both `yas` and `libyas`. Comptime code dlopens libyas and
  * drives this API through dlsym - only pointers/long/double/int/const
  * char* ever cross that boundary. This header is deliberately
- * dependency-free (no yas Atom/lisp.h types, no cccc types) so aot/aot.c
+ * dependency-free (no yas YasAtom/yas.h types, no cccc types) so aot/aot.c
  * can `#include @comptime` it directly.
  */
 #ifndef YAS_AOT_PLAN_H

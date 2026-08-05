@@ -1,105 +1,105 @@
-#include "lisp.h"
+#include "yas.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
 /* (open-input-file path [binary?]) */
-int builtin_open_input_file(Atom args, Atom *result) {
-	if (nilp(args) || car(args).type != AtomType_String) {
-		return raise_error("type-error", "open-input-file expects a string path");
+int yas_builtin_open_input_file(YasAtom args, YasAtom *result) {
+	if (yas_nilp(args) || yas_car(args).type != YAS_ATOM_TYPE_STRING) {
+		return yas_raise_error("type-error", "open-input-file expects a string path");
 	}
 	
-	const char *path = car(args).value.string;
+	const char *path = yas_car(args).value.string;
 	int is_binary = 0;
 	
-	if (!nilp(cdr(args)) && !nilp(car(cdr(args)))) {
+	if (!yas_nilp(yas_cdr(args)) && !yas_nilp(yas_car(yas_cdr(args)))) {
 		is_binary = 1;
 	}
 	
-	*result = io_open_file(path, 1, is_binary);
-	if (nilp(*result)) {
-		return raise_error("io-error", "failed to open file for reading");
+	*result = yas_io_open_file(path, 1, is_binary);
+	if (yas_nilp(*result)) {
+		return yas_raise_error("io-error", "failed to open file for reading");
 	}
-	return Error_OK;
+	return YAS_ERROR_OK;
 }
 
 /* (open-output-file path [binary?]) */
-int builtin_open_output_file(Atom args, Atom *result) {
-	if (nilp(args) || car(args).type != AtomType_String) {
-		return raise_error("type-error", "open-output-file expects a string path");
+int yas_builtin_open_output_file(YasAtom args, YasAtom *result) {
+	if (yas_nilp(args) || yas_car(args).type != YAS_ATOM_TYPE_STRING) {
+		return yas_raise_error("type-error", "open-output-file expects a string path");
 	}
 	
-	const char *path = car(args).value.string;
+	const char *path = yas_car(args).value.string;
 	int is_binary = 0;
 	
-	if (!nilp(cdr(args)) && !nilp(car(cdr(args)))) {
+	if (!yas_nilp(yas_cdr(args)) && !yas_nilp(yas_car(yas_cdr(args)))) {
 		is_binary = 1;
 	}
 	
-	*result = io_open_file(path, 0, is_binary);
-	if (nilp(*result)) {
-		return raise_error("io-error", "failed to open file for writing");
+	*result = yas_io_open_file(path, 0, is_binary);
+	if (yas_nilp(*result)) {
+		return yas_raise_error("io-error", "failed to open file for writing");
 	}
-	return Error_OK;
+	return YAS_ERROR_OK;
 }
 
 /* (close-port port) */
-int builtin_close_port(Atom args, Atom *result) {
-	if (nilp(args) || car(args).type != AtomType_Port) {
-		return raise_error("type-error", "close-port expects a port");
+int yas_builtin_close_port(YasAtom args, YasAtom *result) {
+	if (yas_nilp(args) || yas_car(args).type != YAS_ATOM_TYPE_PORT) {
+		return yas_raise_error("type-error", "close-port expects a port");
 	}
-	port_close(car(args));
-	*result = make_sym("T");
-	return Error_OK;
+	yas_port_close(yas_car(args));
+	*result = yas_make_sym("T");
+	return YAS_ERROR_OK;
 }
 
 /* (port? obj) */
-int builtin_portp(Atom args, Atom *result) {
-	if (nilp(args)) return Error_Args;
-	*result = car(args).type == AtomType_Port ? make_sym("T") : nil;
-	return Error_OK;
+int yas_builtin_portp(YasAtom args, YasAtom *result) {
+	if (yas_nilp(args)) return YAS_ERROR_ARGS;
+	*result = yas_car(args).type == YAS_ATOM_TYPE_PORT ? yas_make_sym("T") : yas_nil;
+	return YAS_ERROR_OK;
 }
 
 /* (input-port? port) */
-int builtin_input_portp(Atom args, Atom *result) {
-	if (nilp(args)) return Error_Args;
-	Atom a = car(args);
-	*result = (a.type == AtomType_Port && a.value.port->is_input) ? make_sym("T") : nil;
-	return Error_OK;
+int yas_builtin_input_portp(YasAtom args, YasAtom *result) {
+	if (yas_nilp(args)) return YAS_ERROR_ARGS;
+	YasAtom a = yas_car(args);
+	*result = (a.type == YAS_ATOM_TYPE_PORT && a.value.port->is_input) ? yas_make_sym("T") : yas_nil;
+	return YAS_ERROR_OK;
 }
 
 /* (output-port? port) */
-int builtin_output_portp(Atom args, Atom *result) {
-	if (nilp(args)) return Error_Args;
-	Atom a = car(args);
-	*result = (a.type == AtomType_Port && !a.value.port->is_input) ? make_sym("T") : nil;
-	return Error_OK;
+int yas_builtin_output_portp(YasAtom args, YasAtom *result) {
+	if (yas_nilp(args)) return YAS_ERROR_ARGS;
+	YasAtom a = yas_car(args);
+	*result = (a.type == YAS_ATOM_TYPE_PORT && !a.value.port->is_input) ? yas_make_sym("T") : yas_nil;
+	return YAS_ERROR_OK;
 }
 
 /* (port-open? port) */
-int builtin_port_openp(Atom args, Atom *result) {
-	if (nilp(args)) return Error_Args;
-	Atom a = car(args);
-	*result = (a.type == AtomType_Port && a.value.port->is_open) ? make_sym("T") : nil;
-	return Error_OK;
+int yas_builtin_port_openp(YasAtom args, YasAtom *result) {
+	if (yas_nilp(args)) return YAS_ERROR_ARGS;
+	YasAtom a = yas_car(args);
+	*result = (a.type == YAS_ATOM_TYPE_PORT && a.value.port->is_open) ? yas_make_sym("T") : yas_nil;
+	return YAS_ERROR_OK;
 }
 
 /* (read-char port) - reads a full UTF-8 character, returns char type */
-int builtin_read_char(Atom args, Atom *result) {
-	if (nilp(args) || car(args).type != AtomType_Port) {
-		return raise_error("type-error", "read-char expects an input port");
+int yas_builtin_read_char(YasAtom args, YasAtom *result) {
+	if (yas_nilp(args) || yas_car(args).type != YAS_ATOM_TYPE_PORT) {
+		return yas_raise_error("type-error", "read-char expects an input port");
 	}
 	
-	struct Port *p = car(args).value.port;
+	struct YasPort *p = yas_car(args).value.port;
 	if (!p->is_input) {
-		return raise_error("io-error", "cannot read from output port");
+		return yas_raise_error("io-error", "cannot read from output port");
 	}
 	
 	/* Read first byte to determine UTF-8 sequence length */
-	int c = port_getc(p);
+	int c = yas_port_getc(p);
 	if (c == EOF) {
-		*result = make_sym("EOF");
-		return Error_OK;
+		*result = yas_make_sym("EOF");
+		return YAS_ERROR_OK;
 	}
 	
 	/* Determine UTF-8 sequence length */
@@ -113,7 +113,7 @@ int builtin_read_char(Atom args, Atom *result) {
 	char buf[5];
 	buf[0] = first;
 	for (int i = 1; i < len; i++) {
-		int b = port_getc(p);
+		int b = yas_port_getc(p);
 		if (b == EOF) break;
 		buf[i] = (char)b;
 	}
@@ -121,20 +121,20 @@ int builtin_read_char(Atom args, Atom *result) {
 	
 	/* Decode to codepoint */
 	int32_t cp;
-	utf8_decode(buf, &cp);
-	*result = make_char(cp);
-	return Error_OK;
+	yas_utf8_decode(buf, &cp);
+	*result = yas_make_char(cp);
+	return YAS_ERROR_OK;
 }
 
 /* (read-line port) */
-int builtin_read_line(Atom args, Atom *result) {
-	if (nilp(args) || car(args).type != AtomType_Port) {
-		return raise_error("type-error", "read-line expects an input port");
+int yas_builtin_read_line(YasAtom args, YasAtom *result) {
+	if (yas_nilp(args) || yas_car(args).type != YAS_ATOM_TYPE_PORT) {
+		return yas_raise_error("type-error", "read-line expects an input port");
 	}
 	
-	struct Port *p = car(args).value.port;
+	struct YasPort *p = yas_car(args).value.port;
 	if (!p->is_input) {
-		return raise_error("io-error", "cannot read from output port");
+		return yas_raise_error("io-error", "cannot read from output port");
 	}
 	
 	/* Read line into dynamic buffer */
@@ -143,7 +143,7 @@ int builtin_read_line(Atom args, Atom *result) {
 	char *buf = malloc(capacity);
 	
 	int c;
-	while ((c = port_getc(p)) != EOF && c != '\n') {
+	while ((c = yas_port_getc(p)) != EOF && c != '\n') {
 		if (len + 1 >= capacity) {
 			capacity *= 2;
 			buf = realloc(buf, capacity);
@@ -153,25 +153,25 @@ int builtin_read_line(Atom args, Atom *result) {
 	
 	if (len == 0 && c == EOF) {
 		free(buf);
-		*result = make_sym("EOF");
-		return Error_OK;
+		*result = yas_make_sym("EOF");
+		return YAS_ERROR_OK;
 	}
 	
 	buf[len] = '\0';
-	*result = make_string(buf);
+	*result = yas_make_string(buf);
 	free(buf);
-	return Error_OK;
+	return YAS_ERROR_OK;
 }
 
 /* (read-all port) */
-int builtin_read_all(Atom args, Atom *result) {
-	if (nilp(args) || car(args).type != AtomType_Port) {
-		return raise_error("type-error", "read-all expects an input port");
+int yas_builtin_read_all(YasAtom args, YasAtom *result) {
+	if (yas_nilp(args) || yas_car(args).type != YAS_ATOM_TYPE_PORT) {
+		return yas_raise_error("type-error", "read-all expects an input port");
 	}
 	
-	struct Port *p = car(args).value.port;
+	struct YasPort *p = yas_car(args).value.port;
 	if (!p->is_input || !p->is_open) {
-		return raise_error("io-error", "cannot read from output port or closed port");
+		return yas_raise_error("io-error", "cannot read from output port or closed port");
 	}
 	
 	/* Read all into dynamic buffer */
@@ -181,7 +181,7 @@ int builtin_read_all(Atom args, Atom *result) {
 	
 	char chunk[1024];
 	long n;
-	while ((n = port_read(p, chunk, sizeof(chunk))) > 0) {
+	while ((n = yas_port_read(p, chunk, sizeof(chunk))) > 0) {
 		if (len + n >= capacity) {
 			while (len + n >= capacity) capacity *= 2;
 			buf = realloc(buf, capacity);
@@ -191,220 +191,220 @@ int builtin_read_all(Atom args, Atom *result) {
 	}
 	
 	buf[len] = '\0';
-	*result = make_string(buf);
+	*result = yas_make_string(buf);
 	free(buf);
-	return Error_OK;
+	return YAS_ERROR_OK;
 }
 
 /* (read-byte port) */
-int builtin_read_byte(Atom args, Atom *result) {
-	if (nilp(args) || car(args).type != AtomType_Port) {
-		return raise_error("type-error", "read-byte expects an input port");
+int yas_builtin_read_byte(YasAtom args, YasAtom *result) {
+	if (yas_nilp(args) || yas_car(args).type != YAS_ATOM_TYPE_PORT) {
+		return yas_raise_error("type-error", "read-byte expects an input port");
 	}
 	
-	struct Port *p = car(args).value.port;
+	struct YasPort *p = yas_car(args).value.port;
 	if (!p->is_input) {
-		return raise_error("io-error", "cannot read from output port");
+		return yas_raise_error("io-error", "cannot read from output port");
 	}
 	
-	int c = port_getc(p);
+	int c = yas_port_getc(p);
 	if (c == EOF) {
-		*result = make_sym("EOF");
+		*result = yas_make_sym("EOF");
 	} else {
-		*result = make_int(c);
+		*result = yas_make_int(c);
 	}
-	return Error_OK;
+	return YAS_ERROR_OK;
 }
 
 /* (read-bytes port n) */
-int builtin_read_bytes(Atom args, Atom *result) {
-	if (nilp(args) || car(args).type != AtomType_Port) {
-		return raise_error("type-error", "read-bytes expects an input port");
+int yas_builtin_read_bytes(YasAtom args, YasAtom *result) {
+	if (yas_nilp(args) || yas_car(args).type != YAS_ATOM_TYPE_PORT) {
+		return yas_raise_error("type-error", "read-bytes expects an input port");
 	}
-	if (nilp(cdr(args)) || car(cdr(args)).type != AtomType_Integer) {
-		return raise_error("type-error", "read-bytes expects count as second argument");
+	if (yas_nilp(yas_cdr(args)) || yas_car(yas_cdr(args)).type != YAS_ATOM_TYPE_INTEGER) {
+		return yas_raise_error("type-error", "read-bytes expects count as second argument");
 	}
 	
-	struct Port *p = car(args).value.port;
-	long count = car(cdr(args)).value.integer;
+	struct YasPort *p = yas_car(args).value.port;
+	long count = yas_car(yas_cdr(args)).value.integer;
 	
 	if (!p->is_input) {
-		return raise_error("io-error", "cannot read from output port");
+		return yas_raise_error("io-error", "cannot read from output port");
 	}
 	
 	unsigned char *buf = malloc(count);
-	long n = port_read(p, buf, count);
+	long n = yas_port_read(p, buf, count);
 	
 	if (n <= 0) {
 		free(buf);
-		*result = make_sym("EOF");
-		return Error_OK;
+		*result = yas_make_sym("EOF");
+		return YAS_ERROR_OK;
 	}
 	
-	*result = make_bytevector_from_data(buf, n);
+	*result = yas_make_bytevector_from_data(buf, n);
 	free(buf);
-	return Error_OK;
+	return YAS_ERROR_OK;
 }
 
 
 /* (write-char char port) */
-int builtin_write_char(Atom args, Atom *result) {
-	if (nilp(args) || car(args).type != AtomType_String) {
-		return raise_error("type-error", "write-char expects a string (character)");
+int yas_builtin_write_char(YasAtom args, YasAtom *result) {
+	if (yas_nilp(args) || yas_car(args).type != YAS_ATOM_TYPE_STRING) {
+		return yas_raise_error("type-error", "write-char expects a string (character)");
 	}
-	if (nilp(cdr(args)) || car(cdr(args)).type != AtomType_Port) {
-		return raise_error("type-error", "write-char expects a port as second argument");
+	if (yas_nilp(yas_cdr(args)) || yas_car(yas_cdr(args)).type != YAS_ATOM_TYPE_PORT) {
+		return yas_raise_error("type-error", "write-char expects a port as second argument");
 	}
 	
-	const char *s = car(args).value.string;
-	struct Port *p = car(cdr(args)).value.port;
+	const char *s = yas_car(args).value.string;
+	struct YasPort *p = yas_car(yas_cdr(args)).value.port;
 	
 	if (p->is_input) {
-		return raise_error("io-error", "cannot write to input port");
+		return yas_raise_error("io-error", "cannot write to input port");
 	}
 	
-	port_write(p, s, 1);
-	*result = make_sym("T");
-	return Error_OK;
+	yas_port_write(p, s, 1);
+	*result = yas_make_sym("T");
+	return YAS_ERROR_OK;
 }
 
 /* (write-string string port) */
-int builtin_write_string(Atom args, Atom *result) {
-	if (nilp(args) || car(args).type != AtomType_String) {
-		return raise_error("type-error", "write-string expects a string");
+int yas_builtin_write_string(YasAtom args, YasAtom *result) {
+	if (yas_nilp(args) || yas_car(args).type != YAS_ATOM_TYPE_STRING) {
+		return yas_raise_error("type-error", "write-string expects a string");
 	}
-	if (nilp(cdr(args)) || car(cdr(args)).type != AtomType_Port) {
-		return raise_error("type-error", "write-string expects a port as second argument");
+	if (yas_nilp(yas_cdr(args)) || yas_car(yas_cdr(args)).type != YAS_ATOM_TYPE_PORT) {
+		return yas_raise_error("type-error", "write-string expects a port as second argument");
 	}
 	
-	const char *s = car(args).value.string;
-	struct Port *p = car(cdr(args)).value.port;
+	const char *s = yas_car(args).value.string;
+	struct YasPort *p = yas_car(yas_cdr(args)).value.port;
 	
 	if (p->is_input) {
-		return raise_error("io-error", "cannot write to input port");
+		return yas_raise_error("io-error", "cannot write to input port");
 	}
 	
-	port_write(p, s, strlen(s));
-	*result = make_sym("T");
-	return Error_OK;
+	yas_port_write(p, s, strlen(s));
+	*result = yas_make_sym("T");
+	return YAS_ERROR_OK;
 }
 
 /* (write-byte byte port) */
-int builtin_write_byte(Atom args, Atom *result) {
-	if (nilp(args) || car(args).type != AtomType_Integer) {
-		return raise_error("type-error", "write-byte expects an integer (0-255)");
+int yas_builtin_write_byte(YasAtom args, YasAtom *result) {
+	if (yas_nilp(args) || yas_car(args).type != YAS_ATOM_TYPE_INTEGER) {
+		return yas_raise_error("type-error", "write-byte expects an integer (0-255)");
 	}
-	if (nilp(cdr(args)) || car(cdr(args)).type != AtomType_Port) {
-		return raise_error("type-error", "write-byte expects a port as second argument");
+	if (yas_nilp(yas_cdr(args)) || yas_car(yas_cdr(args)).type != YAS_ATOM_TYPE_PORT) {
+		return yas_raise_error("type-error", "write-byte expects a port as second argument");
 	}
 	
-	unsigned char byte = (unsigned char)car(args).value.integer;
-	struct Port *p = car(cdr(args)).value.port;
+	unsigned char byte = (unsigned char)yas_car(args).value.integer;
+	struct YasPort *p = yas_car(yas_cdr(args)).value.port;
 	
 	if (p->is_input) {
-		return raise_error("io-error", "cannot write to input port");
+		return yas_raise_error("io-error", "cannot write to input port");
 	}
 	
-	port_write(p, &byte, 1);
-	*result = make_sym("T");
-	return Error_OK;
+	yas_port_write(p, &byte, 1);
+	*result = yas_make_sym("T");
+	return YAS_ERROR_OK;
 }
 
 /* (write-bytes bytevector port) */
-int builtin_write_bytes(Atom args, Atom *result) {
-	if (nilp(args) || car(args).type != AtomType_Bytevector) {
-		return raise_error("type-error", "write-bytes expects a bytevector");
+int yas_builtin_write_bytes(YasAtom args, YasAtom *result) {
+	if (yas_nilp(args) || yas_car(args).type != YAS_ATOM_TYPE_BYTEVECTOR) {
+		return yas_raise_error("type-error", "write-bytes expects a bytevector");
 	}
-	if (nilp(cdr(args)) || car(cdr(args)).type != AtomType_Port) {
-		return raise_error("type-error", "write-bytes expects a port as second argument");
+	if (yas_nilp(yas_cdr(args)) || yas_car(yas_cdr(args)).type != YAS_ATOM_TYPE_PORT) {
+		return yas_raise_error("type-error", "write-bytes expects a port as second argument");
 	}
 	
-	struct Bytevector *bv = car(args).value.bytevector;
-	struct Port *p = car(cdr(args)).value.port;
+	struct YasBytevector *bv = yas_car(args).value.bytevector;
+	struct YasPort *p = yas_car(yas_cdr(args)).value.port;
 	
 	if (p->is_input) {
-		return raise_error("io-error", "cannot write to input port");
+		return yas_raise_error("io-error", "cannot write to input port");
 	}
 	
-	port_write(p, bv->data, bv->size);
-	*result = make_sym("T");
-	return Error_OK;
+	yas_port_write(p, bv->data, bv->size);
+	*result = yas_make_sym("T");
+	return YAS_ERROR_OK;
 }
 
 /* (newline port) */
-int builtin_newline(Atom args, Atom *result) {
-	if (nilp(args) || car(args).type != AtomType_Port) {
-		return raise_error("type-error", "newline expects a port");
+int yas_builtin_newline(YasAtom args, YasAtom *result) {
+	if (yas_nilp(args) || yas_car(args).type != YAS_ATOM_TYPE_PORT) {
+		return yas_raise_error("type-error", "newline expects a port");
 	}
 	
-	struct Port *p = car(args).value.port;
+	struct YasPort *p = yas_car(args).value.port;
 	if (p->is_input) {
-		return raise_error("io-error", "cannot write to input port");
+		return yas_raise_error("io-error", "cannot write to input port");
 	}
 	
-	port_write(p, "\n", 1);
-	*result = make_sym("T");
-	return Error_OK;
+	yas_port_write(p, "\n", 1);
+	*result = yas_make_sym("T");
+	return YAS_ERROR_OK;
 }
 
 /* (flush-port port) */
-int builtin_flush_port(Atom args, Atom *result) {
-	if (nilp(args) || car(args).type != AtomType_Port) {
-		return raise_error("type-error", "flush-port expects a port");
+int yas_builtin_flush_port(YasAtom args, YasAtom *result) {
+	if (yas_nilp(args) || yas_car(args).type != YAS_ATOM_TYPE_PORT) {
+		return yas_raise_error("type-error", "flush-port expects a port");
 	}
 	
-	struct Port *p = car(args).value.port;
-	port_flush(p);
+	struct YasPort *p = yas_car(args).value.port;
+	yas_port_flush(p);
 	
-	*result = make_sym("T");
-	return Error_OK;
+	*result = yas_make_sym("T");
+	return YAS_ERROR_OK;
 }
 
 /* (file-exists? path) */
-int builtin_file_exists(Atom args, Atom *result) {
-	if (nilp(args) || car(args).type != AtomType_String) {
-		return raise_error("type-error", "file-exists? expects a string path");
+int yas_builtin_file_exists(YasAtom args, YasAtom *result) {
+	if (yas_nilp(args) || yas_car(args).type != YAS_ATOM_TYPE_STRING) {
+		return yas_raise_error("type-error", "file-exists? expects a string path");
 	}
 	
-	const char *path = car(args).value.string;
-	if (io_file_exists(path)) {
-		*result = make_sym("T");
+	const char *path = yas_car(args).value.string;
+	if (yas_io_file_exists(path)) {
+		*result = yas_make_sym("T");
 	} else {
-		*result = nil;
+		*result = yas_nil;
 	}
-	return Error_OK;
+	return YAS_ERROR_OK;
 }
 
 /* (delete-file path) */
-int builtin_delete_file(Atom args, Atom *result) {
-	if (nilp(args) || car(args).type != AtomType_String) {
-		return raise_error("type-error", "delete-file expects a string path");
+int yas_builtin_delete_file(YasAtom args, YasAtom *result) {
+	if (yas_nilp(args) || yas_car(args).type != YAS_ATOM_TYPE_STRING) {
+		return yas_raise_error("type-error", "delete-file expects a string path");
 	}
 	
-	if (remove(car(args).value.string) == 0) {
-		*result = make_sym("T");
-		return Error_OK;
+	if (remove(yas_car(args).value.string) == 0) {
+		*result = yas_make_sym("T");
+		return YAS_ERROR_OK;
 	} else {
-		return raise_error("io-error", "could not delete file");
+		return yas_raise_error("io-error", "could not delete file");
 	}
 }
 
 /* (rename-file old new) */
-int builtin_rename_file(Atom args, Atom *result) {
-	if (nilp(args) || car(args).type != AtomType_String) {
-		return raise_error("type-error", "rename-file expects a string source path");
+int yas_builtin_rename_file(YasAtom args, YasAtom *result) {
+	if (yas_nilp(args) || yas_car(args).type != YAS_ATOM_TYPE_STRING) {
+		return yas_raise_error("type-error", "rename-file expects a string source path");
 	}
-	if (nilp(cdr(args)) || car(cdr(args)).type != AtomType_String) {
-		return raise_error("type-error", "rename-file expects a string destination path");
+	if (yas_nilp(yas_cdr(args)) || yas_car(yas_cdr(args)).type != YAS_ATOM_TYPE_STRING) {
+		return yas_raise_error("type-error", "rename-file expects a string destination path");
 	}
 	
-	const char *old_path = car(args).value.string;
-	const char *new_path = car(cdr(args)).value.string;
+	const char *old_path = yas_car(args).value.string;
+	const char *new_path = yas_car(yas_cdr(args)).value.string;
 	
 	if (rename(old_path, new_path) == 0) {
-		*result = make_sym("T");
-		return Error_OK;
+		*result = yas_make_sym("T");
+		return YAS_ERROR_OK;
 	} else {
-		return raise_error("io-error", "could not rename file");
+		return yas_raise_error("io-error", "could not rename file");
 	}
 }

@@ -1,4 +1,4 @@
-#include "lisp.h"
+#include "yas.h"
 #include <stdarg.h>
 #include <stddef.h>
 #include <stdio.h>
@@ -6,157 +6,157 @@
 #include <string.h>
 
 struct Allocation {
-	struct Pair pair;
+	struct YasPair pair;
 	unsigned int mark : 1;
 	struct Allocation *next;
 };
 
-struct Allocation *global_allocations = NULL;
-struct Vector *global_vectors = NULL;
-struct Hash *global_hashes = NULL;
-static struct StringAlloc *global_strings = NULL;
-static struct Port *global_ports = NULL;
-static struct Bytevector *global_bytevectors = NULL;
-static struct VecAlloc *global_vecs = NULL;
-static struct Mat4Alloc *global_mats = NULL;
+static struct Allocation *global_allocations = NULL;
+static struct YasVector *global_vectors = NULL;
+static struct YasHash *global_hashes = NULL;
+static struct YasStringAlloc *global_strings = NULL;
+static struct YasPort *global_ports = NULL;
+static struct YasBytevector *global_bytevectors = NULL;
+static struct YasVecAlloc *global_vecs = NULL;
+static struct YasMat4Alloc *global_mats = NULL;
 #ifdef YAS_FFI
-struct FFIFunction *global_ffi_functions = NULL;
-FFIStructInstance *global_ffi_structs = NULL;
+struct YasFFIFunction *yas_global_ffi_functions = NULL;
+YasFFIStructInstance *yas_global_ffi_structs = NULL;
 #endif
 
-Atom cons(Atom car_val, Atom cdr_val)
+YasAtom yas_cons(YasAtom car_val, YasAtom cdr_val)
 {
 	struct Allocation *a;
-	Atom p;
+	YasAtom p;
 
 	a = malloc(sizeof(struct Allocation));
 	a->mark = 0;
 	a->next = global_allocations;
 	global_allocations = a;
 
-	p.type = AtomType_Pair;
+	p.type = YAS_ATOM_TYPE_PAIR;
 	p.value.pair = &a->pair;
 
-	car(p) = car_val;
-	cdr(p) = cdr_val;
+	yas_car(p) = car_val;
+	yas_cdr(p) = cdr_val;
 
 	return p;
 }
 
-Atom make_int(long x)
+YasAtom yas_make_int(long x)
 {
-	Atom a;
-	a.type = AtomType_Integer;
+	YasAtom a;
+	a.type = YAS_ATOM_TYPE_INTEGER;
 	a.value.integer = x;
 	return a;
 }
 
-static Atom sym_table = { AtomType_Nil };
+static YasAtom sym_table = { YAS_ATOM_TYPE_NIL };
 
-Atom make_sym(const char *s)
+YasAtom yas_make_sym(const char *s)
 {
-	Atom a, p;
+	YasAtom a, p;
 
 	p = sym_table;
-	while (!nilp(p)) {
-		a = car(p);
+	while (!yas_nilp(p)) {
+		a = yas_car(p);
 		if (strcmp(a.value.symbol, s) == 0)
 			return a;
-		p = cdr(p);
+		p = yas_cdr(p);
 	}
 
-	a.type = AtomType_Symbol;
+	a.type = YAS_ATOM_TYPE_SYMBOL;
 	a.value.symbol = strdup(s);
-	sym_table = cons(a, sym_table);
+	sym_table = yas_cons(a, sym_table);
 
 	return a;
 }
 
-static Atom kw_table = { AtomType_Nil };
+static YasAtom kw_table = { YAS_ATOM_TYPE_NIL };
 
-Atom make_keyword(const char *s)
+YasAtom yas_make_keyword(const char *s)
 {
-	Atom a, p;
+	YasAtom a, p;
 
 	p = kw_table;
-	while (!nilp(p)) {
-		a = car(p);
+	while (!yas_nilp(p)) {
+		a = yas_car(p);
 		if (strcmp(a.value.keyword, s) == 0)
 			return a;
-		p = cdr(p);
+		p = yas_cdr(p);
 	}
 
-	a.type = AtomType_Keyword;
+	a.type = YAS_ATOM_TYPE_KEYWORD;
 	a.value.keyword = strdup(s);
-	kw_table = cons(a, kw_table);
+	kw_table = yas_cons(a, kw_table);
 
 	return a;
 }
 
-Atom make_builtin(Builtin fn)
+YasAtom yas_make_builtin(YasBuiltin fn)
 {
-	Atom a;
-	a.type = AtomType_Builtin;
+	YasAtom a;
+	a.type = YAS_ATOM_TYPE_BUILTIN;
 	a.value.builtin = fn;
 	return a;
 }
 
-Atom make_float(double x)
+YasAtom yas_make_float(double x)
 {
-	Atom a;
-	a.type = AtomType_Float;
+	YasAtom a;
+	a.type = YAS_ATOM_TYPE_FLOAT;
 	a.value.floatval = x;
 	return a;
 }
 
-Atom make_char(int32_t codepoint)
+YasAtom yas_make_char(int32_t codepoint)
 {
-	Atom a;
-	a.type = AtomType_Char;
+	YasAtom a;
+	a.type = YAS_ATOM_TYPE_CHAR;
 	a.value.character = codepoint;
 	return a;
 }
 
 static char *gc_alloc_string(size_t len)
 {
-	struct StringAlloc *sa = malloc(sizeof(struct StringAlloc) + len + 1);
+	struct YasStringAlloc *sa = malloc(sizeof(struct YasStringAlloc) + len + 1);
 	sa->mark = 0;
 	sa->next = global_strings;
 	global_strings = sa;
 	return sa->data;
 }
 
-Atom make_string(const char *s)
+YasAtom yas_make_string(const char *s)
 {
-	Atom a;
+	YasAtom a;
 	size_t len = strlen(s);
-	a.type = AtomType_String;
+	a.type = YAS_ATOM_TYPE_STRING;
 	a.value.string = gc_alloc_string(len);
 	memcpy(a.value.string, s, len + 1);
 	return a;
 }
 
-Atom make_string_n(const char *s, size_t len)
+YasAtom yas_make_string_n(const char *s, size_t len)
 {
-	Atom a;
-	a.type = AtomType_String;
+	YasAtom a;
+	a.type = YAS_ATOM_TYPE_STRING;
 	a.value.string = gc_alloc_string(len);
 	memcpy(a.value.string, s, len);
 	a.value.string[len] = '\0';
 	return a;
 }
 
-Atom make_vector(size_t size, Atom fill)
+YasAtom yas_make_vector(size_t size, YasAtom fill)
 {
-	Atom a;
-	struct Vector *v = malloc(sizeof(struct Vector));
+	YasAtom a;
+	struct YasVector *v = malloc(sizeof(struct YasVector));
 	v->size = size;
 	v->capacity = size > 0 ? size : 4;
-	v->data = malloc(sizeof(Atom) * v->capacity);
+	v->data = malloc(sizeof(YasAtom) * v->capacity);
 	for (size_t i = 0; i < size; i++) {
 		v->data[i] = fill;
 	}
-	a.type = AtomType_Vector;
+	a.type = YAS_ATOM_TYPE_VECTOR;
 	a.value.vector = v;
 	
 	v->mark = 0;
@@ -166,16 +166,16 @@ Atom make_vector(size_t size, Atom fill)
 	return a;
 }
 
-Atom make_hash(void)
+YasAtom yas_make_hash(void)
 {
-	Atom a;
-	struct Hash *h = malloc(sizeof(struct Hash));
+	YasAtom a;
+	struct YasHash *h = malloc(sizeof(struct YasHash));
 	h->size = 0;
 	h->capacity = 16;
-	h->keys = malloc(sizeof(Atom) * h->capacity);
-	h->values = malloc(sizeof(Atom) * h->capacity);
+	h->keys = malloc(sizeof(YasAtom) * h->capacity);
+	h->values = malloc(sizeof(YasAtom) * h->capacity);
 	h->metatable = NULL;
-	a.type = AtomType_Hash;
+	a.type = YAS_ATOM_TYPE_HASH;
 	a.value.hash = h;
 	
 	h->mark = 0;
@@ -186,39 +186,39 @@ Atom make_hash(void)
 }
 
 /* Vector operations */
-Atom vector_ref(Atom vec, size_t index)
+YasAtom yas_vector_ref(YasAtom vec, size_t index)
 {
 	return vec.value.vector->data[index];
 }
 
-void vector_set(Atom vec, size_t index, Atom value)
+void yas_vector_set(YasAtom vec, size_t index, YasAtom value)
 {
 	vec.value.vector->data[index] = value;
 }
 
-size_t vector_length(Atom vec)
+size_t yas_vector_length(YasAtom vec)
 {
 	return vec.value.vector->size;
 }
 
 /* Hash operations - linear probing for simplicity */
-static int atom_equal(Atom a, Atom b)
+static int atom_equal(YasAtom a, YasAtom b)
 {
 	if (a.type != b.type) return 0;
 	switch (a.type) {
-	case AtomType_Nil: return 1;
-	case AtomType_Symbol: return a.value.symbol == b.value.symbol;
-	case AtomType_Keyword: return a.value.keyword == b.value.keyword;
-	case AtomType_Integer: return a.value.integer == b.value.integer;
-	case AtomType_Float: return a.value.floatval == b.value.floatval;
-	case AtomType_String: return strcmp(a.value.string, b.value.string) == 0;
+	case YAS_ATOM_TYPE_NIL: return 1;
+	case YAS_ATOM_TYPE_SYMBOL: return a.value.symbol == b.value.symbol;
+	case YAS_ATOM_TYPE_KEYWORD: return a.value.keyword == b.value.keyword;
+	case YAS_ATOM_TYPE_INTEGER: return a.value.integer == b.value.integer;
+	case YAS_ATOM_TYPE_FLOAT: return a.value.floatval == b.value.floatval;
+	case YAS_ATOM_TYPE_STRING: return strcmp(a.value.string, b.value.string) == 0;
 	default: return a.value.pair == b.value.pair;
 	}
 }
 
-Atom hash_ref(Atom hash, Atom key, Atom default_val)
+YasAtom yas_hash_ref(YasAtom hash, YasAtom key, YasAtom default_val)
 {
-	struct Hash *h = hash.value.hash;
+	struct YasHash *h = hash.value.hash;
 	for (size_t i = 0; i < h->size; i++) {
 		if (atom_equal(h->keys[i], key))
 			return h->values[i];
@@ -226,9 +226,9 @@ Atom hash_ref(Atom hash, Atom key, Atom default_val)
 	return default_val;
 }
 
-void hash_set(Atom hash, Atom key, Atom value)
+void yas_hash_set(YasAtom hash, YasAtom key, YasAtom value)
 {
-	struct Hash *h = hash.value.hash;
+	struct YasHash *h = hash.value.hash;
 	/* Check if key exists */
 	for (size_t i = 0; i < h->size; i++) {
 		if (atom_equal(h->keys[i], key)) {
@@ -239,17 +239,17 @@ void hash_set(Atom hash, Atom key, Atom value)
 	/* Add new key */
 	if (h->size >= h->capacity) {
 		h->capacity *= 2;
-		h->keys = realloc(h->keys, sizeof(Atom) * h->capacity);
-		h->values = realloc(h->values, sizeof(Atom) * h->capacity);
+		h->keys = realloc(h->keys, sizeof(YasAtom) * h->capacity);
+		h->values = realloc(h->values, sizeof(YasAtom) * h->capacity);
 	}
 	h->keys[h->size] = key;
 	h->values[h->size] = value;
 	h->size++;
 }
 
-int hash_remove(Atom hash, Atom key)
+int yas_hash_remove(YasAtom hash, YasAtom key)
 {
-	struct Hash *h = hash.value.hash;
+	struct YasHash *h = hash.value.hash;
 	for (size_t i = 0; i < h->size; i++) {
 		if (atom_equal(h->keys[i], key)) {
 			/* Move last element to this position */
@@ -264,16 +264,16 @@ int hash_remove(Atom hash, Atom key)
 	return 0;
 }
 
-size_t hash_size(Atom hash)
+size_t yas_hash_size(YasAtom hash)
 {
 	return hash.value.hash->size;
 }
 
 /* Metatable operations */
-Atom get_metamethod(Atom hash, const char *name)
+YasAtom yas_get_metamethod(YasAtom hash, const char *name)
 {
-	struct Hash *h = hash.value.hash;
-	if (!h->metatable) return nil;
+	struct YasHash *h = hash.value.hash;
+	if (!h->metatable) return yas_nil;
 	
 	/* Use keyword for metamethod lookup (uppercase to match reader) */
 	char kw_name[64];
@@ -282,171 +282,171 @@ Atom get_metamethod(Atom hash, const char *name)
 	for (char *p = kw_name; *p; p++) {
 		if (*p >= 'a' && *p <= 'z') *p -= 32;
 	}
-	Atom key = make_keyword(kw_name);
+	YasAtom key = yas_make_keyword(kw_name);
 	
 	/* Look up in metatable */
-	Atom mt;
-	mt.type = AtomType_Hash;
+	YasAtom mt;
+	mt.type = YAS_ATOM_TYPE_HASH;
 	mt.value.hash = h->metatable;
-	return hash_ref(mt, key, nil);
+	return yas_hash_ref(mt, key, yas_nil);
 }
 
-int has_metamethod(Atom hash, const char *name)
+int yas_has_metamethod(YasAtom hash, const char *name)
 {
-	return !nilp(get_metamethod(hash, name));
+	return !yas_nilp(yas_get_metamethod(hash, name));
 }
 
-int listp(Atom expr)
+int yas_listp(YasAtom expr)
 {
-	while (!nilp(expr)) {
-		if (expr.type != AtomType_Pair)
+	while (!yas_nilp(expr)) {
+		if (expr.type != YAS_ATOM_TYPE_PAIR)
 			return 0;
-		expr = cdr(expr);
+		expr = yas_cdr(expr);
 	}
 	return 1;
 }
 
-Atom copy_list(Atom list)
+YasAtom yas_copy_list(YasAtom list)
 {
-	Atom a, p;
+	YasAtom a, p;
 
-	if (nilp(list))
-		return nil;
+	if (yas_nilp(list))
+		return yas_nil;
 
-	a = cons(car(list), nil);
+	a = yas_cons(yas_car(list), yas_nil);
 	p = a;
-	list = cdr(list);
+	list = yas_cdr(list);
 
-	while (!nilp(list)) {
-		cdr(p) = cons(car(list), nil);
-		p = cdr(p);
-		list = cdr(list);
+	while (!yas_nilp(list)) {
+		yas_cdr(p) = yas_cons(yas_car(list), yas_nil);
+		p = yas_cdr(p);
+		list = yas_cdr(list);
 	}
 
 	return a;
 }
 
-Atom list_create(int n, ...)
+YasAtom yas_list_create(int n, ...)
 {
 	va_list ap;
-	Atom list = nil;
+	YasAtom list = yas_nil;
 
 	va_start(ap, n);
 	while (n--) {
-		Atom item = va_arg(ap, Atom);
-		list = cons(item, list);
+		YasAtom item = va_arg(ap, YasAtom);
+		list = yas_cons(item, list);
 	}
 	va_end(ap);
 
-	list_reverse(&list);
+	yas_list_reverse(&list);
 	return list;
 }
 
-Atom list_get(Atom list, int k)
+YasAtom yas_list_get(YasAtom list, int k)
 {
 	while (k--)
-		list = cdr(list);
-	return car(list);
+		list = yas_cdr(list);
+	return yas_car(list);
 }
 
-void list_set(Atom list, int k, Atom value)
+void yas_list_set(YasAtom list, int k, YasAtom value)
 {
 	while (k--)
-		list = cdr(list);
-	car(list) = value;
+		list = yas_cdr(list);
+	yas_car(list) = value;
 }
 
-void list_reverse(Atom *list)
+void yas_list_reverse(YasAtom *list)
 {
-	Atom tail = nil;
-	while (!nilp(*list)) {
-		Atom p = cdr(*list);
-		cdr(*list) = tail;
+	YasAtom tail = yas_nil;
+	while (!yas_nilp(*list)) {
+		YasAtom p = yas_cdr(*list);
+		yas_cdr(*list) = tail;
 		tail = *list;
 		*list = p;
 	}
 	*list = tail;
 }
 
-void gc_mark(Atom root)
+void yas_gc_mark(YasAtom root)
 {
 	struct Allocation *a;
 
-	if (root.type == AtomType_Vector) {
+	if (root.type == YAS_ATOM_TYPE_VECTOR) {
 		if (root.value.vector->mark) return;
 		root.value.vector->mark = 1;
 		for (size_t i = 0; i < root.value.vector->size; i++) {
-			gc_mark(root.value.vector->data[i]);
+			yas_gc_mark(root.value.vector->data[i]);
 		}
 		return;
 	}
 
-	if (root.type == AtomType_Hash) {
+	if (root.type == YAS_ATOM_TYPE_HASH) {
 		if (root.value.hash->mark) return;
 		root.value.hash->mark = 1;
 		if (root.value.hash->metatable) {
-			Atom mt; 
-			mt.type = AtomType_Hash; 
+			YasAtom mt; 
+			mt.type = YAS_ATOM_TYPE_HASH; 
 			mt.value.hash = root.value.hash->metatable;
-			gc_mark(mt);
+			yas_gc_mark(mt);
 		}
 		for (size_t i = 0; i < root.value.hash->size; i++) {
-			gc_mark(root.value.hash->keys[i]);
-			gc_mark(root.value.hash->values[i]);
+			yas_gc_mark(root.value.hash->keys[i]);
+			yas_gc_mark(root.value.hash->values[i]);
 		}
 		return;
 	}
 
-	if (root.type == AtomType_String) {
-		struct StringAlloc *sa = (struct StringAlloc *)
+	if (root.type == YAS_ATOM_TYPE_STRING) {
+		struct YasStringAlloc *sa = (struct YasStringAlloc *)
 			((char *) root.value.string
-				- offsetof(struct StringAlloc, data));
+				- offsetof(struct YasStringAlloc, data));
 		sa->mark = 1;
 		return;
 	}
 
-	if (root.type == AtomType_Port) {
+	if (root.type == YAS_ATOM_TYPE_PORT) {
 		root.value.port->mark = 1;
 		return;
 	}
 
-	if (root.type == AtomType_Bytevector) {
+	if (root.type == YAS_ATOM_TYPE_BYTEVECTOR) {
 		root.value.bytevector->mark = 1;
 		return;
 	}
 
-	if (root.type == AtomType_Vec2 || root.type == AtomType_Vec3 || root.type == AtomType_Vec4) {
-		struct VecAlloc *va = (struct VecAlloc *)
+	if (root.type == YAS_ATOM_TYPE_VEC2 || root.type == YAS_ATOM_TYPE_VEC3 || root.type == YAS_ATOM_TYPE_VEC4) {
+		struct YasVecAlloc *va = (struct YasVecAlloc *)
 			((char *) root.value.vec
-				- offsetof(struct VecAlloc, v));
+				- offsetof(struct YasVecAlloc, v));
 		va->mark = 1;
 		return;
 	}
 
-	if (root.type == AtomType_Mat4) {
-		struct Mat4Alloc *ma = (struct Mat4Alloc *)
+	if (root.type == YAS_ATOM_TYPE_MAT4) {
+		struct YasMat4Alloc *ma = (struct YasMat4Alloc *)
 			((char *) root.value.mat4
-				- offsetof(struct Mat4Alloc, m));
+				- offsetof(struct YasMat4Alloc, m));
 		ma->mark = 1;
 		return;
 	}
 
 #ifdef YAS_FFI
-	if (root.type == AtomType_FFIFunction) {
+	if (root.type == YAS_ATOM_TYPE_FFI_FUNCTION) {
 		if (root.value.ffi_fn) root.value.ffi_fn->mark = 1;
 		return;
 	}
 
-	if (root.type == AtomType_FFIStruct) {
+	if (root.type == YAS_ATOM_TYPE_FFI_STRUCT) {
 		if (root.value.ffi_struct) root.value.ffi_struct->mark = 1;
 		return;
 	}
 #endif
 
-	if (!(root.type == AtomType_Pair
-		|| root.type == AtomType_Closure
-		|| root.type == AtomType_Macro
-		|| root.type == AtomType_Continuation))
+	if (!(root.type == YAS_ATOM_TYPE_PAIR
+		|| root.type == YAS_ATOM_TYPE_CLOSURE
+		|| root.type == YAS_ATOM_TYPE_MACRO
+		|| root.type == YAS_ATOM_TYPE_CONTINUATION))
 		return;
 
 	a = (struct Allocation *)
@@ -458,21 +458,21 @@ void gc_mark(Atom root)
 
 	a->mark = 1;
 
-	gc_mark(car(root));
-	gc_mark(cdr(root));
+	yas_gc_mark(yas_car(root));
+	yas_gc_mark(yas_cdr(root));
 }
 
-void gc()
+void yas_gc()
 {
 	struct Allocation *a, **p;
 
-	gc_mark(sym_table);
-	gc_mark(kw_table);
+	yas_gc_mark(sym_table);
+	yas_gc_mark(kw_table);
 	
 	/* Mark global roots */
-	gc_mark(library_registry);
-	gc_mark(global_search_paths);
-	gc_mark(global_features);
+	yas_gc_mark(yas_library_registry);
+	yas_gc_mark(yas_global_search_paths);
+	yas_gc_mark(yas_global_features);
 
 	/* Free unmarked allocations */
 	p = &global_allocations;
@@ -494,9 +494,9 @@ void gc()
 	}
 	
 	/* Sweep Vectors */
-	struct Vector **pv = &global_vectors;
+	struct YasVector **pv = &global_vectors;
 	while (*pv != NULL) {
-		struct Vector *v = *pv;
+		struct YasVector *v = *pv;
 		if (!v->mark) {
 			*pv = v->next;
 			free(v->data);
@@ -508,9 +508,9 @@ void gc()
 	}
 	
 	/* Sweep Hashes */
-	struct Hash **ph = &global_hashes;
+	struct YasHash **ph = &global_hashes;
 	while (*ph != NULL) {
-		struct Hash *h = *ph;
+		struct YasHash *h = *ph;
 		if (!h->mark) {
 			*ph = h->next;
 			free(h->keys);
@@ -523,9 +523,9 @@ void gc()
 	}
 
 	/* Sweep Strings */
-	struct StringAlloc **ps = &global_strings;
+	struct YasStringAlloc **ps = &global_strings;
 	while (*ps != NULL) {
-		struct StringAlloc *sa = *ps;
+		struct YasStringAlloc *sa = *ps;
 		if (!sa->mark) {
 			*ps = sa->next;
 			free(sa);
@@ -536,16 +536,16 @@ void gc()
 	}
 
 	/* Sweep Ports (unmarked but still open ports are closed before freeing) */
-	struct Port **pp = &global_ports;
+	struct YasPort **pp = &global_ports;
 	while (*pp != NULL) {
-		struct Port *port = *pp;
+		struct YasPort *port = *pp;
 		if (!port->mark) {
 			*pp = port->next;
 			if (port->is_open) {
-				Atom tmp;
-				tmp.type = AtomType_Port;
+				YasAtom tmp;
+				tmp.type = YAS_ATOM_TYPE_PORT;
 				tmp.value.port = port;
-				port_close(tmp);
+				yas_port_close(tmp);
 			}
 			free(port->path);
 			free(port);
@@ -556,9 +556,9 @@ void gc()
 	}
 
 	/* Sweep Bytevectors */
-	struct Bytevector **pbv = &global_bytevectors;
+	struct YasBytevector **pbv = &global_bytevectors;
 	while (*pbv != NULL) {
-		struct Bytevector *bv = *pbv;
+		struct YasBytevector *bv = *pbv;
 		if (!bv->mark) {
 			*pbv = bv->next;
 			free(bv->data);
@@ -570,9 +570,9 @@ void gc()
 	}
 
 	/* Sweep Vec2/Vec3/Vec4 */
-	struct VecAlloc **pva = &global_vecs;
+	struct YasVecAlloc **pva = &global_vecs;
 	while (*pva != NULL) {
-		struct VecAlloc *va = *pva;
+		struct YasVecAlloc *va = *pva;
 		if (!va->mark) {
 			*pva = va->next;
 			free(va);
@@ -583,9 +583,9 @@ void gc()
 	}
 
 	/* Sweep Mat4 */
-	struct Mat4Alloc **pma = &global_mats;
+	struct YasMat4Alloc **pma = &global_mats;
 	while (*pma != NULL) {
-		struct Mat4Alloc *ma = *pma;
+		struct YasMat4Alloc *ma = *pma;
 		if (!ma->mark) {
 			*pma = ma->next;
 			free(ma);
@@ -597,12 +597,12 @@ void gc()
 
 #ifdef YAS_FFI
 	/* Sweep FFIFunctions */
-	struct FFIFunction **pfn = &global_ffi_functions;
+	struct YasFFIFunction **pfn = &yas_global_ffi_functions;
 	while (*pfn != NULL) {
-		struct FFIFunction *fn = *pfn;
+		struct YasFFIFunction *fn = *pfn;
 		if (!fn->mark) {
 			*pfn = fn->next;
-			ffi_free_function(fn);
+			yas_ffi_free_function(fn);
 		} else {
 			fn->mark = 0;
 			pfn = &fn->next;
@@ -610,9 +610,9 @@ void gc()
 	}
 
 	/* Sweep FFIStruct instances (the type registry entry is not owned here) */
-	FFIStructInstance **pfs = &global_ffi_structs;
+	YasFFIStructInstance **pfs = &yas_global_ffi_structs;
 	while (*pfs != NULL) {
-		FFIStructInstance *inst = *pfs;
+		YasFFIStructInstance *inst = *pfs;
 		if (!inst->mark) {
 			*pfs = inst->next;
 			free(inst->data);
@@ -626,17 +626,17 @@ void gc()
 }
 
 /* Port operations */
-Atom make_port(void *handle, const char *path, int is_input, int is_binary, int provider_id)
+YasAtom yas_make_port(void *handle, const char *path, int is_input, int is_binary, int provider_id)
 {
-	Atom a;
-	struct Port *p = malloc(sizeof(struct Port));
+	YasAtom a;
+	struct YasPort *p = malloc(sizeof(struct YasPort));
 	p->handle = handle;
 	p->path = strdup(path);
 	p->is_input = is_input;
 	p->is_binary = is_binary;
 	p->is_open = 1;
 	p->provider_id = provider_id;
-	a.type = AtomType_Port;
+	a.type = YAS_ATOM_TYPE_PORT;
 	a.value.port = p;
 
 	p->mark = 0;
@@ -647,13 +647,13 @@ Atom make_port(void *handle, const char *path, int is_input, int is_binary, int 
 }
 
 /* Bytevector operations */
-Atom make_bytevector(size_t size)
+YasAtom yas_make_bytevector(size_t size)
 {
-	Atom a;
-	struct Bytevector *bv = malloc(sizeof(struct Bytevector));
+	YasAtom a;
+	struct YasBytevector *bv = malloc(sizeof(struct YasBytevector));
 	bv->size = size;
 	bv->data = calloc(size, 1);
-	a.type = AtomType_Bytevector;
+	a.type = YAS_ATOM_TYPE_BYTEVECTOR;
 	a.value.bytevector = bv;
 
 	bv->mark = 0;
@@ -663,14 +663,14 @@ Atom make_bytevector(size_t size)
 	return a;
 }
 
-Atom make_bytevector_from_data(const unsigned char *data, size_t size)
+YasAtom yas_make_bytevector_from_data(const unsigned char *data, size_t size)
 {
-	Atom a;
-	struct Bytevector *bv = malloc(sizeof(struct Bytevector));
+	YasAtom a;
+	struct YasBytevector *bv = malloc(sizeof(struct YasBytevector));
 	bv->size = size;
 	bv->data = malloc(size);
 	memcpy(bv->data, data, size);
-	a.type = AtomType_Bytevector;
+	a.type = YAS_ATOM_TYPE_BYTEVECTOR;
 	a.value.bytevector = bv;
 
 	bv->mark = 0;
@@ -680,51 +680,51 @@ Atom make_bytevector_from_data(const unsigned char *data, size_t size)
 	return a;
 }
 
-unsigned char bytevector_ref(Atom bv, size_t index)
+unsigned char yas_bytevector_ref(YasAtom bv, size_t index)
 {
 	return bv.value.bytevector->data[index];
 }
 
-void bytevector_set(Atom bv, size_t index, unsigned char value)
+void yas_bytevector_set(YasAtom bv, size_t index, unsigned char value)
 {
 	bv.value.bytevector->data[index] = value;
 }
 
-size_t bytevector_length(Atom bv)
+size_t yas_bytevector_length(YasAtom bv)
 {
 	return bv.value.bytevector->size;
 }
 
 /* SIMD Vector/Matrix constructors */
-static vec4_t *gc_alloc_vec(void)
+static yas_vec4_t *gc_alloc_vec(void)
 {
-	struct VecAlloc *va = malloc(sizeof(struct VecAlloc));
+	struct YasVecAlloc *va = malloc(sizeof(struct YasVecAlloc));
 	va->mark = 0;
 	va->next = global_vecs;
 	global_vecs = va;
 	return &va->v;
 }
 
-static mat4_t *gc_alloc_mat4(void)
+static yas_mat4_t *gc_alloc_mat4(void)
 {
-	struct Mat4Alloc *ma = malloc(sizeof(struct Mat4Alloc));
+	struct YasMat4Alloc *ma = malloc(sizeof(struct YasMat4Alloc));
 	ma->mark = 0;
 	ma->next = global_mats;
 	global_mats = ma;
 	return &ma->m;
 }
 
-Atom make_vec2(float x, float y)
+YasAtom yas_make_vec2(float x, float y)
 {
-	Atom a;
-	a.type = AtomType_Vec2;
+	YasAtom a;
+	a.type = YAS_ATOM_TYPE_VEC2;
 	a.value.vec = gc_alloc_vec();
-#ifdef SIMD_X86
+#ifdef YAS_SIMD_X86
 	a.value.vec->v = _mm_set_ps(0, 0, y, x);
-#elif defined(SIMD_ARM_NEON)
+#elif defined(YAS_SIMD_ARM_NEON)
 	float vals[4] = {x, y, 0, 0};
 	a.value.vec->v = vld1q_f32(vals);
-#elif defined(SIMD_WASM)
+#elif defined(YAS_SIMD_WASM)
 	a.value.vec->v = wasm_f32x4_make(x, y, 0, 0);
 #else
 	a.value.vec->data[0] = x;
@@ -735,17 +735,17 @@ Atom make_vec2(float x, float y)
 	return a;
 }
 
-Atom make_vec3(float x, float y, float z)
+YasAtom yas_make_vec3(float x, float y, float z)
 {
-	Atom a;
-	a.type = AtomType_Vec3;
+	YasAtom a;
+	a.type = YAS_ATOM_TYPE_VEC3;
 	a.value.vec = gc_alloc_vec();
-#ifdef SIMD_X86
+#ifdef YAS_SIMD_X86
 	a.value.vec->v = _mm_set_ps(0, z, y, x);
-#elif defined(SIMD_ARM_NEON)
+#elif defined(YAS_SIMD_ARM_NEON)
 	float vals[4] = {x, y, z, 0};
 	a.value.vec->v = vld1q_f32(vals);
-#elif defined(SIMD_WASM)
+#elif defined(YAS_SIMD_WASM)
 	a.value.vec->v = wasm_f32x4_make(x, y, z, 0);
 #else
 	a.value.vec->data[0] = x;
@@ -756,17 +756,17 @@ Atom make_vec3(float x, float y, float z)
 	return a;
 }
 
-Atom make_vec4(float x, float y, float z, float w)
+YasAtom yas_make_vec4(float x, float y, float z, float w)
 {
-	Atom a;
-	a.type = AtomType_Vec4;
+	YasAtom a;
+	a.type = YAS_ATOM_TYPE_VEC4;
 	a.value.vec = gc_alloc_vec();
-#ifdef SIMD_X86
+#ifdef YAS_SIMD_X86
 	a.value.vec->v = _mm_set_ps(w, z, y, x);
-#elif defined(SIMD_ARM_NEON)
+#elif defined(YAS_SIMD_ARM_NEON)
 	float vals[4] = {x, y, z, w};
 	a.value.vec->v = vld1q_f32(vals);
-#elif defined(SIMD_WASM)
+#elif defined(YAS_SIMD_WASM)
 	a.value.vec->v = wasm_f32x4_make(x, y, z, w);
 #else
 	a.value.vec->data[0] = x;
@@ -777,27 +777,27 @@ Atom make_vec4(float x, float y, float z, float w)
 	return a;
 }
 
-Atom make_mat4_identity(void)
+YasAtom yas_make_mat4_identity(void)
 {
-	Atom a;
-	a.type = AtomType_Mat4;
+	YasAtom a;
+	a.type = YAS_ATOM_TYPE_MAT4;
 	a.value.mat4 = gc_alloc_mat4();
 	/* Column-major identity matrix */
 	for (int c = 0; c < 4; c++) {
-#ifdef SIMD_X86
+#ifdef YAS_SIMD_X86
 		a.value.mat4->columns[c].v = _mm_set_ps(
 			c == 3 ? 1.0f : 0.0f,
 			c == 2 ? 1.0f : 0.0f,
 			c == 1 ? 1.0f : 0.0f,
 			c == 0 ? 1.0f : 0.0f);
-#elif defined(SIMD_ARM_NEON)
+#elif defined(YAS_SIMD_ARM_NEON)
 		float vals[4] = {
 			c == 0 ? 1.0f : 0.0f,
 			c == 1 ? 1.0f : 0.0f,
 			c == 2 ? 1.0f : 0.0f,
 			c == 3 ? 1.0f : 0.0f};
 		a.value.mat4->columns[c].v = vld1q_f32(vals);
-#elif defined(SIMD_WASM)
+#elif defined(YAS_SIMD_WASM)
 		a.value.mat4->columns[c].v = wasm_f32x4_make(
 			c == 0 ? 1.0f : 0.0f,
 			c == 1 ? 1.0f : 0.0f,
@@ -813,18 +813,18 @@ Atom make_mat4_identity(void)
 	return a;
 }
 
-Atom make_mat4_from_floats(const float *values)
+YasAtom yas_make_mat4_from_floats(const float *values)
 {
-	Atom a;
-	a.type = AtomType_Mat4;
+	YasAtom a;
+	a.type = YAS_ATOM_TYPE_MAT4;
 	a.value.mat4 = gc_alloc_mat4();
 	/* Values are column-major: first 4 = column 0, etc. */
 	for (int c = 0; c < 4; c++) {
-#ifdef SIMD_X86
+#ifdef YAS_SIMD_X86
 		a.value.mat4->columns[c].v = _mm_loadu_ps(values + c * 4);
-#elif defined(SIMD_ARM_NEON)
+#elif defined(YAS_SIMD_ARM_NEON)
 		a.value.mat4->columns[c].v = vld1q_f32(values + c * 4);
-#elif defined(SIMD_WASM)
+#elif defined(YAS_SIMD_WASM)
 		a.value.mat4->columns[c].v = wasm_v128_load(values + c * 4);
 #else
 		for (int r = 0; r < 4; r++) {
@@ -839,100 +839,100 @@ Atom make_mat4_from_floats(const float *values)
  * GLOBAL FEATURES SYSTEM
  * ============================================================ */
 
-Atom global_features = { AtomType_Nil };
+YasAtom yas_global_features = { YAS_ATOM_TYPE_NIL };
 
-void init_features(void)
+void yas_init_features(void)
 {
-	global_features = nil;
+	yas_global_features = yas_nil;
 
 	/* Platform detection */
 #if defined(__APPLE__)
-	global_features = cons(make_sym("MACOS"), global_features);
-	global_features = cons(make_sym("UNIX"), global_features);
+	yas_global_features = yas_cons(yas_make_sym("MACOS"), yas_global_features);
+	yas_global_features = yas_cons(yas_make_sym("UNIX"), yas_global_features);
 #elif defined(_WIN32)
-	global_features = cons(make_sym("WINDOWS"), global_features);
+	yas_global_features = yas_cons(yas_make_sym("WINDOWS"), yas_global_features);
 #elif defined(__linux__)
-	global_features = cons(make_sym("LINUX"), global_features);
-	global_features = cons(make_sym("UNIX"), global_features);
+	yas_global_features = yas_cons(yas_make_sym("LINUX"), yas_global_features);
+	yas_global_features = yas_cons(yas_make_sym("UNIX"), yas_global_features);
 #elif defined(__FreeBSD__) || defined(__OpenBSD__) || defined(__NetBSD__)
-	global_features = cons(make_sym("BSD"), global_features);
-	global_features = cons(make_sym("UNIX"), global_features);
+	yas_global_features = yas_cons(yas_make_sym("BSD"), yas_global_features);
+	yas_global_features = yas_cons(yas_make_sym("UNIX"), yas_global_features);
 #endif
 
 	/* Architecture detection */
 #if defined(__x86_64__) || defined(_M_X64)
-	global_features = cons(make_sym("X86-64"), global_features);
+	yas_global_features = yas_cons(yas_make_sym("X86-64"), yas_global_features);
 #elif defined(__i386__) || defined(_M_IX86)
-	global_features = cons(make_sym("X86"), global_features);
+	yas_global_features = yas_cons(yas_make_sym("X86"), yas_global_features);
 #elif defined(__aarch64__) || defined(_M_ARM64)
-	global_features = cons(make_sym("ARM64"), global_features);
+	yas_global_features = yas_cons(yas_make_sym("ARM64"), yas_global_features);
 #elif defined(__arm__) || defined(_M_ARM)
-	global_features = cons(make_sym("ARM"), global_features);
+	yas_global_features = yas_cons(yas_make_sym("ARM"), yas_global_features);
 #elif defined(__wasm__)
-	global_features = cons(make_sym("WASM"), global_features);
+	yas_global_features = yas_cons(yas_make_sym("WASM"), yas_global_features);
 #endif
 
 	/* Optional features - compile-time flags */
 #ifdef YAS_FFI
-	global_features = cons(make_sym("FFI"), global_features);
+	yas_global_features = yas_cons(yas_make_sym("FFI"), yas_global_features);
 #endif
 }
 
-int has_feature(const char *name)
+int yas_has_feature(const char *name)
 {
-	Atom p = global_features;
-	while (!nilp(p)) {
-		if (car(p).type == AtomType_Symbol &&
-		    strcmp(car(p).value.symbol, name) == 0) {
+	YasAtom p = yas_global_features;
+	while (!yas_nilp(p)) {
+		if (yas_car(p).type == YAS_ATOM_TYPE_SYMBOL &&
+		    strcmp(yas_car(p).value.symbol, name) == 0) {
 			return 1;
 		}
-		p = cdr(p);
+		p = yas_cdr(p);
 	}
 	return 0;
 }
 
 /* Evaluate compound feature expressions like (or macos linux), (and x y), (not x) */
-int eval_feature_expr(Atom expr)
+int yas_eval_feature_expr(YasAtom expr)
 {
 	/* Simple symbol */
-	if (expr.type == AtomType_Symbol) {
-		return has_feature(expr.value.symbol);
+	if (expr.type == YAS_ATOM_TYPE_SYMBOL) {
+		return yas_has_feature(expr.value.symbol);
 	}
 
 	/* Compound expression */
-	if (expr.type == AtomType_Pair && !nilp(expr)) {
-		Atom op = car(expr);
-		Atom args = cdr(expr);
+	if (expr.type == YAS_ATOM_TYPE_PAIR && !yas_nilp(expr)) {
+		YasAtom op = yas_car(expr);
+		YasAtom args = yas_cdr(expr);
 
-		if (op.type == AtomType_Symbol) {
+		if (op.type == YAS_ATOM_TYPE_SYMBOL) {
 			/* (or ...) - true if any arg is true */
 			if (strcmp(op.value.symbol, "OR") == 0) {
-				while (!nilp(args)) {
-					if (eval_feature_expr(car(args)))
+				while (!yas_nilp(args)) {
+					if (yas_eval_feature_expr(yas_car(args)))
 						return 1;
-					args = cdr(args);
+					args = yas_cdr(args);
 				}
 				return 0;
 			}
 			/* (and ...) - true if all args are true */
 			if (strcmp(op.value.symbol, "AND") == 0) {
-				while (!nilp(args)) {
-					if (!eval_feature_expr(car(args)))
+				while (!yas_nilp(args)) {
+					if (!yas_eval_feature_expr(yas_car(args)))
 						return 0;
-					args = cdr(args);
+					args = yas_cdr(args);
 				}
 				return 1;
 			}
 			/* (not x) - true if x is false */
 			if (strcmp(op.value.symbol, "NOT") == 0) {
-				if (!nilp(args)) {
-					return !eval_feature_expr(car(args));
+				if (!yas_nilp(args)) {
+					return !yas_eval_feature_expr(yas_car(args));
 				}
 				return 0;
 			}
 			/* Single symbol in parens like (macos) */
-			if (nilp(args)) {
-				return has_feature(op.value.symbol);
+			if (yas_nilp(args)) {
+				return yas_has_feature(op.value.symbol);
 			}
 		}
 	}

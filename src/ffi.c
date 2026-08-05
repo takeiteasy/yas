@@ -7,7 +7,7 @@
 
 #ifdef YAS_FFI
 
-#include "lisp.h"
+#include "yas.h"
 #include <ffi.h>
 #include <dlfcn.h>
 #include <stdlib.h>
@@ -18,17 +18,17 @@
  * Library Loading
  * ============================================================ */
 
-void *ffi_load_library(const char *path)
+void *yas_ffi_load_library(const char *path)
 {
 	return dlopen(path, RTLD_LAZY);
 }
 
-void ffi_close_library(void *handle)
+void yas_ffi_close_library(void *handle)
 {
 	if (handle) dlclose(handle);
 }
 
-void *ffi_get_symbol(void *handle, const char *name)
+void *yas_ffi_get_symbol(void *handle, const char *name)
 {
 	return dlsym(handle, name);
 }
@@ -83,12 +83,12 @@ static ffi_type *type_to_ffi(YasFFIType t)
  * ============================================================ */
 
 /* Global struct type registry */
-FFIStructType *ffi_struct_registry = NULL;
+YasFFIStructType *yas_ffi_struct_registry = NULL;
 
 /* Look up a struct type by name */
-FFIStructType *ffi_lookup_struct_type(const char *name)
+YasFFIStructType *yas_ffi_lookup_struct_type(const char *name)
 {
-	FFIStructType *st = ffi_struct_registry;
+	YasFFIStructType *st = yas_ffi_struct_registry;
 	while (st) {
 		if (strcmp(st->name, name) == 0) {
 			return st;
@@ -109,7 +109,7 @@ static ffi_type *resolve_type(const char *name, YasFFIType *out_type)
 	}
 
 	/* Check struct registry */
-	FFIStructType *st = ffi_lookup_struct_type(name);
+	YasFFIStructType *st = yas_ffi_lookup_struct_type(name);
 	if (st) {
 		*out_type = YAS_FFI_TYPE_STRUCT;
 		return (ffi_type *)st->ffi_struct;
@@ -123,27 +123,27 @@ static ffi_type *resolve_type(const char *name, YasFFIType *out_type)
  * Function Preparation
  * ============================================================ */
 
-struct FFIFunction *ffi_prepare(void *fn_ptr, Atom ret_type, Atom arg_types)
+struct YasFFIFunction *yas_ffi_prepare(void *fn_ptr, YasAtom ret_type, YasAtom arg_types)
 {
-	struct FFIFunction *fn = malloc(sizeof(struct FFIFunction));
-	memset(fn, 0, sizeof(struct FFIFunction));
+	struct YasFFIFunction *fn = malloc(sizeof(struct YasFFIFunction));
+	memset(fn, 0, sizeof(struct YasFFIFunction));
 	fn->fn_ptr = fn_ptr;
 
 	/* Parse return type (keyword or symbol for structs) */
 	fn->ret_type = YAS_FFI_TYPE_VOID;
 	fn->ffi_ret_type = &ffi_type_void;
-	if (ret_type.type == AtomType_Keyword) {
+	if (ret_type.type == YAS_ATOM_TYPE_KEYWORD) {
 		fn->ffi_ret_type = resolve_type(ret_type.value.keyword, &fn->ret_type);
-	} else if (ret_type.type == AtomType_Symbol) {
+	} else if (ret_type.type == YAS_ATOM_TYPE_SYMBOL) {
 		fn->ffi_ret_type = resolve_type(ret_type.value.symbol, &fn->ret_type);
 	}
 
 	/* Count argument types */
 	fn->arg_count = 0;
-	Atom p = arg_types;
-	while (!nilp(p)) {
+	YasAtom p = arg_types;
+	while (!yas_nilp(p)) {
 		fn->arg_count++;
-		p = cdr(p);
+		p = yas_cdr(p);
 	}
 
 	/* Parse argument types (keywords or symbols for structs) */
@@ -154,16 +154,16 @@ struct FFIFunction *ffi_prepare(void *fn_ptr, Atom ret_type, Atom arg_types)
 		fn->ffi_arg_types = malloc(sizeof(ffi_type *) * fn->arg_count);
 		p = arg_types;
 		for (int i = 0; i < fn->arg_count; i++) {
-			Atom t = car(p);
-			if (t.type == AtomType_Keyword) {
+			YasAtom t = yas_car(p);
+			if (t.type == YAS_ATOM_TYPE_KEYWORD) {
 				fn->ffi_arg_types[i] = resolve_type(t.value.keyword, &fn->arg_types[i]);
-			} else if (t.type == AtomType_Symbol) {
+			} else if (t.type == YAS_ATOM_TYPE_SYMBOL) {
 				fn->ffi_arg_types[i] = resolve_type(t.value.symbol, &fn->arg_types[i]);
 			} else {
 				fn->arg_types[i] = YAS_FFI_TYPE_VOID;
 				fn->ffi_arg_types[i] = &ffi_type_void;
 			}
-			p = cdr(p);
+			p = yas_cdr(p);
 		}
 	}
 
@@ -186,13 +186,13 @@ struct FFIFunction *ffi_prepare(void *fn_ptr, Atom ret_type, Atom arg_types)
 	fn->cif = cif;
 
 	fn->mark = 0;
-	fn->next = global_ffi_functions;
-	global_ffi_functions = fn;
+	fn->next = yas_global_ffi_functions;
+	yas_global_ffi_functions = fn;
 
 	return fn;
 }
 
-void ffi_free_function(struct FFIFunction *fn)
+void yas_ffi_free_function(struct YasFFIFunction *fn)
 {
 	if (!fn) return;
 	if (fn->cif) free(fn->cif);
@@ -205,9 +205,9 @@ void ffi_free_function(struct FFIFunction *fn)
  * Function Calling
  * ============================================================ */
 
-Atom ffi_call_function(struct FFIFunction *fn, Atom args)
+YasAtom yas_ffi_call_function(struct YasFFIFunction *fn, YasAtom args)
 {
-	if (!fn || !fn->cif) return nil;
+	if (!fn || !fn->cif) return yas_nil;
 	
 	ffi_cif *cif = (ffi_cif *)fn->cif;
 	
@@ -222,38 +222,38 @@ Atom ffi_call_function(struct FFIFunction *fn, Atom args)
 		arg_storage = malloc(8 * fn->arg_count);
 		string_temps = calloc(fn->arg_count, sizeof(char *));
 		
-		Atom p = args;
-		for (int i = 0; i < fn->arg_count && !nilp(p); i++) {
-			Atom v = car(p);
+		YasAtom p = args;
+		for (int i = 0; i < fn->arg_count && !yas_nilp(p); i++) {
+			YasAtom v = yas_car(p);
 			void *storage = (char *)arg_storage + (i * 8);
 			
 			switch (fn->arg_types[i]) {
 			case YAS_FFI_TYPE_INT8:
 			case YAS_FFI_TYPE_UINT8:
-				*(int8_t *)storage = (int8_t)(v.type == AtomType_Integer ? v.value.integer : 0);
+				*(int8_t *)storage = (int8_t)(v.type == YAS_ATOM_TYPE_INTEGER ? v.value.integer : 0);
 				break;
 			case YAS_FFI_TYPE_INT16:
 			case YAS_FFI_TYPE_UINT16:
-				*(int16_t *)storage = (int16_t)(v.type == AtomType_Integer ? v.value.integer : 0);
+				*(int16_t *)storage = (int16_t)(v.type == YAS_ATOM_TYPE_INTEGER ? v.value.integer : 0);
 				break;
 			case YAS_FFI_TYPE_INT32:
 			case YAS_FFI_TYPE_UINT32:
-				*(int32_t *)storage = (int32_t)(v.type == AtomType_Integer ? v.value.integer : 0);
+				*(int32_t *)storage = (int32_t)(v.type == YAS_ATOM_TYPE_INTEGER ? v.value.integer : 0);
 				break;
 			case YAS_FFI_TYPE_INT64:
 			case YAS_FFI_TYPE_UINT64:
-				*(int64_t *)storage = (int64_t)(v.type == AtomType_Integer ? v.value.integer : 0);
+				*(int64_t *)storage = (int64_t)(v.type == YAS_ATOM_TYPE_INTEGER ? v.value.integer : 0);
 				break;
 			case YAS_FFI_TYPE_FLOAT:
-				*(float *)storage = (float)(v.type == AtomType_Float ? v.value.floatval : 
-				                            (v.type == AtomType_Integer ? v.value.integer : 0));
+				*(float *)storage = (float)(v.type == YAS_ATOM_TYPE_FLOAT ? v.value.floatval : 
+				                            (v.type == YAS_ATOM_TYPE_INTEGER ? v.value.integer : 0));
 				break;
 			case YAS_FFI_TYPE_DOUBLE:
-				*(double *)storage = (double)(v.type == AtomType_Float ? v.value.floatval :
-				                              (v.type == AtomType_Integer ? v.value.integer : 0));
+				*(double *)storage = (double)(v.type == YAS_ATOM_TYPE_FLOAT ? v.value.floatval :
+				                              (v.type == YAS_ATOM_TYPE_INTEGER ? v.value.integer : 0));
 				break;
 			case YAS_FFI_TYPE_STRING:
-				if (v.type == AtomType_String) {
+				if (v.type == YAS_ATOM_TYPE_STRING) {
 					string_temps[i] = strdup(v.value.string);
 					*(char **)storage = string_temps[i];
 				} else {
@@ -261,13 +261,13 @@ Atom ffi_call_function(struct FFIFunction *fn, Atom args)
 				}
 				break;
 			case YAS_FFI_TYPE_POINTER:
-				if (v.type == AtomType_FFIPointer) {
+				if (v.type == YAS_ATOM_TYPE_FFI_POINTER) {
 					*(void **)storage = v.value.ffi_pointer;
-				} else if (v.type == AtomType_String) {
+				} else if (v.type == YAS_ATOM_TYPE_STRING) {
 					/* Allow strings as pointers for convenience */
 					string_temps[i] = strdup(v.value.string);
 					*(void **)storage = string_temps[i];
-				} else if (nilp(v)) {
+				} else if (yas_nilp(v)) {
 					*(void **)storage = NULL;
 				} else {
 					*(void **)storage = NULL;
@@ -275,21 +275,21 @@ Atom ffi_call_function(struct FFIFunction *fn, Atom args)
 				break;
 			case YAS_FFI_TYPE_STRUCT:
 				/* For struct-by-value, libffi expects pointer to struct data */
-				if (v.type == AtomType_FFIStruct && v.value.ffi_struct) {
+				if (v.type == YAS_ATOM_TYPE_FFI_STRUCT && v.value.ffi_struct) {
 					/* Point directly to struct data - libffi copies it */
 					arg_values[i] = v.value.ffi_struct->data;
 				} else {
 					*(void **)storage = NULL;
 					arg_values[i] = storage;
 				}
-				p = cdr(p);
+				p = yas_cdr(p);
 				continue;
 			default:
 				*(void **)storage = NULL;
 			}
 
 			arg_values[i] = storage;
-			p = cdr(p);
+			p = yas_cdr(p);
 		}
 	}
 	
@@ -317,47 +317,47 @@ Atom ffi_call_function(struct FFIFunction *fn, Atom args)
 	if (arg_storage) free(arg_storage);
 	
 	/* Convert return value to Atom */
-	Atom result;
+	YasAtom result;
 	switch (fn->ret_type) {
 	case YAS_FFI_TYPE_VOID:
-		result = nil;
+		result = yas_nil;
 		break;
 	case YAS_FFI_TYPE_INT8:
 	case YAS_FFI_TYPE_UINT8:
-		result = make_int(ret_value.i8);
+		result = yas_make_int(ret_value.i8);
 		break;
 	case YAS_FFI_TYPE_INT16:
 	case YAS_FFI_TYPE_UINT16:
-		result = make_int(ret_value.i16);
+		result = yas_make_int(ret_value.i16);
 		break;
 	case YAS_FFI_TYPE_INT32:
 	case YAS_FFI_TYPE_UINT32:
-		result = make_int(ret_value.i32);
+		result = yas_make_int(ret_value.i32);
 		break;
 	case YAS_FFI_TYPE_INT64:
 	case YAS_FFI_TYPE_UINT64:
-		result = make_int(ret_value.i64);
+		result = yas_make_int(ret_value.i64);
 		break;
 	case YAS_FFI_TYPE_FLOAT:
-		result = make_float(ret_value.f);
+		result = yas_make_float(ret_value.f);
 		break;
 	case YAS_FFI_TYPE_DOUBLE:
-		result = make_float(ret_value.d);
+		result = yas_make_float(ret_value.d);
 		break;
 	case YAS_FFI_TYPE_POINTER:
-		result.type = AtomType_FFIPointer;
+		result.type = YAS_ATOM_TYPE_FFI_POINTER;
 		result.value.ffi_pointer = ret_value.ptr;
 		break;
 	case YAS_FFI_TYPE_STRING:
 		if (ret_value.ptr) {
-			result = make_string((char *)ret_value.ptr);
+			result = yas_make_string((char *)ret_value.ptr);
 		} else {
-			result = nil;
+			result = yas_nil;
 		}
 		break;
 	case YAS_FFI_TYPE_STRUCT:
 		/* Struct by-value return not supported; fail like the nil guard above */
-		result = nil;
+		result = yas_nil;
 		break;
 	}
 	
@@ -369,234 +369,234 @@ Atom ffi_call_function(struct FFIFunction *fn, Atom args)
  * ============================================================ */
 
 /* (ffi-open path) -> ffi-library */
-int builtin_ffi_open(Atom args, Atom *result)
+int yas_builtin_ffi_open(YasAtom args, YasAtom *result)
 {
-	if (nilp(args) || car(args).type != AtomType_String) {
-		return raise_error("type-error", "ffi-open requires a string path");
+	if (yas_nilp(args) || yas_car(args).type != YAS_ATOM_TYPE_STRING) {
+		return yas_raise_error("type-error", "ffi-open requires a string path");
 	}
 	
-	const char *path = car(args).value.string;
-	void *handle = ffi_load_library(path);
+	const char *path = yas_car(args).value.string;
+	void *handle = yas_ffi_load_library(path);
 	
 	if (!handle) {
-		return raise_error("ffi-error", dlerror());
+		return yas_raise_error("ffi-error", dlerror());
 	}
 	
-	result->type = AtomType_FFILibrary;
+	result->type = YAS_ATOM_TYPE_FFI_LIBRARY;
 	result->value.ffi_library = handle;
-	return Error_OK;
+	return YAS_ERROR_OK;
 }
 
 /* (ffi-close lib) -> #t */
-int builtin_ffi_close(Atom args, Atom *result)
+int yas_builtin_ffi_close(YasAtom args, YasAtom *result)
 {
-	if (nilp(args) || car(args).type != AtomType_FFILibrary) {
-		return raise_error("type-error", "ffi-close requires an ffi-library");
+	if (yas_nilp(args) || yas_car(args).type != YAS_ATOM_TYPE_FFI_LIBRARY) {
+		return yas_raise_error("type-error", "ffi-close requires an ffi-library");
 	}
 	
-	ffi_close_library(car(args).value.ffi_library);
-	*result = make_sym("T");
-	return Error_OK;
+	yas_ffi_close_library(yas_car(args).value.ffi_library);
+	*result = yas_make_sym("T");
+	return YAS_ERROR_OK;
 }
 
 /* (ffi-lookup lib name) -> ffi-pointer */
-int builtin_ffi_lookup(Atom args, Atom *result)
+int yas_builtin_ffi_lookup(YasAtom args, YasAtom *result)
 {
-	if (nilp(args) || car(args).type != AtomType_FFILibrary) {
-		return raise_error("type-error", "ffi-lookup requires an ffi-library");
+	if (yas_nilp(args) || yas_car(args).type != YAS_ATOM_TYPE_FFI_LIBRARY) {
+		return yas_raise_error("type-error", "ffi-lookup requires an ffi-library");
 	}
-	if (nilp(cdr(args)) || car(cdr(args)).type != AtomType_String) {
-		return raise_error("type-error", "ffi-lookup requires a string name");
+	if (yas_nilp(yas_cdr(args)) || yas_car(yas_cdr(args)).type != YAS_ATOM_TYPE_STRING) {
+		return yas_raise_error("type-error", "ffi-lookup requires a string name");
 	}
 	
-	void *handle = car(args).value.ffi_library;
-	const char *name = car(cdr(args)).value.string;
+	void *handle = yas_car(args).value.ffi_library;
+	const char *name = yas_car(yas_cdr(args)).value.string;
 	
-	void *sym = ffi_get_symbol(handle, name);
+	void *sym = yas_ffi_get_symbol(handle, name);
 	if (!sym) {
-		return raise_error("ffi-error", dlerror());
+		return yas_raise_error("ffi-error", dlerror());
 	}
 	
-	result->type = AtomType_FFIPointer;
+	result->type = YAS_ATOM_TYPE_FFI_POINTER;
 	result->value.ffi_pointer = sym;
-	return Error_OK;
+	return YAS_ERROR_OK;
 }
 
 /* (ffi-define ptr ret-type (arg-types...)) -> ffi-function */
-int builtin_ffi_define(Atom args, Atom *result)
+int yas_builtin_ffi_define(YasAtom args, YasAtom *result)
 {
-	if (nilp(args) || car(args).type != AtomType_FFIPointer) {
-		return raise_error("type-error", "ffi-define requires an ffi-pointer");
+	if (yas_nilp(args) || yas_car(args).type != YAS_ATOM_TYPE_FFI_POINTER) {
+		return yas_raise_error("type-error", "ffi-define requires an ffi-pointer");
 	}
-	if (nilp(cdr(args)) ||
-	    (car(cdr(args)).type != AtomType_Keyword && car(cdr(args)).type != AtomType_Symbol)) {
-		return raise_error("type-error", "ffi-define requires a return type keyword or struct name");
+	if (yas_nilp(yas_cdr(args)) ||
+	    (yas_car(yas_cdr(args)).type != YAS_ATOM_TYPE_KEYWORD && yas_car(yas_cdr(args)).type != YAS_ATOM_TYPE_SYMBOL)) {
+		return yas_raise_error("type-error", "ffi-define requires a return type keyword or struct name");
 	}
 	
-	void *fn_ptr = car(args).value.ffi_pointer;
-	Atom ret_type = car(cdr(args));
-	Atom arg_types = nilp(cdr(cdr(args))) ? nil : car(cdr(cdr(args)));
+	void *fn_ptr = yas_car(args).value.ffi_pointer;
+	YasAtom ret_type = yas_car(yas_cdr(args));
+	YasAtom arg_types = yas_nilp(yas_cdr(yas_cdr(args))) ? yas_nil : yas_car(yas_cdr(yas_cdr(args)));
 	
-	struct FFIFunction *fn = ffi_prepare(fn_ptr, ret_type, arg_types);
+	struct YasFFIFunction *fn = yas_ffi_prepare(fn_ptr, ret_type, arg_types);
 	if (!fn) {
-		return raise_error("ffi-error", "Failed to prepare FFI function");
+		return yas_raise_error("ffi-error", "Failed to prepare FFI function");
 	}
 	
-	result->type = AtomType_FFIFunction;
+	result->type = YAS_ATOM_TYPE_FFI_FUNCTION;
 	result->value.ffi_fn = fn;
-	return Error_OK;
+	return YAS_ERROR_OK;
 }
 
 /* (ffi-call fn args...) -> result */
-int builtin_ffi_call(Atom args, Atom *result)
+int yas_builtin_ffi_call(YasAtom args, YasAtom *result)
 {
-	if (nilp(args) || car(args).type != AtomType_FFIFunction) {
-		return raise_error("type-error", "ffi-call requires an ffi-function");
+	if (yas_nilp(args) || yas_car(args).type != YAS_ATOM_TYPE_FFI_FUNCTION) {
+		return yas_raise_error("type-error", "ffi-call requires an ffi-function");
 	}
 	
-	struct FFIFunction *fn = car(args).value.ffi_fn;
-	*result = ffi_call_function(fn, cdr(args));
-	return Error_OK;
+	struct YasFFIFunction *fn = yas_car(args).value.ffi_fn;
+	*result = yas_ffi_call_function(fn, yas_cdr(args));
+	return YAS_ERROR_OK;
 }
 
 /* (ffi-malloc size) -> ffi-pointer */
-int builtin_ffi_malloc(Atom args, Atom *result)
+int yas_builtin_ffi_malloc(YasAtom args, YasAtom *result)
 {
-	if (nilp(args) || car(args).type != AtomType_Integer) {
-		return raise_error("type-error", "ffi-malloc requires an integer size");
+	if (yas_nilp(args) || yas_car(args).type != YAS_ATOM_TYPE_INTEGER) {
+		return yas_raise_error("type-error", "ffi-malloc requires an integer size");
 	}
 	
-	size_t size = (size_t)car(args).value.integer;
+	size_t size = (size_t)yas_car(args).value.integer;
 	void *ptr = malloc(size);
 	
-	result->type = AtomType_FFIPointer;
+	result->type = YAS_ATOM_TYPE_FFI_POINTER;
 	result->value.ffi_pointer = ptr;
-	return Error_OK;
+	return YAS_ERROR_OK;
 }
 
 /* (ffi-free ptr) -> #t */
-int builtin_ffi_free(Atom args, Atom *result)
+int yas_builtin_ffi_free(YasAtom args, YasAtom *result)
 {
-	if (nilp(args) || car(args).type != AtomType_FFIPointer) {
-		return raise_error("type-error", "ffi-free requires an ffi-pointer");
+	if (yas_nilp(args) || yas_car(args).type != YAS_ATOM_TYPE_FFI_POINTER) {
+		return yas_raise_error("type-error", "ffi-free requires an ffi-pointer");
 	}
 	
-	free(car(args).value.ffi_pointer);
-	*result = make_sym("T");
-	return Error_OK;
+	free(yas_car(args).value.ffi_pointer);
+	*result = yas_make_sym("T");
+	return YAS_ERROR_OK;
 }
 
 /* (ffi-pointer-ref ptr type offset) -> value */
-int builtin_ffi_pointer_ref(Atom args, Atom *result)
+int yas_builtin_ffi_pointer_ref(YasAtom args, YasAtom *result)
 {
-	if (nilp(args) || car(args).type != AtomType_FFIPointer) {
-		return raise_error("type-error", "ffi-pointer-ref requires an ffi-pointer");
+	if (yas_nilp(args) || yas_car(args).type != YAS_ATOM_TYPE_FFI_POINTER) {
+		return yas_raise_error("type-error", "ffi-pointer-ref requires an ffi-pointer");
 	}
-	if (nilp(cdr(args)) || car(cdr(args)).type != AtomType_Keyword) {
-		return raise_error("type-error", "ffi-pointer-ref requires a type keyword");
+	if (yas_nilp(yas_cdr(args)) || yas_car(yas_cdr(args)).type != YAS_ATOM_TYPE_KEYWORD) {
+		return yas_raise_error("type-error", "ffi-pointer-ref requires a type keyword");
 	}
-	if (nilp(cdr(cdr(args))) || car(cdr(cdr(args))).type != AtomType_Integer) {
-		return raise_error("type-error", "ffi-pointer-ref requires an integer offset");
+	if (yas_nilp(yas_cdr(yas_cdr(args))) || yas_car(yas_cdr(yas_cdr(args))).type != YAS_ATOM_TYPE_INTEGER) {
+		return yas_raise_error("type-error", "ffi-pointer-ref requires an integer offset");
 	}
 	
-	void *base = car(args).value.ffi_pointer;
-	YasFFIType type = keyword_to_type(car(cdr(args)).value.keyword);
-	size_t offset = (size_t)car(cdr(cdr(args))).value.integer;
+	void *base = yas_car(args).value.ffi_pointer;
+	YasFFIType type = keyword_to_type(yas_car(yas_cdr(args)).value.keyword);
+	size_t offset = (size_t)yas_car(yas_cdr(yas_cdr(args))).value.integer;
 	
 	char *ptr = (char *)base + offset;
 	
 	switch (type) {
 	case YAS_FFI_TYPE_INT8:
-		*result = make_int(*(int8_t *)ptr);
+		*result = yas_make_int(*(int8_t *)ptr);
 		break;
 	case YAS_FFI_TYPE_UINT8:
-		*result = make_int(*(uint8_t *)ptr);
+		*result = yas_make_int(*(uint8_t *)ptr);
 		break;
 	case YAS_FFI_TYPE_INT16:
-		*result = make_int(*(int16_t *)ptr);
+		*result = yas_make_int(*(int16_t *)ptr);
 		break;
 	case YAS_FFI_TYPE_UINT16:
-		*result = make_int(*(uint16_t *)ptr);
+		*result = yas_make_int(*(uint16_t *)ptr);
 		break;
 	case YAS_FFI_TYPE_INT32:
-		*result = make_int(*(int32_t *)ptr);
+		*result = yas_make_int(*(int32_t *)ptr);
 		break;
 	case YAS_FFI_TYPE_UINT32:
-		*result = make_int(*(uint32_t *)ptr);
+		*result = yas_make_int(*(uint32_t *)ptr);
 		break;
 	case YAS_FFI_TYPE_INT64:
-		*result = make_int(*(int64_t *)ptr);
+		*result = yas_make_int(*(int64_t *)ptr);
 		break;
 	case YAS_FFI_TYPE_UINT64:
-		*result = make_int((long)*(uint64_t *)ptr);
+		*result = yas_make_int((long)*(uint64_t *)ptr);
 		break;
 	case YAS_FFI_TYPE_FLOAT:
-		*result = make_float(*(float *)ptr);
+		*result = yas_make_float(*(float *)ptr);
 		break;
 	case YAS_FFI_TYPE_DOUBLE:
-		*result = make_float(*(double *)ptr);
+		*result = yas_make_float(*(double *)ptr);
 		break;
 	case YAS_FFI_TYPE_POINTER:
-		result->type = AtomType_FFIPointer;
+		result->type = YAS_ATOM_TYPE_FFI_POINTER;
 		result->value.ffi_pointer = *(void **)ptr;
 		break;
 	default:
-		*result = nil;
+		*result = yas_nil;
 	}
 	
-	return Error_OK;
+	return YAS_ERROR_OK;
 }
 
 /* (ffi-pointer-set! ptr type offset value) -> #t */
-int builtin_ffi_pointer_set(Atom args, Atom *result)
+int yas_builtin_ffi_pointer_set(YasAtom args, YasAtom *result)
 {
-	if (nilp(args) || car(args).type != AtomType_FFIPointer) {
-		return raise_error("type-error", "ffi-pointer-set! requires an ffi-pointer");
+	if (yas_nilp(args) || yas_car(args).type != YAS_ATOM_TYPE_FFI_POINTER) {
+		return yas_raise_error("type-error", "ffi-pointer-set! requires an ffi-pointer");
 	}
-	if (nilp(cdr(args)) || car(cdr(args)).type != AtomType_Keyword) {
-		return raise_error("type-error", "ffi-pointer-set! requires a type keyword");
+	if (yas_nilp(yas_cdr(args)) || yas_car(yas_cdr(args)).type != YAS_ATOM_TYPE_KEYWORD) {
+		return yas_raise_error("type-error", "ffi-pointer-set! requires a type keyword");
 	}
-	if (nilp(cdr(cdr(args))) || car(cdr(cdr(args))).type != AtomType_Integer) {
-		return raise_error("type-error", "ffi-pointer-set! requires an integer offset");
+	if (yas_nilp(yas_cdr(yas_cdr(args))) || yas_car(yas_cdr(yas_cdr(args))).type != YAS_ATOM_TYPE_INTEGER) {
+		return yas_raise_error("type-error", "ffi-pointer-set! requires an integer offset");
 	}
-	if (nilp(cdr(cdr(cdr(args))))) {
-		return raise_error("args-error", "ffi-pointer-set! requires a value");
+	if (yas_nilp(yas_cdr(yas_cdr(yas_cdr(args))))) {
+		return yas_raise_error("args-error", "ffi-pointer-set! requires a value");
 	}
 	
-	void *base = car(args).value.ffi_pointer;
-	YasFFIType type = keyword_to_type(car(cdr(args)).value.keyword);
-	size_t offset = (size_t)car(cdr(cdr(args))).value.integer;
-	Atom value = car(cdr(cdr(cdr(args))));
+	void *base = yas_car(args).value.ffi_pointer;
+	YasFFIType type = keyword_to_type(yas_car(yas_cdr(args)).value.keyword);
+	size_t offset = (size_t)yas_car(yas_cdr(yas_cdr(args))).value.integer;
+	YasAtom value = yas_car(yas_cdr(yas_cdr(yas_cdr(args))));
 	
 	char *ptr = (char *)base + offset;
 	
 	switch (type) {
 	case YAS_FFI_TYPE_INT8:
 	case YAS_FFI_TYPE_UINT8:
-		*(int8_t *)ptr = (int8_t)(value.type == AtomType_Integer ? value.value.integer : 0);
+		*(int8_t *)ptr = (int8_t)(value.type == YAS_ATOM_TYPE_INTEGER ? value.value.integer : 0);
 		break;
 	case YAS_FFI_TYPE_INT16:
 	case YAS_FFI_TYPE_UINT16:
-		*(int16_t *)ptr = (int16_t)(value.type == AtomType_Integer ? value.value.integer : 0);
+		*(int16_t *)ptr = (int16_t)(value.type == YAS_ATOM_TYPE_INTEGER ? value.value.integer : 0);
 		break;
 	case YAS_FFI_TYPE_INT32:
 	case YAS_FFI_TYPE_UINT32:
-		*(int32_t *)ptr = (int32_t)(value.type == AtomType_Integer ? value.value.integer : 0);
+		*(int32_t *)ptr = (int32_t)(value.type == YAS_ATOM_TYPE_INTEGER ? value.value.integer : 0);
 		break;
 	case YAS_FFI_TYPE_INT64:
 	case YAS_FFI_TYPE_UINT64:
-		*(int64_t *)ptr = (int64_t)(value.type == AtomType_Integer ? value.value.integer : 0);
+		*(int64_t *)ptr = (int64_t)(value.type == YAS_ATOM_TYPE_INTEGER ? value.value.integer : 0);
 		break;
 	case YAS_FFI_TYPE_FLOAT:
-		*(float *)ptr = (float)(value.type == AtomType_Float ? value.value.floatval :
-		                        (value.type == AtomType_Integer ? value.value.integer : 0));
+		*(float *)ptr = (float)(value.type == YAS_ATOM_TYPE_FLOAT ? value.value.floatval :
+		                        (value.type == YAS_ATOM_TYPE_INTEGER ? value.value.integer : 0));
 		break;
 	case YAS_FFI_TYPE_DOUBLE:
-		*(double *)ptr = (double)(value.type == AtomType_Float ? value.value.floatval :
-		                          (value.type == AtomType_Integer ? value.value.integer : 0));
+		*(double *)ptr = (double)(value.type == YAS_ATOM_TYPE_FLOAT ? value.value.floatval :
+		                          (value.type == YAS_ATOM_TYPE_INTEGER ? value.value.integer : 0));
 		break;
 	case YAS_FFI_TYPE_POINTER:
-		if (value.type == AtomType_FFIPointer) {
+		if (value.type == YAS_ATOM_TYPE_FFI_POINTER) {
 			*(void **)ptr = value.value.ffi_pointer;
 		}
 		break;
@@ -604,36 +604,36 @@ int builtin_ffi_pointer_set(Atom args, Atom *result)
 		break;
 	}
 	
-	*result = make_sym("T");
-	return Error_OK;
+	*result = yas_make_sym("T");
+	return YAS_ERROR_OK;
 }
 
 /* (ffi-null) -> null pointer */
-int builtin_ffi_null(Atom args, Atom *result)
+int yas_builtin_ffi_null(YasAtom args, YasAtom *result)
 {
 	(void)args;
-	result->type = AtomType_FFIPointer;
+	result->type = YAS_ATOM_TYPE_FFI_POINTER;
 	result->value.ffi_pointer = NULL;
-	return Error_OK;
+	return YAS_ERROR_OK;
 }
 
 /* (ffi-null? ptr) -> boolean */
-int builtin_ffi_nullp(Atom args, Atom *result)
+int yas_builtin_ffi_nullp(YasAtom args, YasAtom *result)
 {
-	if (nilp(args)) {
-		*result = make_sym("T");
-		return Error_OK;
+	if (yas_nilp(args)) {
+		*result = yas_make_sym("T");
+		return YAS_ERROR_OK;
 	}
 	
-	Atom a = car(args);
-	if (a.type == AtomType_FFIPointer && a.value.ffi_pointer == NULL) {
-		*result = make_sym("T");
-	} else if (nilp(a)) {
-		*result = make_sym("T");
+	YasAtom a = yas_car(args);
+	if (a.type == YAS_ATOM_TYPE_FFI_POINTER && a.value.ffi_pointer == NULL) {
+		*result = yas_make_sym("T");
+	} else if (yas_nilp(a)) {
+		*result = yas_make_sym("T");
 	} else {
-		*result = nil;
+		*result = yas_nil;
 	}
-	return Error_OK;
+	return YAS_ERROR_OK;
 }
 
 /* ============================================================
@@ -643,27 +643,27 @@ int builtin_ffi_nullp(Atom args, Atom *result)
 /* (%ffi-defstruct 'name '((field-name type) ...)) -> struct-type-symbol
  * Called by the ffi-defstruct macro which quotes the arguments.
  */
-int builtin_ffi_defstruct(Atom args, Atom *result)
+int yas_builtin_ffi_defstruct(YasAtom args, YasAtom *result)
 {
-	if (nilp(args) || car(args).type != AtomType_Symbol) {
-		return raise_error("type-error", "%ffi-defstruct requires a symbol name");
+	if (yas_nilp(args) || yas_car(args).type != YAS_ATOM_TYPE_SYMBOL) {
+		return yas_raise_error("type-error", "%ffi-defstruct requires a symbol name");
 	}
 
-	char *name = (char *)car(args).value.symbol;
+	char *name = (char *)yas_car(args).value.symbol;
 
 	/* Second arg is the list of field specs */
-	if (nilp(cdr(args))) {
-		return raise_error("type-error", "%ffi-defstruct requires a field list");
+	if (yas_nilp(yas_cdr(args))) {
+		return yas_raise_error("type-error", "%ffi-defstruct requires a field list");
 	}
-	Atom field_list = car(cdr(args));
+	YasAtom field_list = yas_car(yas_cdr(args));
 
 	/* Check if already defined */
-	if (ffi_lookup_struct_type(name)) {
-		return raise_error("ffi-error", "Struct type already defined");
+	if (yas_ffi_lookup_struct_type(name)) {
+		return yas_raise_error("ffi-error", "Struct type already defined");
 	}
 
 	/* Allocate struct type */
-	FFIStructType *st = calloc(1, sizeof(FFIStructType));
+	YasFFIStructType *st = calloc(1, sizeof(YasFFIStructType));
 	st->name = strdup(name);
 
 	/* Allocate ffi_type for this struct */
@@ -672,38 +672,38 @@ int builtin_ffi_defstruct(Atom args, Atom *result)
 	st->ffi_struct = ffi_struct;
 
 	/* Parse fields from the list */
-	Atom fields = field_list;
+	YasAtom fields = field_list;
 	int i = 0;
-	while (!nilp(fields) && i < FFI_STRUCT_MAX_FIELDS) {
-		Atom field = car(fields);
-		if (field.type != AtomType_Pair) {
+	while (!yas_nilp(fields) && i < YAS_FFI_STRUCT_MAX_FIELDS) {
+		YasAtom field = yas_car(fields);
+		if (field.type != YAS_ATOM_TYPE_PAIR) {
 			free(st->name);
 			free(ffi_struct);
 			free(st);
-			return raise_error("syntax-error", "ffi-defstruct field must be (name type)");
+			return yas_raise_error("syntax-error", "ffi-defstruct field must be (name type)");
 		}
 
-		Atom field_name = car(field);
-		Atom field_type = car(cdr(field));
+		YasAtom field_name = yas_car(field);
+		YasAtom field_type = yas_car(yas_cdr(field));
 
-		if (field_name.type != AtomType_Symbol) {
+		if (field_name.type != YAS_ATOM_TYPE_SYMBOL) {
 			free(st->name);
 			free(ffi_struct);
 			free(st);
-			return raise_error("type-error", "Field name must be a symbol");
+			return yas_raise_error("type-error", "Field name must be a symbol");
 		}
-		if (field_type.type != AtomType_Keyword) {
+		if (field_type.type != YAS_ATOM_TYPE_KEYWORD) {
 			free(st->name);
 			free(ffi_struct);
 			free(st);
-			return raise_error("type-error", "Field type must be a keyword");
+			return yas_raise_error("type-error", "Field type must be a keyword");
 		}
 
 		st->fields[i].name = strdup(field_name.value.symbol);
 		st->fields[i].type = keyword_to_type(field_type.value.keyword);
 		st->elements[i] = type_to_ffi(st->fields[i].type);
 
-		fields = cdr(fields);
+		fields = yas_cdr(fields);
 		i++;
 	}
 	st->field_count = i;
@@ -732,67 +732,67 @@ int builtin_ffi_defstruct(Atom args, Atom *result)
 	}
 
 	/* Add to registry */
-	st->next = ffi_struct_registry;
-	ffi_struct_registry = st;
+	st->next = yas_ffi_struct_registry;
+	yas_ffi_struct_registry = st;
 
-	*result = car(args);  /* Return the struct name symbol */
-	return Error_OK;
+	*result = yas_car(args);  /* Return the struct name symbol */
+	return YAS_ERROR_OK;
 }
 
 /* (make-ffi-struct type-name values...) -> ffi-struct */
-int builtin_ffi_make_struct(Atom args, Atom *result)
+int yas_builtin_ffi_make_struct(YasAtom args, YasAtom *result)
 {
-	if (nilp(args) || car(args).type != AtomType_Symbol) {
-		return raise_error("type-error", "make-ffi-struct requires a struct type name");
+	if (yas_nilp(args) || yas_car(args).type != YAS_ATOM_TYPE_SYMBOL) {
+		return yas_raise_error("type-error", "make-ffi-struct requires a struct type name");
 	}
 
-	const char *name = car(args).value.symbol;
-	FFIStructType *st = ffi_lookup_struct_type(name);
+	const char *name = yas_car(args).value.symbol;
+	YasFFIStructType *st = yas_ffi_lookup_struct_type(name);
 	if (!st) {
-		return raise_error("ffi-error", "Unknown struct type");
+		return yas_raise_error("ffi-error", "Unknown struct type");
 	}
 
 	/* Allocate struct instance */
-	FFIStructInstance *inst = malloc(sizeof(FFIStructInstance));
+	YasFFIStructInstance *inst = malloc(sizeof(YasFFIStructInstance));
 	inst->type = st;
 	inst->data = calloc(1, st->size);
 	inst->mark = 0;
-	inst->next = global_ffi_structs;
-	global_ffi_structs = inst;
+	inst->next = yas_global_ffi_structs;
+	yas_global_ffi_structs = inst;
 
 	/* Pack field values */
-	Atom values = cdr(args);
-	for (int i = 0; i < st->field_count && !nilp(values); i++) {
-		Atom v = car(values);
+	YasAtom values = yas_cdr(args);
+	for (int i = 0; i < st->field_count && !yas_nilp(values); i++) {
+		YasAtom v = yas_car(values);
 		void *field_ptr = (char *)inst->data + st->fields[i].offset;
 
 		switch (st->fields[i].type) {
 		case YAS_FFI_TYPE_INT8:
 		case YAS_FFI_TYPE_UINT8:
-			*(uint8_t *)field_ptr = (uint8_t)(v.type == AtomType_Integer ? v.value.integer : 0);
+			*(uint8_t *)field_ptr = (uint8_t)(v.type == YAS_ATOM_TYPE_INTEGER ? v.value.integer : 0);
 			break;
 		case YAS_FFI_TYPE_INT16:
 		case YAS_FFI_TYPE_UINT16:
-			*(uint16_t *)field_ptr = (uint16_t)(v.type == AtomType_Integer ? v.value.integer : 0);
+			*(uint16_t *)field_ptr = (uint16_t)(v.type == YAS_ATOM_TYPE_INTEGER ? v.value.integer : 0);
 			break;
 		case YAS_FFI_TYPE_INT32:
 		case YAS_FFI_TYPE_UINT32:
-			*(uint32_t *)field_ptr = (uint32_t)(v.type == AtomType_Integer ? v.value.integer : 0);
+			*(uint32_t *)field_ptr = (uint32_t)(v.type == YAS_ATOM_TYPE_INTEGER ? v.value.integer : 0);
 			break;
 		case YAS_FFI_TYPE_INT64:
 		case YAS_FFI_TYPE_UINT64:
-			*(uint64_t *)field_ptr = (uint64_t)(v.type == AtomType_Integer ? v.value.integer : 0);
+			*(uint64_t *)field_ptr = (uint64_t)(v.type == YAS_ATOM_TYPE_INTEGER ? v.value.integer : 0);
 			break;
 		case YAS_FFI_TYPE_FLOAT:
-			*(float *)field_ptr = (float)(v.type == AtomType_Float ? v.value.floatval :
-			                              (v.type == AtomType_Integer ? v.value.integer : 0));
+			*(float *)field_ptr = (float)(v.type == YAS_ATOM_TYPE_FLOAT ? v.value.floatval :
+			                              (v.type == YAS_ATOM_TYPE_INTEGER ? v.value.integer : 0));
 			break;
 		case YAS_FFI_TYPE_DOUBLE:
-			*(double *)field_ptr = (double)(v.type == AtomType_Float ? v.value.floatval :
-			                                (v.type == AtomType_Integer ? v.value.integer : 0));
+			*(double *)field_ptr = (double)(v.type == YAS_ATOM_TYPE_FLOAT ? v.value.floatval :
+			                                (v.type == YAS_ATOM_TYPE_INTEGER ? v.value.integer : 0));
 			break;
 		case YAS_FFI_TYPE_POINTER:
-			if (v.type == AtomType_FFIPointer) {
+			if (v.type == YAS_ATOM_TYPE_FFI_POINTER) {
 				*(void **)field_ptr = v.value.ffi_pointer;
 			} else {
 				*(void **)field_ptr = NULL;
@@ -801,31 +801,31 @@ int builtin_ffi_make_struct(Atom args, Atom *result)
 		default:
 			break;
 		}
-		values = cdr(values);
+		values = yas_cdr(values);
 	}
 
-	result->type = AtomType_FFIStruct;
+	result->type = YAS_ATOM_TYPE_FFI_STRUCT;
 	result->value.ffi_struct = inst;
-	return Error_OK;
+	return YAS_ERROR_OK;
 }
 
 /* (ffi-struct-ref struct field-name) -> value */
-int builtin_ffi_struct_ref(Atom args, Atom *result)
+int yas_builtin_ffi_struct_ref(YasAtom args, YasAtom *result)
 {
-	if (nilp(args) || car(args).type != AtomType_FFIStruct) {
-		return raise_error("type-error", "ffi-struct-ref requires an ffi-struct");
+	if (yas_nilp(args) || yas_car(args).type != YAS_ATOM_TYPE_FFI_STRUCT) {
+		return yas_raise_error("type-error", "ffi-struct-ref requires an ffi-struct");
 	}
-	if (nilp(cdr(args)) || car(cdr(args)).type != AtomType_Symbol) {
-		return raise_error("type-error", "ffi-struct-ref requires a field name symbol");
+	if (yas_nilp(yas_cdr(args)) || yas_car(yas_cdr(args)).type != YAS_ATOM_TYPE_SYMBOL) {
+		return yas_raise_error("type-error", "ffi-struct-ref requires a field name symbol");
 	}
 
-	FFIStructInstance *inst = car(args).value.ffi_struct;
+	YasFFIStructInstance *inst = yas_car(args).value.ffi_struct;
 	if (!inst || !inst->type) {
-		return raise_error("ffi-error", "Invalid struct instance");
+		return yas_raise_error("ffi-error", "Invalid struct instance");
 	}
 
-	const char *field_name = car(cdr(args)).value.symbol;
-	FFIStructType *st = inst->type;
+	const char *field_name = yas_car(yas_cdr(args)).value.symbol;
+	YasFFIStructType *st = inst->type;
 
 	/* Find field */
 	int field_idx = -1;
@@ -837,72 +837,72 @@ int builtin_ffi_struct_ref(Atom args, Atom *result)
 	}
 
 	if (field_idx < 0) {
-		return raise_error("ffi-error", "Unknown field name");
+		return yas_raise_error("ffi-error", "Unknown field name");
 	}
 
 	void *field_ptr = (char *)inst->data + st->fields[field_idx].offset;
 
 	switch (st->fields[field_idx].type) {
 	case YAS_FFI_TYPE_INT8:
-		*result = make_int(*(int8_t *)field_ptr);
+		*result = yas_make_int(*(int8_t *)field_ptr);
 		break;
 	case YAS_FFI_TYPE_UINT8:
-		*result = make_int(*(uint8_t *)field_ptr);
+		*result = yas_make_int(*(uint8_t *)field_ptr);
 		break;
 	case YAS_FFI_TYPE_INT16:
-		*result = make_int(*(int16_t *)field_ptr);
+		*result = yas_make_int(*(int16_t *)field_ptr);
 		break;
 	case YAS_FFI_TYPE_UINT16:
-		*result = make_int(*(uint16_t *)field_ptr);
+		*result = yas_make_int(*(uint16_t *)field_ptr);
 		break;
 	case YAS_FFI_TYPE_INT32:
-		*result = make_int(*(int32_t *)field_ptr);
+		*result = yas_make_int(*(int32_t *)field_ptr);
 		break;
 	case YAS_FFI_TYPE_UINT32:
-		*result = make_int(*(uint32_t *)field_ptr);
+		*result = yas_make_int(*(uint32_t *)field_ptr);
 		break;
 	case YAS_FFI_TYPE_INT64:
 	case YAS_FFI_TYPE_UINT64:
-		*result = make_int(*(int64_t *)field_ptr);
+		*result = yas_make_int(*(int64_t *)field_ptr);
 		break;
 	case YAS_FFI_TYPE_FLOAT:
-		*result = make_float(*(float *)field_ptr);
+		*result = yas_make_float(*(float *)field_ptr);
 		break;
 	case YAS_FFI_TYPE_DOUBLE:
-		*result = make_float(*(double *)field_ptr);
+		*result = yas_make_float(*(double *)field_ptr);
 		break;
 	case YAS_FFI_TYPE_POINTER:
-		result->type = AtomType_FFIPointer;
+		result->type = YAS_ATOM_TYPE_FFI_POINTER;
 		result->value.ffi_pointer = *(void **)field_ptr;
 		break;
 	default:
-		*result = nil;
+		*result = yas_nil;
 	}
 
-	return Error_OK;
+	return YAS_ERROR_OK;
 }
 
 /* (ffi-struct-set! struct field-name value) -> value */
-int builtin_ffi_struct_set(Atom args, Atom *result)
+int yas_builtin_ffi_struct_set(YasAtom args, YasAtom *result)
 {
-	if (nilp(args) || car(args).type != AtomType_FFIStruct) {
-		return raise_error("type-error", "ffi-struct-set! requires an ffi-struct");
+	if (yas_nilp(args) || yas_car(args).type != YAS_ATOM_TYPE_FFI_STRUCT) {
+		return yas_raise_error("type-error", "ffi-struct-set! requires an ffi-struct");
 	}
-	if (nilp(cdr(args)) || car(cdr(args)).type != AtomType_Symbol) {
-		return raise_error("type-error", "ffi-struct-set! requires a field name symbol");
+	if (yas_nilp(yas_cdr(args)) || yas_car(yas_cdr(args)).type != YAS_ATOM_TYPE_SYMBOL) {
+		return yas_raise_error("type-error", "ffi-struct-set! requires a field name symbol");
 	}
-	if (nilp(cdr(cdr(args)))) {
-		return raise_error("args-error", "ffi-struct-set! requires a value");
+	if (yas_nilp(yas_cdr(yas_cdr(args)))) {
+		return yas_raise_error("args-error", "ffi-struct-set! requires a value");
 	}
 
-	FFIStructInstance *inst = car(args).value.ffi_struct;
+	YasFFIStructInstance *inst = yas_car(args).value.ffi_struct;
 	if (!inst || !inst->type) {
-		return raise_error("ffi-error", "Invalid struct instance");
+		return yas_raise_error("ffi-error", "Invalid struct instance");
 	}
 
-	const char *field_name = car(cdr(args)).value.symbol;
-	Atom value = car(cdr(cdr(args)));
-	FFIStructType *st = inst->type;
+	const char *field_name = yas_car(yas_cdr(args)).value.symbol;
+	YasAtom value = yas_car(yas_cdr(yas_cdr(args)));
+	YasFFIStructType *st = inst->type;
 
 	/* Find field */
 	int field_idx = -1;
@@ -914,7 +914,7 @@ int builtin_ffi_struct_set(Atom args, Atom *result)
 	}
 
 	if (field_idx < 0) {
-		return raise_error("ffi-error", "Unknown field name");
+		return yas_raise_error("ffi-error", "Unknown field name");
 	}
 
 	void *field_ptr = (char *)inst->data + st->fields[field_idx].offset;
@@ -922,30 +922,30 @@ int builtin_ffi_struct_set(Atom args, Atom *result)
 	switch (st->fields[field_idx].type) {
 	case YAS_FFI_TYPE_INT8:
 	case YAS_FFI_TYPE_UINT8:
-		*(uint8_t *)field_ptr = (uint8_t)(value.type == AtomType_Integer ? value.value.integer : 0);
+		*(uint8_t *)field_ptr = (uint8_t)(value.type == YAS_ATOM_TYPE_INTEGER ? value.value.integer : 0);
 		break;
 	case YAS_FFI_TYPE_INT16:
 	case YAS_FFI_TYPE_UINT16:
-		*(uint16_t *)field_ptr = (uint16_t)(value.type == AtomType_Integer ? value.value.integer : 0);
+		*(uint16_t *)field_ptr = (uint16_t)(value.type == YAS_ATOM_TYPE_INTEGER ? value.value.integer : 0);
 		break;
 	case YAS_FFI_TYPE_INT32:
 	case YAS_FFI_TYPE_UINT32:
-		*(uint32_t *)field_ptr = (uint32_t)(value.type == AtomType_Integer ? value.value.integer : 0);
+		*(uint32_t *)field_ptr = (uint32_t)(value.type == YAS_ATOM_TYPE_INTEGER ? value.value.integer : 0);
 		break;
 	case YAS_FFI_TYPE_INT64:
 	case YAS_FFI_TYPE_UINT64:
-		*(uint64_t *)field_ptr = (uint64_t)(value.type == AtomType_Integer ? value.value.integer : 0);
+		*(uint64_t *)field_ptr = (uint64_t)(value.type == YAS_ATOM_TYPE_INTEGER ? value.value.integer : 0);
 		break;
 	case YAS_FFI_TYPE_FLOAT:
-		*(float *)field_ptr = (float)(value.type == AtomType_Float ? value.value.floatval :
-		                              (value.type == AtomType_Integer ? value.value.integer : 0));
+		*(float *)field_ptr = (float)(value.type == YAS_ATOM_TYPE_FLOAT ? value.value.floatval :
+		                              (value.type == YAS_ATOM_TYPE_INTEGER ? value.value.integer : 0));
 		break;
 	case YAS_FFI_TYPE_DOUBLE:
-		*(double *)field_ptr = (double)(value.type == AtomType_Float ? value.value.floatval :
-		                                (value.type == AtomType_Integer ? value.value.integer : 0));
+		*(double *)field_ptr = (double)(value.type == YAS_ATOM_TYPE_FLOAT ? value.value.floatval :
+		                                (value.type == YAS_ATOM_TYPE_INTEGER ? value.value.integer : 0));
 		break;
 	case YAS_FFI_TYPE_POINTER:
-		if (value.type == AtomType_FFIPointer) {
+		if (value.type == YAS_ATOM_TYPE_FFI_POINTER) {
 			*(void **)field_ptr = value.value.ffi_pointer;
 		} else {
 			*(void **)field_ptr = NULL;
@@ -956,7 +956,7 @@ int builtin_ffi_struct_set(Atom args, Atom *result)
 	}
 
 	*result = value;
-	return Error_OK;
+	return YAS_ERROR_OK;
 }
 
 #endif /* YAS_FFI */

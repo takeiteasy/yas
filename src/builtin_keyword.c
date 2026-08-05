@@ -1,41 +1,41 @@
-#include "lisp.h"
+#include "yas.h"
 #include <stdlib.h>
 #include <string.h>
 
 /* (keyword? obj) */
-int builtin_keywordp(Atom args, Atom *result)
+int yas_builtin_keywordp(YasAtom args, YasAtom *result)
 {
-	if (nilp(args) || !nilp(cdr(args)))
-		return raise_error("args-error", "keyword?: expected 1 argument");
-	*result = car(args).type == AtomType_Keyword ? make_sym("T") : nil;
-	return Error_OK;
+	if (yas_nilp(args) || !yas_nilp(yas_cdr(args)))
+		return yas_raise_error("args-error", "keyword?: expected 1 argument");
+	*result = yas_car(args).type == YAS_ATOM_TYPE_KEYWORD ? yas_make_sym("T") : yas_nil;
+	return YAS_ERROR_OK;
 }
 
 /* (keyword->string kw) */
-int builtin_keyword_to_string(Atom args, Atom *result)
+int yas_builtin_keyword_to_string(YasAtom args, YasAtom *result)
 {
-	if (nilp(args) || !nilp(cdr(args)))
-		return raise_error("args-error", "keyword->string: expected 1 argument");
-	if (car(args).type != AtomType_Keyword)
-		return raise_error("type-error", "keyword->string: argument must be keyword");
-	*result = make_string(car(args).value.keyword);
-	return Error_OK;
+	if (yas_nilp(args) || !yas_nilp(yas_cdr(args)))
+		return yas_raise_error("args-error", "keyword->string: expected 1 argument");
+	if (yas_car(args).type != YAS_ATOM_TYPE_KEYWORD)
+		return yas_raise_error("type-error", "keyword->string: argument must be keyword");
+	*result = yas_make_string(yas_car(args).value.keyword);
+	return YAS_ERROR_OK;
 }
 
 /* (string->keyword str) */
-int builtin_string_to_keyword(Atom args, Atom *result)
+int yas_builtin_string_to_keyword(YasAtom args, YasAtom *result)
 {
-	if (nilp(args) || !nilp(cdr(args)))
-		return raise_error("args-error", "string->keyword: expected 1 argument");
-	if (car(args).type != AtomType_String)
-		return raise_error("type-error", "string->keyword: argument must be string");
+	if (yas_nilp(args) || !yas_nilp(yas_cdr(args)))
+		return yas_raise_error("args-error", "string->keyword: expected 1 argument");
+	if (yas_car(args).type != YAS_ATOM_TYPE_STRING)
+		return yas_raise_error("type-error", "string->keyword: argument must be string");
 	
 	/* Convert to uppercase for consistency */
-	char *buf = strdup(car(args).value.string);
+	char *buf = strdup(yas_car(args).value.string);
 	for (char *p = buf; *p; p++) {
 		if (*p >= 'a' && *p <= 'z') *p -= 32;
 	}
-	*result = make_keyword(buf);
+	*result = yas_make_keyword(buf);
 	free(buf);
-	return Error_OK;
+	return YAS_ERROR_OK;
 }

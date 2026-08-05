@@ -2,7 +2,7 @@
 
 yas can lower a restricted subset of itself to plain C **at compile time**,
 using [cccc](https://github.com)'s comptime pass and reflection API. The
-result is an ordinary C function - no interpreter, no `Atom`, no GC - that
+result is an ordinary C function - no interpreter, no `YasAtom`, no GC - that
 the system compiler optimizes and links like any other code.
 
 ```scheme
@@ -44,7 +44,7 @@ Requires [cccc](https://github.com) on `$PATH`; override with
 - integer and float literals, parameter references, let-bound references
 - direct and mutual recursion between AOT-compiled functions
 
-Every value is an unboxed C `long` or `double` - never an `Atom`. A whole
+Every value is an unboxed C `long` or `double` - never a `YasAtom`. A whole
 function is either all-`long` or all-`double`: if any part of its body is a
 float literal, a float constant, or a call to a function already inferred
 `double`, the *entire* function (return type and every parameter) is
@@ -100,7 +100,7 @@ The actual design splits the work by *where it can safely run*:
 
 - **`src/aot_plan.c`** - ordinary C, compiled by the system compiler, with
   none of cccc's constraints. Does everything: reads the file (via a
-  private boxed-`Atom` reader front end at the top of this file - kept
+  private boxed-`YasAtom` reader front end at the top of this file - kept
   private since nothing outside `aot_plan.c` ever calls it directly),
   mangles names, infers long-vs-double per function, resolves `let`/`let*`
   bindings to numbered local slots, and flattens each function body into a
@@ -266,8 +266,8 @@ blocker for the design.
 ## Future work
 
 See the tracker (labels `aot`, `compiler`) for the itemized backlog:
-GC root/shadow-stack API so a future `Atom`-level lowering can hold live
-values; `Atom`-level lowering beyond the numeric subset; closures and
+GC root/shadow-stack API so a future `YasAtom`-level lowering can hold live
+values; `YasAtom`-level lowering beyond the numeric subset; closures and
 higher-order functions; a standalone macro-expansion pass (macros are
 currently runtime and per-environment - see
 [ARCHITECTURE.md](ARCHITECTURE.md)); metamethod dispatch for lowered

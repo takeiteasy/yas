@@ -8,14 +8,14 @@
  * - Navigate UTF-8 strings by codepoint index
  */
 
-#include "lisp.h"
+#include "yas.h"
 
 /*
  * Decode a single UTF-8 character from the string.
  * Returns the number of bytes consumed (1-4), or 0 on error.
  * The decoded codepoint is stored in *cp.
  */
-int utf8_decode(const char *s, int32_t *cp)
+int yas_utf8_decode(const char *s, int32_t *cp)
 {
 	unsigned char c = (unsigned char)s[0];
 	
@@ -78,7 +78,7 @@ int utf8_decode(const char *s, int32_t *cp)
  * Returns the number of bytes written (1-4).
  * The output buffer must have at least 4 bytes available.
  */
-int utf8_encode(int32_t cp, char *out)
+int yas_utf8_encode(int32_t cp, char *out)
 {
 	if (cp < 0 || cp > 0x10FFFF || (cp >= 0xD800 && cp <= 0xDFFF)) {
 		/* Invalid codepoint, encode replacement character */
@@ -113,13 +113,13 @@ int utf8_encode(int32_t cp, char *out)
 /*
  * Count the number of Unicode codepoints in a UTF-8 string.
  */
-size_t utf8_strlen(const char *s)
+size_t yas_utf8_strlen(const char *s)
 {
 	size_t len = 0;
 	int32_t cp;
 	
 	while (*s) {
-		int n = utf8_decode(s, &cp);
+		int n = yas_utf8_decode(s, &cp);
 		if (n == 0) break;
 		s += n;
 		len++;
@@ -132,13 +132,13 @@ size_t utf8_strlen(const char *s)
  * Get the codepoint at a given index (0-indexed).
  * Returns -1 if index is out of bounds.
  */
-int32_t utf8_codepoint_at(const char *s, size_t index)
+int32_t yas_utf8_codepoint_at(const char *s, size_t index)
 {
 	int32_t cp;
 	size_t i = 0;
 	
 	while (*s) {
-		int n = utf8_decode(s, &cp);
+		int n = yas_utf8_decode(s, &cp);
 		if (n == 0) break;
 		if (i == index) return cp;
 		s += n;
@@ -152,14 +152,14 @@ int32_t utf8_codepoint_at(const char *s, size_t index)
  * Get pointer to the start of the codepoint at a given index.
  * Returns NULL if index is out of bounds.
  */
-const char *utf8_index_ptr(const char *s, size_t index)
+const char *yas_utf8_index_ptr(const char *s, size_t index)
 {
 	int32_t cp;
 	size_t i = 0;
 	
 	while (*s) {
 		if (i == index) return s;
-		int n = utf8_decode(s, &cp);
+		int n = yas_utf8_decode(s, &cp);
 		if (n == 0) break;
 		s += n;
 		i++;

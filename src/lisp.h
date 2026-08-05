@@ -220,6 +220,7 @@ extern Atom ctx_exception;
 
 int builtin_throw(Atom args, Atom *result);
 int builtin_error(Atom args, Atom *result);
+int builtin_exit(Atom args, Atom *result);
 
 int raise_error(const char *type, const char *msg);
 
@@ -370,7 +371,7 @@ int module_define_library(Atom args, Atom *result);
 int module_import(Atom args, Atom env, Atom *result); /* File loading */
 int eval_file(const char *path, Atom env, Atom *result, int case_insensitive);
 int eval_source(const char *text, const char *path, Atom env, Atom *result);
-void load_file(Atom env, const char *path);
+int load_file(Atom env, const char *path);
 
 /* ============================================================
  * I/O SANDBOX SYSTEM

@@ -95,15 +95,10 @@ to scalar arrays.
 
 `Error_Skip` is reader-internal, not a real error, and must be treated as
 "skip this form, keep reading" rather than "stop reading". `main.c`'s
-`load_file()` loop handles this correctly (`if (read_err == Error_Skip)
-continue;`); **`eval_source()` does not** - it treats any read error with
-an empty message (which `Error_Skip` produces) as EOF and stops, silently
-truncating the rest of the file. This affects anything that loads code via
-`eval_source()` - including `library_load()` for stdlib/native modules -
-whenever the loaded source contains a top-level `#+`/`#-` form that
-excludes an expression. The AOT pass's reader front end (private to
-`src/aot_plan.c`) replicates `main.c`'s loop, not `eval_source()`'s,
-specifically to avoid this.
+`load_file()` loop and `eval_source()` (`eval.c`) both handle this
+correctly (`if (read_err == Error_Skip) continue;`), so a top-level
+`#+`/`#-` form that excludes an expression does not truncate the rest of
+the file, whichever entry point loaded it.
 
 ## Evaluator
 
@@ -187,9 +182,10 @@ allocation points:
   invalidate a still-live `FFIFunction` extracted from it (it doesn't hold
   a reference back to its library). Both stay explicitly managed via
   `ffi-close`/`ffi-free`.
-- `AtomType_Continuation` is not among the types `gc_mark()` traces - a
-  continuation value reachable only through application state, not
-  through a marked root, is not protected from collection.
+- `gc_mark()` traces `AtomType_Continuation` the same way as `Pair`/
+  `Closure`/`Macro` (it shares the same underlying `Allocation`), so a
+  continuation reachable only through application state is protected from
+  collection like any other live value.
 
 ## Module system
 

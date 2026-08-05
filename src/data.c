@@ -445,7 +445,8 @@ void gc_mark(Atom root)
 
 	if (!(root.type == AtomType_Pair
 		|| root.type == AtomType_Closure
-		|| root.type == AtomType_Macro))
+		|| root.type == AtomType_Macro
+		|| root.type == AtomType_Continuation))
 		return;
 
 	a = (struct Allocation *)

@@ -4,11 +4,14 @@
 #include <string.h>
 #include <readline/readline.h>
 
-void load_file(Atom env, const char *path)
+/* Returns 0 if every top-level form in the file read and evaluated
+ * cleanly, non-zero if a syntax or eval error occurred anywhere - callers
+ * use this to set the process exit code. */
+int load_file(Atom env, const char *path)
 {
 	char *text;
+	int had_error = 0;
 
-	printf("Reading %s...\n", path);
 	text = slurp(path);
 	if (text) {
 		const char *p = text;
@@ -30,6 +33,7 @@ void load_file(Atom env, const char *path)
 				if (err.message[0] != '\0') {
 					/* Real error, not just end of file */
 					error_print(&err);
+					had_error = 1;
 				}
 				break;
 			}
@@ -37,6 +41,7 @@ void load_file(Atom env, const char *path)
 			Atom result;
 			Error eval_err = eval_expr(expr, env, &result);
 			if (eval_err) {
+				had_error = 1;
 				extern const char *current_file_path;
 				printf("Error evaluating expression");
 				if (current_file_path) {
@@ -70,13 +75,17 @@ void load_file(Atom env, const char *path)
 				printf("  Code: ");
 				print_expr(expr);
 				putchar('\n');
-			} else {
-				print_expr(result);
-				putchar('\n');
 			}
+			/* Unlike the REPL, running a file does not auto-print each
+			 * top-level result - scripts print explicitly if they want
+			 * output. */
 		}
 		free(text);
+	} else {
+		had_error = 1;
 	}
+
+	return had_error;
 }
 
 int main(int argc, char **argv)
@@ -96,9 +105,12 @@ int main(int argc, char **argv)
 	module_import(import_args, env, &ignore);
 
 	if (argc > 1) {
-		for (int i = 1; i < argc; i++)
-			load_file(env, argv[i]);
-		return 0;
+		int had_error = 0;
+		for (int i = 1; i < argc; i++) {
+			if (load_file(env, argv[i]))
+				had_error = 1;
+		}
+		return had_error ? 1 : 0;
 	}
 
 	printf("(yas repl v0.0.1 :)\n\n");

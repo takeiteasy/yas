@@ -55,14 +55,12 @@ libyas: $(libyas)
 
 .PHONY: test
 test: yas
-	@./yas suite.ys > .test-output.log 2>&1; \
-	cat .test-output.log; \
-	if grep -q "SOME TESTS FAILED" .test-output.log || ! grep -q "ALL TESTS PASSED" .test-output.log; then \
-		rm -f .test-output.log; \
+	@./yas suite.ys; \
+	status=$$?; \
+	if [ $$status -ne 0 ]; then \
 		echo "make test: FAILED"; \
 		exit 1; \
 	fi; \
-	rm -f .test-output.log; \
 	echo "make test: PASSED"
 
 # ============================================================

@@ -106,6 +106,7 @@ void load_base_library(void) {
 	reg_builtin(env, exports, "STRING?", builtin_stringp);
 	reg_builtin(env, exports, "THROW", builtin_throw);
 	reg_builtin(env, exports, "ERROR", builtin_error);
+	reg_builtin(env, exports, "EXIT", builtin_exit);
 	reg_builtin(env, exports, "PRINT", builtin_print);
 	reg_builtin(env, exports, "LENGTH", builtin_list_length);
 	reg_builtin(env, exports, "APPEND", builtin_list_append);
@@ -634,16 +635,6 @@ static Atom resolve_import_set(Atom set) {
 		} else if (env_get(lib_env, ext, &val) == Error_OK) {
 			/* Direct export - internal == external */
 			hash_set(result, ext, val);
-		} else {
-			/* Export not found - check if it's %FFI-DEFSTRUCT for debugging */
-			if (ext.type == AtomType_Symbol && strcmp(ext.value.symbol, "%FFI-DEFSTRUCT") == 0) {
-				printf("DEBUG: %%FFI-DEFSTRUCT export found but not in library environment\n");
-				printf("  Export key: ");
-				print_expr(ext);
-				printf("\n  Export value: ");
-				print_expr(internal);
-				printf("\n");
-			}
 		}
 	}
 	
@@ -665,15 +656,6 @@ static int process_import_set(Atom import_set, Atom target_env) {
 		Atom key = h->keys[i];
 		Atom val = h->values[i];
 		env_define(target_env, key, val);
-		/* Debug: verify %FFI-DEFSTRUCT is being added */
-		if (key.type == AtomType_Symbol && strcmp(key.value.symbol, "%FFI-DEFSTRUCT") == 0) {
-			Atom check;
-			if (env_get(target_env, key, &check) == Error_OK) {
-				/* Successfully added */
-			} else {
-				printf("WARNING: Failed to add %%FFI-DEFSTRUCT to target environment\n");
-			}
-		}
 	}
 	return Error_OK;
 }

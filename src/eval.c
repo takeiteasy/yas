@@ -113,6 +113,10 @@ int eval_source(const char *text, const char *path, Atom env, Atom *result)
 		err.message[0] = '\0';
 		
 		Error read_err = read_expr(p, &p, &expr, &err);
+		if (read_err == Error_Skip) {
+			/* Feature conditional excluded this expression, continue */
+			continue;
+		}
 		if (read_err) {
 			if (err.message[0] != '\0') {
 				error_print(&err);

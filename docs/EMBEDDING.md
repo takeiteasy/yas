@@ -25,17 +25,14 @@ module_import(list_create(1, yas_base), env, &ignore);
 int eval_expr(Atom expr, Atom env, Atom *result);
 int eval_file(const char *path, Atom env, Atom *result, int case_insensitive);
 int eval_source(const char *text, const char *path, Atom env, Atom *result);
-void load_file(Atom env, const char *path);   /* prints each top-level result */
+void load_file(Atom env, const char *path);   /* silent unless a top-level form errors */
 ```
 
-`eval_source()` has one sharp edge worth knowing before using it as a
-generic "load this text" entry point: a top-level `#+feature`/`#-feature`
-reader conditional that excludes an expression produces `Error_Skip`
-internally, and `eval_source()` treats *any* read error with an empty
-message (which `Error_Skip` produces) as end-of-file - silently truncating
-the rest of the source. `main.c`'s own `load_file()` loop handles this
-correctly (`if (read_err == Error_Skip) continue;`); reuse that pattern,
-not `eval_source()`, if reader conditionals matter to your input.
+Both `eval_source()` and `load_file()`'s reader loop treat a top-level
+`#+feature`/`#-feature` reader conditional that excludes an expression
+(`Error_Skip`) as "skip this form, keep reading" rather than end-of-file,
+so reader conditionals anywhere in the source are handled correctly by
+either entry point.
 
 ## Registering native functions
 

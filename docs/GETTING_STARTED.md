@@ -42,6 +42,11 @@ Running a file from the command line auto-imports `(yas base)` for you
 (see `main.c`); code loaded other ways (via `eval_source`, or a library's
 own body) does not, and must import it explicitly.
 
+Unlike the REPL, running a file does not auto-print each top-level form's
+result - only what the script itself prints (`print`, etc.) reaches
+stdout, so `./yas script.ys` works as a plain script/`#!` interpreter
+without extra output to filter.
+
 ## Core syntax
 
 ```scheme
@@ -126,10 +131,10 @@ exports.
 (run-tests)
 ```
 
-`run-tests` prints a pass/fail summary but does not set a process exit
-code ([ticket](https://todo.sr.ht/~takeiteasy/yas/9)) - `make test` works
-around this by grepping the printed summary. See `suite.ys` for a full
-example test file, and `(yas test)` in
+`run-tests` prints a pass/fail summary and then calls `(exit 0)` or
+`(exit 1)` depending on the result, so `make test` and other CI can gate
+on the process exit code directly. See `suite.ys` for a full example test
+file, and `(yas test)` in
 [LANGUAGE_REFERENCE.md](LANGUAGE_REFERENCE.md#yas-test) for `check`'s
 comparison rules.
 

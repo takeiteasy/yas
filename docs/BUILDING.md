@@ -4,7 +4,7 @@
 
 ```sh
 make            # builds ./yas
-make test       # runs suite.ys, gates on ALL TESTS PASSED
+make test       # runs suite.ys, gates on its process exit code
 make clean
 ```
 

@@ -70,5 +70,5 @@
       (print "Passed:" *passes*)
       (print "Failed:" *fails*)
       (if (> *fails* 0)
-          (print "SOME TESTS FAILED")
-          (print "ALL TESTS PASSED")))))
+          (begin (print "SOME TESTS FAILED") (exit 1))
+          (begin (print "ALL TESTS PASSED") (exit 0))))))

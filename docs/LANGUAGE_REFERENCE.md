@@ -103,6 +103,18 @@ boundary) - tail calls don't propagate through it, and a continuation
 captured inside a `try` can't be invoked across it (see
 [ARCHITECTURE.md](ARCHITECTURE.md#evaluator)).
 
+## Exiting
+
+```scheme
+(exit)         ; terminate the process, status 0
+(exit 1)       ; terminate the process, status 1
+```
+
+`exit` maps directly to C's `exit()` - it terminates the process
+immediately (no unwinding of `try`/`finally`). Useful for CLI scripts and
+test runners (`(yas test)`'s `run-tests` calls it) that need to set a
+process exit code.
+
 ## call/cc
 
 ```scheme

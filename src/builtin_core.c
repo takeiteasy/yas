@@ -186,6 +186,22 @@ int builtin_error(Atom args, Atom *result)
 	return Error_Exception;
 }
 
+/* (exit [code]) - Terminate the process with the given status code (default 0) */
+int builtin_exit(Atom args, Atom *result)
+{
+	long code = 0;
+
+	if (!nilp(args)) {
+		if (!nilp(cdr(args)))
+			return raise_error("args-error", "exit: expected 0 or 1 arguments");
+		if (car(args).type != AtomType_Integer)
+			return raise_error("type-error", "exit: argument must be an integer");
+		code = car(args).value.integer;
+	}
+
+	exit((int) code);
+}
+
 /* (procedure-doc proc) - Get docstring from procedure/macro */
 int builtin_procedure_doc(Atom args, Atom *result)
 {

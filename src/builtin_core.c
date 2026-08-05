@@ -157,7 +157,7 @@ int yas_builtin_list_append(YasAtom args, YasAtom *result)
 			if (yas_nilp(head)) {
 				head = tail = new_cons;
 			} else {
-				yas_cdr(tail) = new_cons;
+				yas_set_cdr(tail, new_cons);
 				tail = new_cons;
 			}
 			list = yas_cdr(list);
@@ -214,5 +214,39 @@ int yas_builtin_procedure_doc(YasAtom args, YasAtom *result)
 	
 	/* Structure: (env (args docstring . body)) */
 	*result = yas_car(yas_cdr(yas_cdr(proc)));
+	return YAS_ERROR_OK;
+}
+
+/* (gc) - run a full collection cycle to completion */
+int yas_builtin_gc(YasAtom args, YasAtom *result)
+{
+	if (!yas_nilp(args))
+		return yas_raise_error("args-error", "gc: expected 0 arguments");
+	yas_gc();
+	*result = yas_nil;
+	return YAS_ERROR_OK;
+}
+
+/* (gc-start) - begin a cycle without draining it; mainly useful for
+ * tests/tools that need to observe the collector mid-cycle. */
+int yas_builtin_gc_start(YasAtom args, YasAtom *result)
+{
+	if (!yas_nilp(args))
+		return yas_raise_error("args-error", "gc-start: expected 0 arguments");
+	yas_gc_start();
+	*result = yas_nil;
+	return YAS_ERROR_OK;
+}
+
+/* (gc-stats) -> #hash{allocated: <bytes> phase: <int>}
+ * phase: 0=idle 1=marking 2=sweeping - see yas_gc_phase() in yas.h. */
+int yas_builtin_gc_stats(YasAtom args, YasAtom *result)
+{
+	if (!yas_nilp(args))
+		return yas_raise_error("args-error", "gc-stats: expected 0 arguments");
+	YasAtom h = yas_make_hash();
+	yas_hash_set(h, yas_make_keyword("ALLOCATED"), yas_make_int((long)yas_gc_allocated()));
+	yas_hash_set(h, yas_make_keyword("PHASE"), yas_make_int(yas_gc_phase()));
+	*result = h;
 	return YAS_ERROR_OK;
 }

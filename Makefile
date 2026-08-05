@@ -63,6 +63,15 @@ test: yas
 	fi; \
 	echo "make test: PASSED"
 
+# C-level GC regression tests (tests/gc_test.c) - things suite.ys can't
+# reach: the root-registration API and collector internals that need
+# controlled stepping (write barrier mid-cycle, deep-list marking).
+.PHONY: test-gc
+test-gc: $(libyas)
+	@mkdir -p build
+	$(CC) -std=c99 -Wall -D_GNU_SOURCE -iquote src -o build/gc_test tests/gc_test.c -L. -lyas -Wl,-rpath,.
+	./build/gc_test
+
 # aux/ holds slow stress/benchmark/fuzz scripts that aren't part of the
 # regular `make test` gate - run individually as needed, e.g.:
 #   ./yas aux/gc_continuation_stress.ys
@@ -144,7 +153,7 @@ test-aot: libyas
 	echo "make test-aot: PASSED"
 
 .PHONY: check
-check: test test-aot
+check: test test-gc test-aot
 
 .PHONY: clean
 clean:

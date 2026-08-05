@@ -134,44 +134,79 @@ struct YasAtom {
 	} value;
 };
 
+/* ── Unified GC header ──────────────────────────────────────────────
+ * Every heap-allocated object yas_gc() tracks embeds (or, for the bare-
+ * pointer payload types below, wraps) one of these, threaded through a
+ * single intrusive list. `obj_type` lets the generic mark/sweep dispatch
+ * without a separate list per type; `color` is the tricolor mark used by
+ * the incremental collector (see docs/GC.md). */
+typedef enum {
+	YAS_GC_WHITE,   /* not yet reached this cycle - candidate for sweep */
+	YAS_GC_GRAY,    /* reached, not yet scanned - on the gray worklist */
+	YAS_GC_BLACK    /* reached and scanned (or allocated mid-cycle) */
+} YasGCColor;
+
+typedef enum {
+	YAS_GC_OBJ_PAIR,
+	YAS_GC_OBJ_VECTOR,
+	YAS_GC_OBJ_HASH,
+	YAS_GC_OBJ_STRING,
+	YAS_GC_OBJ_PORT,
+	YAS_GC_OBJ_BYTEVECTOR,
+	YAS_GC_OBJ_VEC,
+	YAS_GC_OBJ_MAT4,
+#ifdef YAS_FFI
+	YAS_GC_OBJ_FFI_FUNCTION,
+	YAS_GC_OBJ_FFI_STRUCT
+#endif
+} YasGCObjType;
+
+struct YasGCHeader {
+	struct YasGCHeader *next;
+	unsigned char color;     /* YasGCColor */
+	unsigned char obj_type;  /* YasGCObjType */
+	size_t backing_size;     /* Total bytes owned (struct + any external
+	                           * buffers) - returned to the allocated-bytes
+	                           * counter on sweep. */
+};
+
 struct YasPair {
 	struct YasAtom atom[2];
 };
 
+/* Vector/Hash/Port/Bytevector: the atom points directly at the allocation
+ * (e.g. `atom.value.vector` IS the `struct YasVector *`), so `gc` goes
+ * first and a plain cast recovers the header - no offsetof needed. */
 struct YasVector {
+	struct YasGCHeader gc;
 	struct YasAtom *data;
 	size_t size;
 	size_t capacity;
-	int mark;
-	struct YasVector *next;
 };
 
 struct YasHash {
+	struct YasGCHeader gc;
 	struct YasAtom *keys;
 	struct YasAtom *values;
 	size_t size;
 	size_t capacity;
 	struct YasHash *metatable;  /* Metatable for operator overloading */
-	int mark;
-	struct YasHash *next;
 };
 
 struct YasPort {
+	struct YasGCHeader gc;
 	void *handle;           /* FILE* or custom provider handle */
 	char *path;
 	int is_input;
 	int is_binary;
 	int is_open;
 	int provider_id;        /* 0 = stdio, >0 = custom provider */
-	int mark;
-	struct YasPort *next;
 };
 
 struct YasBytevector {
+	struct YasGCHeader gc;
 	unsigned char *data;
 	size_t size;
-	int mark;
-	struct YasBytevector *next;
 };
 
 /* GC headers for otherwise-bare-pointer atom payloads (String, Vec2/3/4,
@@ -179,20 +214,17 @@ struct YasBytevector {
  * data; gc_mark() recovers the header via offsetof, mirroring how `cons`
  * recovers `struct Allocation` from a `struct Pair *`. */
 struct YasStringAlloc {
-	int mark;
-	struct YasStringAlloc *next;
+	struct YasGCHeader gc;
 	char data[];
 };
 
 struct YasVecAlloc {
-	int mark;
-	struct YasVecAlloc *next;
+	struct YasGCHeader gc;
 	yas_vec4_t v;
 };
 
 struct YasMat4Alloc {
-	int mark;
-	struct YasMat4Alloc *next;
+	struct YasGCHeader gc;
 	yas_mat4_t m;
 };
 
@@ -201,6 +233,13 @@ typedef struct YasAtom YasAtom;
 #define yas_car(p) ((p).value.pair->atom[0])
 #define yas_cdr(p) ((p).value.pair->atom[1])
 #define yas_nilp(atom) ((atom).type == YAS_ATOM_TYPE_NIL)
+
+/* Root-mutating cons cell writes. Any code that assigns through yas_car/
+ * yas_cdr (rather than only reading) must go through these instead, so the
+ * write barrier can re-gray a BLACK container whose new child is still
+ * WHITE mid-cycle. See docs/GC.md. */
+void yas_set_car(YasAtom p, YasAtom v);
+void yas_set_cdr(YasAtom p, YasAtom v);
 
 static const YasAtom yas_nil = { YAS_ATOM_TYPE_NIL };
 
@@ -256,8 +295,44 @@ YasAtom yas_list_create(int n, ...);
 YasAtom yas_list_get(YasAtom list, int k);
 void yas_list_set(YasAtom list, int k, YasAtom value);
 void yas_list_reverse(YasAtom *list);
+
+/* ── GC ──────────────────────────────────────────────────────────────
+ * Incremental tricolor mark-sweep. See docs/GC.md for the phase state
+ * machine, the write barrier, and the root API below. */
+
+/* Grays and enqueues `root` for scanning. NOTE: this is NOT "mark this
+ * subgraph right now" - during an active cycle it is a no-op if the
+ * object is already GRAY/BLACK, and outside of a cycle marking has no
+ * effect until a cycle is started (yas_gc_start/yas_gc/yas_gc_step). */
 void yas_gc_mark(YasAtom root);
-void yas_gc();
+
+void yas_gc(void);          /* Run a full collection cycle to completion. */
+void yas_gc_step(void);     /* Run one incremental slice (bounded work). */
+void yas_gc_start(void);    /* Force IDLE -> MARKING, mark roots, don't drain.
+                              * Exists so tests/tools can observe a cycle
+                              * mid-flight rather than only when the byte
+                              * threshold trips it. */
+int    yas_gc_phase(void);      /* 0=idle 1=marking 2=sweeping. The "atomic"
+                                  * root re-mark/full-drain between marking
+                                  * and sweeping never persists across a
+                                  * yas_gc_step() call, so it isn't a phase
+                                  * observable from outside - see docs/GC.md. */
+size_t yas_gc_allocated(void);  /* Bytes currently tracked as live. */
+
+/* Root-registration API (embedders / native builtins). Register the
+ * address of a local YasAtom before any call that might allocate and
+ * therefore step the GC; pop it before returning. Roots are a stack -
+ * pop in LIFO order. */
+void yas_gc_push_root(YasAtom *slot);
+void yas_gc_pop_roots(int n);
+int  yas_gc_root_count(void);
+
+/* Write barrier: call after storing `child` into a reference field owned
+ * by `container` whenever that store bypasses yas_set_car/yas_set_cdr/
+ * yas_vector_set/yas_hash_set (which already call this). Needed by e.g.
+ * set-metatable! (builtin_hash.c), which writes a raw struct YasHash*
+ * rather than a YasAtom field. No-op if either atom isn't heap-tracked. */
+void yas_gc_write_barrier(YasAtom container, YasAtom child);
 
 /* Vector operations */
 YasAtom yas_vector_ref(YasAtom vec, size_t index);
@@ -490,6 +565,11 @@ int yas_builtin_string_to_keyword(YasAtom args, YasAtom *result);
 /* Procedure introspection */
 int yas_builtin_procedure_doc(YasAtom args, YasAtom *result);
 
+/* GC builtins (builtin_core.c) */
+int yas_builtin_gc(YasAtom args, YasAtom *result);
+int yas_builtin_gc_start(YasAtom args, YasAtom *result);
+int yas_builtin_gc_stats(YasAtom args, YasAtom *result);
+
 /* Decode a single UTF-8 character, return bytes consumed (0 on end/error) */
 int yas_utf8_decode(const char *s, int32_t *cp);
 /* Encode a codepoint to UTF-8, return bytes written (1-4) */
@@ -557,12 +637,12 @@ typedef struct YasFFIStructType {
 	struct YasFFIStructType *next;                    /* Linked list for registry */
 } YasFFIStructType;
 
-/* Struct instance (created via make-ffi-struct) */
+/* Struct instance (created via make-ffi-struct). Atom points at the
+ * allocation directly, so `gc` goes first (see YasVector et al above). */
 typedef struct YasFFIStructInstance {
+	struct YasGCHeader gc;
 	YasFFIStructType *type;   /* Pointer to struct type definition */
 	void *data;            /* Pointer to packed struct data */
-	int mark;
-	struct YasFFIStructInstance *next;
 } YasFFIStructInstance;
 
 /* Global struct type registry */
@@ -571,8 +651,10 @@ extern YasFFIStructType *yas_ffi_struct_registry;
 /* Struct type lookup */
 YasFFIStructType *yas_ffi_lookup_struct_type(const char *name);
 
-/* Forward declaration for ffi_cif */
+/* Forward declaration for ffi_cif. Atom points at the allocation
+ * directly, so `gc` goes first (see YasVector et al above). */
 struct YasFFIFunction {
+	struct YasGCHeader gc;
 	void *fn_ptr;           /* Function pointer */
 	void *cif;              /* ffi_cif* (opaque) */
 	YasFFIType ret_type;
@@ -580,19 +662,20 @@ struct YasFFIFunction {
 	void **ffi_arg_types;   /* ffi_type** for each arg (needed for structs) */
 	void *ffi_ret_type;     /* ffi_type* for return (needed for structs) */
 	int arg_count;
-	int mark;
-	struct YasFFIFunction *next;
 };
 
-/* GC-tracked lists for FFIFunction/FFIStructInstance (data.c sweeps these).
- * FFILibrary (dlopen handle) and FFIPointer (raw void*) are deliberately
- * NOT tracked here: ownership of a raw pointer can't be inferred (it may be
- * a dlsym result, an interior pointer into a struct, or a genuinely owned
- * ffi-malloc block), and closing a library when its atom becomes
- * unreachable could invalidate a still-live FFIFunction extracted from it.
- * Both remain explicitly managed via ffi-close / ffi-free. */
-extern struct YasFFIFunction *yas_global_ffi_functions;
-extern YasFFIStructInstance *yas_global_ffi_structs;
+/* FFIFunction/FFIStructInstance are tracked in the single unified GC list
+ * (data.c) like every other heap object. FFILibrary (dlopen handle) and
+ * FFIPointer (raw void*) are deliberately NOT GC-tracked: ownership of a
+ * raw pointer can't be inferred (it may be a dlsym result, an interior
+ * pointer into a struct, or a genuinely owned ffi-malloc block), and
+ * closing a library when its atom becomes unreachable could invalidate a
+ * still-live FFIFunction extracted from it. Both remain explicitly
+ * managed via ffi-close / ffi-free. */
+
+/* GC allocation (data.c) for the two GC-tracked FFI types above. */
+struct YasFFIFunction *yas_gc_alloc_ffi_function(void);
+YasFFIStructInstance *yas_gc_alloc_ffi_struct(void);
 
 /* FFI core functions (ffi.c) */
 void *yas_ffi_load_library(const char *path);

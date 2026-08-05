@@ -145,6 +145,7 @@ int yas_builtin_set_metatable(YasAtom args, YasAtom *result)
 		hash.value.hash->metatable = NULL;
 	} else {
 		hash.value.hash->metatable = mt.value.hash;
+		yas_gc_write_barrier(hash, mt);
 	}
 	
 	*result = hash;

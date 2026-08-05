@@ -125,8 +125,12 @@ static ffi_type *resolve_type(const char *name, YasFFIType *out_type)
 
 struct YasFFIFunction *yas_ffi_prepare(void *fn_ptr, YasAtom ret_type, YasAtom arg_types)
 {
-	struct YasFFIFunction *fn = malloc(sizeof(struct YasFFIFunction));
-	memset(fn, 0, sizeof(struct YasFFIFunction));
+	/* GC-tracked (data.c) like every other heap object - already linked
+	 * into the unified GC list before this function returns, so on the
+	 * failure path below we must NOT free() it or its fields by hand:
+	 * they're left for a later sweep to collect via gc_free_object(),
+	 * same as if this object had simply become unreachable. */
+	struct YasFFIFunction *fn = yas_gc_alloc_ffi_function();
 	fn->fn_ptr = fn_ptr;
 
 	/* Parse return type (keyword or symbol for structs) */
@@ -176,22 +180,24 @@ struct YasFFIFunction *yas_ffi_prepare(void *fn_ptr, YasAtom ret_type, YasAtom a
 	                                  (ffi_type **)fn->ffi_arg_types);
 
 	if (status != FFI_OK) {
+		/* Leave fn (and cif) for the GC to reclaim - see the comment
+		 * where fn was allocated above. */
 		free(cif);
-		if (fn->ffi_arg_types) free(fn->ffi_arg_types);
-		if (fn->arg_types) free(fn->arg_types);
-		free(fn);
 		return NULL;
 	}
 
 	fn->cif = cif;
 
-	fn->mark = 0;
-	fn->next = yas_global_ffi_functions;
-	yas_global_ffi_functions = fn;
-
 	return fn;
 }
 
+/* NOTE: `fn` is GC-tracked (linked into data.c's unified gc_all list at
+ * yas_gc_alloc_ffi_function() time). This function is no longer called
+ * anywhere internally - data.c's gc_free_object() does this same field
+ * cleanup directly when the sweeper reaches an unreachable FFIFunction.
+ * Do NOT call this on a still-linked object: it frees the fields but
+ * doesn't unlink `fn` from gc_all, so a later sweep would free() it (and
+ * its already-freed fields) again. Kept for API compatibility. */
 void yas_ffi_free_function(struct YasFFIFunction *fn)
 {
 	if (!fn) return;
@@ -752,13 +758,10 @@ int yas_builtin_ffi_make_struct(YasAtom args, YasAtom *result)
 		return yas_raise_error("ffi-error", "Unknown struct type");
 	}
 
-	/* Allocate struct instance */
-	YasFFIStructInstance *inst = malloc(sizeof(YasFFIStructInstance));
+	/* Allocate struct instance (GC-tracked, see data.c's unified gc_all list) */
+	YasFFIStructInstance *inst = yas_gc_alloc_ffi_struct();
 	inst->type = st;
 	inst->data = calloc(1, st->size);
-	inst->mark = 0;
-	inst->next = yas_global_ffi_structs;
-	yas_global_ffi_structs = inst;
 
 	/* Pack field values */
 	YasAtom values = yas_cdr(args);

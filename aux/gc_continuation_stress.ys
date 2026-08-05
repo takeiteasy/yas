@@ -20,18 +20,10 @@
 ;; this segfaults.
 ;;
 ;; This file is not part of `make test` / suite.ys - it deliberately
-;; forces GC cycles (the collector triggers every 100,000 conses; see
-;; src/eval.c) via a plain interpreted loop, which is slow (tens of
-;; seconds). Run it directly: ./yas aux/gc_continuation_stress.ys
+;; forces full GC cycles via the `(gc)` builtin (see docs/GC.md) between
+;; captures. Run it directly: ./yas aux/gc_continuation_stress.ys
 
 (import (yas base) (yas test))
-
-;; Allocate n throwaway pairs to force gc() cycles.
-(define (churn n)
-  (let loop ((i 0))
-    (if (< i n)
-        (begin (cons i i) (loop (+ i 1)))
-        nil)))
 
 (define *k1* nil)
 (define (capture-and-return-normally)
@@ -42,7 +34,7 @@
   ;; *k1* is now reachable only via this top-level binding, not the live
   ;; evaluator stack.
   (check (capture-and-return-normally) 101)
-  (churn 200000)   ; forces 2+ gc() cycles while *k1* is off the live stack
+  (gc) (gc)   ; force a couple of full cycles while *k1* is off the live stack
   ;; Invoking *k1* here must not crash or read freed memory. Multi-shot
   ;; re-entry from an unrelated later form doesn't flow control back to
   ;; this call site (see docs/LANGUAGE_REFERENCE.md#call-cc) so this is a
@@ -56,7 +48,7 @@
 
 (test "a second continuation stays valid after further GC pressure and prior continuation use"
   (check (capture-second) 21)
-  (churn 200000)
+  (gc) (gc)
   (*k2* 5)
   (check t t))
 

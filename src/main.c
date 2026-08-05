@@ -97,12 +97,26 @@ int main(int argc, char **argv)
 	yas_init_features();
 
 	env = yas_env_create(yas_nil);
+	/* Root the top-level environment for the rest of the process's
+	 * lifetime: unlike a library's own env (reachable via
+	 * yas_library_registry once registered), nothing else references
+	 * this one, and importing (yas base) below evaluates real library
+	 * forms - allocating enough to legitimately trigger a GC cycle -
+	 * before `env` ever gets any bindings of its own. Without this, an
+	 * early collection frees the pair out from under it. See yas.h's
+	 * yas_gc_push_root()/docs/EMBEDDING.md. */
+	yas_gc_push_root(&env);
 
 	/* Import (yas base) */
 	YasAtom yas_base = yas_list_create(2, yas_make_sym("YAS"), yas_make_sym("BASE"));
 	YasAtom import_args = yas_list_create(1, yas_base);
 	YasAtom ignore;
+	/* Same reasoning as `env` above: import_args is a fresh, otherwise-
+	 * unreachable list that yas_module_import walks across the same
+	 * allocating library-load call. */
+	yas_gc_push_root(&import_args);
 	yas_module_import(import_args, env, &ignore);
+	yas_gc_pop_roots(1);
 
 	if (argc > 1) {
 		int had_error = 0;

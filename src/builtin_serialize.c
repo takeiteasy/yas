@@ -229,7 +229,7 @@ static YasAtom lisd_convert(YasAtom atom) {
 		size_t size = atom.value.vector->size;
 		YasAtom new_vec = yas_make_vector(size, yas_nil);
 		for (size_t i = 0; i < size; i++) {
-			new_vec.value.vector->data[i] = lisd_convert(atom.value.vector->data[i]);
+			yas_vector_set(new_vec, i, lisd_convert(atom.value.vector->data[i]));
 		}
 		return new_vec;
 	}

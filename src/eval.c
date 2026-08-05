@@ -15,6 +15,22 @@ struct EvalRoot {
 static struct EvalRoot *eval_roots = NULL;
 static int eval_vm(YasAtom expr, YasAtom env, YasAtom *result, struct EvalRoot *root);
 
+/* Called from data.c's gc_mark_roots() - the live evaluator's roots are
+ * pointers to eval_vm()'s own C locals (expr/env/stack), not to anything
+ * an embedder or a nested yas_eval_expr() caller can see, so they stay a
+ * separate root source from the yas_gc_push_root() shadow stack. Two
+ * root sources, one collector. */
+void yas_eval_mark_roots(void)
+{
+	struct EvalRoot *r = eval_roots;
+	while (r) {
+		yas_gc_mark(*r->expr);
+		yas_gc_mark(*r->env);
+		if (!yas_nilp(*r->stack)) yas_gc_mark(*r->stack);
+		r = r->prev;
+	}
+}
+
 static int eval_do_return(YasAtom *stack, YasAtom *expr, YasAtom *env, YasAtom *result);
 static int eval_do_exec(YasAtom *stack, YasAtom *expr, YasAtom *env);
 static int eval_do_bind(YasAtom *stack, YasAtom *expr, YasAtom *env);
@@ -32,13 +48,13 @@ int yas_env_define(YasAtom env, YasAtom symbol, YasAtom value)
 	while (!yas_nilp(bs)) {
 		YasAtom b = yas_car(bs);
 		if (yas_car(b).value.symbol == symbol.value.symbol) {
-			yas_cdr(b) = value;
+			yas_set_cdr(b, value);
 			return YAS_ERROR_OK;
 		}
 		bs = yas_cdr(bs);
 	}
 
-	yas_cdr(env) = yas_cons(yas_cons(symbol, value), yas_cdr(env));
+	yas_set_cdr(env, yas_cons(yas_cons(symbol, value), yas_cdr(env)));
 
 	return YAS_ERROR_OK;
 }
@@ -168,7 +184,7 @@ int yas_env_set(YasAtom env, YasAtom symbol, YasAtom value)
 	while (!yas_nilp(bs)) {
 		YasAtom b = yas_car(bs);
 		if (yas_car(b).value.symbol == symbol.value.symbol) {
-			yas_cdr(b) = value;
+			yas_set_cdr(b, value);
 			return YAS_ERROR_OK;
 		}
 		bs = yas_cdr(bs);
@@ -331,7 +347,7 @@ int eval_do_bind(YasAtom *stack, YasAtom *expr, YasAtom *env)
 					if (yas_nilp(prev)) {
 						args = yas_cdr(yas_cdr(search));
 					} else {
-						yas_cdr(prev) = yas_cdr(yas_cdr(search));
+						yas_set_cdr(prev, yas_cdr(yas_cdr(search)));
 					}
 					break;
 				}
@@ -694,28 +710,22 @@ int yas_eval_expr(YasAtom expr, YasAtom env, YasAtom *result)
 
 static int eval_vm(YasAtom expr, YasAtom env, YasAtom *result, struct EvalRoot *root)
 {
-	static int count = 0;
 	YasError err = YAS_ERROR_OK;
 	YasAtom stack = yas_nil;
-	
+
 	root->expr = &expr;
 	root->env = &env;
 	root->stack = &stack;
 
 	do {
-		if (++count == 100000) {
-			struct EvalRoot *r = eval_roots;
-			while (r) {
-				yas_gc_mark(*r->expr);
-				yas_gc_mark(*r->env);
-				if (!yas_nilp(*r->stack)) yas_gc_mark(*r->stack);
-				r = r->prev;
-			}
-			
-			yas_gc_mark(yas_ctx_exception);
-			yas_gc();
-			count = 0;
-		}
+		/* The evaluator's safe point: eval_roots is valid here and no
+		 * builtin/native call is in flight, so this is the only place
+		 * a GC step may run (see docs/GC.md). yas_gc_step() is a cheap
+		 * no-op unless a cycle is active or the byte threshold has
+		 * tripped, so calling it every iteration keeps pauses bounded
+		 * (YAS_GC_STEP_LIMIT objects at a time) instead of the old
+		 * every-100,000-conses stop-the-world burst. */
+		yas_gc_step();
 
 		if (expr.type == YAS_ATOM_TYPE_SYMBOL) {
 			err = yas_env_get(env, expr, result);

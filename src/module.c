@@ -63,7 +63,7 @@ YasAtom yas_define_native_module(const char *name_str, YasAtom *out_env, YasAtom
 		if (yas_nilp(name)) {
 			name = tail = node;
 		} else {
-			yas_cdr(tail) = node;
+			yas_set_cdr(tail, node);
 			tail = node;
 		}
 		token = strtok(NULL, "/");
@@ -112,7 +112,12 @@ void yas_load_base_library(void) {
 	reg_builtin(env, exports, "APPEND", yas_builtin_list_append);
 	reg_sym(env, exports, "T", yas_make_sym("T"));
 	reg_builtin(env, exports, "PROCEDURE-DOC", yas_builtin_procedure_doc);
-	
+
+	/* GC control/introspection - see docs/GC.md */
+	reg_builtin(env, exports, "GC", yas_builtin_gc);
+	reg_builtin(env, exports, "GC-START", yas_builtin_gc_start);
+	reg_builtin(env, exports, "GC-STATS", yas_builtin_gc_stats);
+
 	/* Global features list */
 	reg_sym(env, exports, "*FEATURES*", yas_global_features);
 	
@@ -382,7 +387,7 @@ YasAtom yas_library_load(YasAtom name_parts)
 {
 	char *key_str = yas_library_name_to_string(name_parts);
 	if (!key_str) return yas_nil;
-	
+
 	if (yas_nilp(yas_library_registry)) yas_library_registry = yas_make_hash();
 	
 	/* Initialize default search paths if not set */
@@ -392,22 +397,41 @@ YasAtom yas_library_load(YasAtom name_parts)
 	}
 	
 	YasAtom key = yas_make_string(key_str);
+	/* `key` is a fresh, otherwise-unreachable string used purely for
+	 * registry lookups below - every branch here calls yas_eval_source/
+	 * yas_eval_file at least once to load a dependency (nested library
+	 * loading, e.g. (yas test) pulling in (yas math)/(yas vector)/
+	 * (yas text) via its own define-library imports), which allocates
+	 * enough to legitimately trigger a GC cycle. Without rooting it,
+	 * `key` can be collected mid-load and a later allocation can reuse
+	 * its memory, so a post-load re-lookup silently compares against a
+	 * DIFFERENT library's name string instead of erroring - this is
+	 * exactly what was observed: yas_hash_ref(registry, key, ...) here
+	 * returning an unrelated library because `key`'s bytes had become
+	 * "yas/vector" by the time a nested (yas math)/(yas vector) load
+	 * reused its freed memory, while the registry's own correct
+	 * "yas/test" entry sat untouched. One root covers the whole
+	 * function, including the reassignment further down, since
+	 * yas_gc_push_root() tracks the address of the slot, not a
+	 * snapshot of its value. */
+	yas_gc_push_root(&key);
 	YasAtom lib = yas_hash_ref(yas_library_registry, key, yas_nil);
-	
+
 	if (!yas_nilp(lib)) {
 		free(key_str);
+		yas_gc_pop_roots(1);
 		return lib;
 	}
-	
+
 	/* Unified Loading: Check native modules first */
 	for (int i = 0; native_modules[i].name; i++) {
 		if (strcmp(key_str, native_modules[i].name) == 0) {
 			/* Found native module. Initialize C part first. */
 			native_modules[i].loader();
-			
+
 			/* Get the library object (created by loader) */
 			lib = yas_hash_ref(yas_library_registry, key, yas_nil);
-			
+
 			/* Now check for Lisp source in stdlib to merge into this library */
 			for (int j = 0; stdlib_files[j].name; j++) {
 				if (strcmp(key_str, stdlib_files[j].name) == 0) {
@@ -420,7 +444,7 @@ YasAtom yas_library_load(YasAtom name_parts)
 					   But (define-library) itself looks up valid registry/library to populate.
 					   So we don't need to pass lib_env. module_define_library handles it.
 					*/
-					
+
 					/* We might need to handle errors or just proceed */
 					if (err) {
 						printf("Error loading Lisp part of native module %s\n", key_str);
@@ -429,26 +453,31 @@ YasAtom yas_library_load(YasAtom name_parts)
 				}
 			}
 			free(key_str);
+			yas_gc_pop_roots(1);
 			return lib;
 		}
 	}
-	
+
 	/* Check for purely Lisp built-in libraries (no C part yet, e.g. math if it was pure scheme) */
 	for (int i = 0; stdlib_files[i].name; i++) {
 		if (strcmp(key_str, stdlib_files[i].name) == 0) {
 			/* Pure Lisp library */
 			lib = make_library(name_parts);
-			/* We need to set registry BEFORE eval to allow recursive refs if needed? 
+			/* We need to set registry BEFORE eval to allow recursive refs if needed?
 			   Or define-library does it. define-library does it. */
-			
+
 			YasAtom ignore;
 			int err = yas_eval_source(stdlib_files[i].source, key_str, yas_env_create(yas_nil), &ignore);
-			
+
 			free(key_str);
-			if (err) return yas_nil;
-			
+			if (err) {
+				yas_gc_pop_roots(1);
+				return yas_nil;
+			}
+
 			/* Fetch created lib from registry */
 			lib = yas_hash_ref(yas_library_registry, key, yas_nil);
+			yas_gc_pop_roots(1);
 			return lib;
 		}
 	}
@@ -456,40 +485,42 @@ YasAtom yas_library_load(YasAtom name_parts)
 	/* Not loaded. Find file */
 	char *path = find_library_file(key_str);
 	free(key_str);
-	
+
 	if (!path) {
 		printf("Library not found: ");
 		yas_print_expr(name_parts);
 		printf("\n");
+		yas_gc_pop_roots(1);
 		return yas_nil;
 	}
-	
+
 	/* Create placeholder */
 	lib = make_library(name_parts);
 	key_str = yas_library_name_to_string(name_parts);
-	key = yas_make_string(key_str); 
+	key = yas_make_string(key_str);
 	yas_hash_set(yas_library_registry, key, lib);
 	free(key_str);
-	
+
 	/* Load the file - ensure native modules are loaded first */
 	if (yas_nilp(yas_library_registry)) {
 		yas_load_all_modules();
 	}
-	
+
 	/* Convert to absolute path to avoid resolve_include_path mangling it */
 	char *abs_path = realpath(path, NULL);
 	if (!abs_path) {
 		printf("Error: Could not resolve path: %s\n", path);
 		free(path);
+		yas_gc_pop_roots(1);
 		return yas_nil;
 	}
 	free(path);
 	path = abs_path;
-	
+
 	/* Load the file */
 	YasAtom ignore;
 	int err = yas_eval_file(path, yas_env_create(yas_nil), &ignore, 0);
-	
+
 	if (err) {
 		printf("Error loading library file %s: ", path);
 		switch (err) {
@@ -507,10 +538,12 @@ YasAtom yas_library_load(YasAtom name_parts)
 			printf("Error code %d\n", err);
 		}
 		free(path);
+		yas_gc_pop_roots(1);
 		return yas_nil;
 	}
-	
+
 	free(path);
+	yas_gc_pop_roots(1);
 	return lib;
 }
 
@@ -617,10 +650,10 @@ static YasAtom resolve_import_set(YasAtom set) {
 	/* Base case: Library name */
 	YasAtom lib = yas_library_load(set);
 	if (yas_nilp(lib)) return yas_nil;
-	
+
 	YasAtom exports_map = yas_hash_ref(lib, yas_make_sym("*exports*"), yas_nil);
 	YasAtom lib_env = yas_hash_ref(lib, yas_make_sym("*env*"), yas_nil);
-	
+
 	YasAtom result = yas_make_hash();
 	if (yas_nilp(exports_map) || exports_map.type != YAS_ATOM_TYPE_HASH) return result;
 	

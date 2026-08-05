@@ -1,0 +1,55 @@
+;; Stress test for the incremental collector (src/data.c, docs/GC.md):
+;; allocation churn across many evaluator safe points (yas_gc_step() runs
+;; once per eval_vm loop iteration) while several bindings are held live
+;; throughout, asserting their contents survive every collection.
+;;
+;; This is the .ys-level counterpart to tests/gc_test.c's C-level write-
+;; barrier/allocate-during-sweep cases - here the goal is broader
+;; coverage of ordinary interpreted code (closures, strings, vectors,
+;; hashes, lists) surviving many real incremental cycles under normal
+;; safe-point stepping, not controlling a specific phase transition.
+;;
+;; Not part of `make test` / suite.ys - allocates enough to run several
+;; full GC cycles, so it's slower than the regular suite. Run directly:
+;; ./yas aux/gc_incremental_stress.ys
+
+(import (yas base) (yas hash) (yas vector) (yas text) (yas test))
+
+(define held-string (make-string 32 #\x))
+(define held-vector (make-vector 10 0))
+(vector-set! held-vector 5 "needle")
+(define held-hash (make-hash))
+(hash-set! held-hash 'marker "found-it")
+
+(define (make-closure-over n)
+  (lambda () (+ n 1)))
+(define held-closure (make-closure-over 41))
+
+;; Allocate n throwaway pairs/strings/vectors to pressure the allocator.
+(define (churn n)
+  (let loop ((i 0))
+    (if (< i n)
+        (begin
+          (cons i (make-string 8 #\y))
+          (make-vector 4 i)
+          (loop (+ i 1)))
+        nil)))
+
+(test "bindings held across many incremental GC cycles survive"
+  (churn 40000)
+  (check (string-length held-string) 32)
+  (check (vector-ref held-vector 5) "needle")
+  (check (hash-ref held-hash 'marker nil) "found-it")
+  (check (held-closure) 42))
+
+(test "a long list built incrementally under GC pressure stays intact"
+  (define big-list
+    (let loop ((i 0) (acc nil))
+      (if (< i 5000)
+          (loop (+ i 1) (cons i acc))
+          acc)))
+  (churn 15000)
+  (check (length big-list) 5000)
+  (check (car big-list) 4999))
+
+(run-tests)

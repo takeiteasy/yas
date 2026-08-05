@@ -5,6 +5,7 @@
 ```sh
 make            # builds ./yas
 make test       # runs suite.ys, gates on its process exit code
+make test-gc    # C-level GC regression tests (tests/gc_test.c) - see GC.md
 make stress-test  # runs the slow stress/benchmark scripts in aux/
 make clean
 ```
@@ -39,7 +40,7 @@ make aot                   # builds aot/examples/fib.ys -> build/fib
 ./build/fib                 # fib(30) = 832040
 make aot-gen                # dump the expanded C to build/fib.expanded.c
 make test-aot                # plan_test.c (plain C, no cccc) + build/fib's output
-make check                   # test + test-aot
+make check                   # test + test-gc + test-aot
 ```
 
 To compile a different `.ys` file, override `AOT_OUT` too so the result
@@ -62,6 +63,7 @@ src/            interpreter + AOT compiler sources
 std/yas/*.ys    stdlib, embedded into src/stdlib.h at build time
 aot/            AOT pass: aot.c (cccc comptime side), examples/, tests/
 aux/            slow stress/benchmark/fuzz scripts (make stress-test)
+tests/          C-level regression tests (make test-gc)
 docs/           this directory
 suite.ys        interpreter test suite (make test)
 ```

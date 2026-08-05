@@ -12,11 +12,15 @@ sequence, taken from `src/main.c`:
 yas_init_features();             /* platform/feature list for #+/#- readers */
 
 YasAtom env = yas_env_create(yas_nil);
+yas_gc_push_root(&env);          /* see GC.md - nothing else references env yet */
 
 /* Most programs will want (yas base) - car/cdr/define/lambda/etc: */
 YasAtom yas_base = yas_list_create(2, yas_make_sym("YAS"), yas_make_sym("BASE"));
+YasAtom import_args = yas_list_create(1, yas_base);
+yas_gc_push_root(&import_args);
 YasAtom ignore;
-yas_module_import(yas_list_create(1, yas_base), env, &ignore);
+yas_module_import(import_args, env, &ignore);
+yas_gc_pop_roots(1);              /* import_args no longer needed; env stays rooted */
 ```
 
 ## Evaluating code
@@ -94,9 +98,32 @@ vtable keyed by a URI prefix (e.g. `"asset://"`). See `yas.h`'s
 
 ## GC
 
-There is no root-registration API for embedders (see
-[ARCHITECTURE.md](ARCHITECTURE.md#gc)) - `eval_roots` is internal to
-`eval.c`. Any `YasAtom` an embedder holds outside of a value already
-reachable through `env` or the current evaluation is not protected from
-collection. Keep host-side references short-lived, or re-derive them from
-`env` rather than caching across calls that might allocate.
+Full design in [GC.md](GC.md). The part that matters for embedders: any
+`YasAtom` you hold that isn't already reachable through `env` (or the
+current evaluation's live state) needs an explicit root before making any
+call that might allocate:
+
+```c
+YasAtom env = yas_env_create(yas_nil);
+yas_gc_push_root(&env);   /* nothing else references this yet */
+
+yas_module_import(import_args, env, &ignore);   /* may allocate/collect */
+
+/* ... use env for the embedding's lifetime ... */
+yas_gc_pop_roots(1);      /* if/when env is no longer needed */
+```
+
+`main.c` does exactly this for its own top-level `env` and the argument
+list passed to the initial `(import (yas base))` - see
+[GC.md](GC.md#a-worked-example-the-bug-this-api-exists-to-prevent) for
+the bug this fixed. If you don't root a value and don't otherwise keep it
+reachable, don't assume it survives past the next allocating call - re-derive it from `env` instead of caching it.
+
+```c
+void yas_gc_push_root(YasAtom *slot);   /* register &slot as a root */
+void yas_gc_pop_roots(int n);           /* pop the last n roots (LIFO) */
+```
+
+`(gc)` forces a full collection from Lisp, `(gc-stats)` reports live bytes
+and phase - useful when testing that your own embedding roots things
+correctly.

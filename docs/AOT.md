@@ -289,11 +289,18 @@ blocker for the design. Point 11 no longer applies as of cccc #907.
 
 ## Future work
 
+A GC root-registration API now exists (`yas_gc_push_root`/
+`yas_gc_pop_roots` - see [GC.md](GC.md)), which removes the specific
+blocker that previously kept `YasAtom`-level lowering off the table
+entirely. `YasAtom`-level lowering is still future work, though, for
+reasons independent of the GC: it needs closures and higher-order
+functions, and a standalone macro-expansion pass (macros are currently
+runtime and per-environment - see [ARCHITECTURE.md](ARCHITECTURE.md)),
+neither of which this lowering has today.
+
 See the tracker (labels `aot`, `compiler`) for the itemized backlog:
-GC root/shadow-stack API so a future `YasAtom`-level lowering can hold live
-values; `YasAtom`-level lowering beyond the numeric subset; closures and
-higher-order functions; a standalone macro-expansion pass (macros are
-currently runtime and per-environment - see
-[ARCHITECTURE.md](ARCHITECTURE.md)); metamethod dispatch for lowered
-arithmetic; `call/cc`/`try` under AOT; richer (per-expression, not
-per-function) type inference; name-collision detection after mangling.
+`YasAtom`-level lowering beyond the numeric subset; closures and
+higher-order functions; a standalone macro-expansion pass; metamethod
+dispatch for lowered arithmetic; `call/cc`/`try` under AOT; richer
+(per-expression, not per-function) type inference; name-collision
+detection after mangling.

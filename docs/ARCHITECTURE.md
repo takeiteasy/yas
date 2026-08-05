@@ -158,27 +158,27 @@ evaluator.
 
 ## GC
 
-Mark-sweep, triggered on an allocation counter inside `eval_vm()` (every
-100,000 conses). `yas_gc_mark()` walks from `eval_roots`, `yas_ctx_exception`,
-`sym_table`, `kw_table`, `yas_library_registry`, `yas_global_search_paths`,
-and `yas_global_features`, then `yas_gc()` sweeps pairs, vectors, hashes,
-strings, ports, bytevectors, vec2/3/4, mat4, and (when built with
-`YAS_FFI`) `YasFFIFunction`/`YasFFIStructInstance` instances. Each type past
-pairs/vectors/hashes follows the same pattern: a `mark`/`next` pair
-embedded in (or, for the bare-pointer types String/Vec2-4/Mat4, a small
-header wrapping) the allocation, threaded through a global intrusive list
-that `yas_gc()` sweeps.
+Unified incremental tricolor mark-sweep - one `struct YasGCHeader`
+(color/next/type) embedded in every heap type, one intrusive list, one
+generic mark/sweep, instead of ten near-identical per-type copies. Steps
+run in bounded slices from `eval_vm()`'s own loop (its safe point), driven
+by a live-byte threshold rather than a cons counter. `gc_mark_roots()`
+walks `eval_roots`, `yas_ctx_exception`, `sym_table`, `kw_table`,
+`yas_library_registry`, `yas_global_search_paths`, `yas_global_features`,
+and the root-registration shadow stack below.
 
-Two things worth knowing before writing code that holds `YasAtom`s across
-allocation points:
+Full design - the phase state machine, the write barrier, the
+allocate-during-sweep hazard and how it's avoided, and worked examples -
+lives in [GC.md](GC.md). Two things worth knowing before writing code
+that holds `YasAtom`s across allocation points:
 
-- **There is no root-registration API.** `EvalRoot`/`eval_roots` are
-  `static` in `eval.c`, not exported via `yas.h`. A native function (or a
-  hypothetical AOT-generated function operating on live `YasAtom`s) that
-  holds a local `YasAtom` across any call that can trigger `yas_gc()` has
-  no way to register it as a root. This is the reason [AOT.md](AOT.md)'s
-  current lowering never produces a `YasAtom` - only unboxed
-  `long`/`double`.
+- **A root-registration API exists**: `yas_gc_push_root(YasAtom *slot)` /
+  `yas_gc_pop_roots(int n)` (`yas.h`). Any native builtin or embedder
+  holding a `YasAtom` local across a call that might allocate should use
+  it - see [GC.md](GC.md#root-registration-api) for the API and a real
+  bug this fixed during development. `eval_roots` itself stays internal
+  to `eval.c`, rooting only `eval_vm()`'s own locals; the two root
+  sources are walked together.
 - **FFILibrary and FFIPointer are deliberately not GC-managed.** A raw
   `void*` has no recoverable ownership: it may be a `dlsym` result, an
   interior pointer into a `YasFFIStructInstance`, or a genuinely owned
@@ -188,12 +188,12 @@ allocation points:
   explicitly managed via `ffi-close`/`ffi-free`.
 - `yas_gc_mark()` traces `YAS_ATOM_TYPE_CONTINUATION` the same way as
   `YasPair`/`Closure`/`Macro` (it shares the same underlying
-  `Allocation`), so a continuation reachable only through application
+  allocation), so a continuation reachable only through application
   state is protected from collection like any other live value.
   `aux/gc_continuation_stress.ys` regression-tests this: it captures a
   continuation, lets its `call/cc` unwind normally so the continuation is
   reachable only via a binding (not the live evaluator stack), forces
-  `yas_gc()` cycles, then invokes it from a later top-level form - on
+  `(gc)` cycles, then invokes it from a later top-level form - on
   unfixed code this segfaults.
 
 ## Module system

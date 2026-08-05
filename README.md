@@ -22,6 +22,7 @@ make && make test    # build the interpreter, run the test suite
 - [Language reference](docs/LANGUAGE_REFERENCE.md) - syntax and stdlib
 - [Architecture](docs/ARCHITECTURE.md) - value representation, evaluator,
   GC, module system
+- [GC](docs/GC.md) - the incremental tricolor collector and root API
 - [Building](docs/BUILDING.md) - build targets, FFI, AOT
 - [Embedding](docs/EMBEDDING.md) - the C API for host programs
 - [AOT compilation](docs/AOT.md) - lowering yas to C at compile time

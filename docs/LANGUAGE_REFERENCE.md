@@ -115,6 +115,17 @@ immediately (no unwinding of `try`/`finally`). Useful for CLI scripts and
 test runners (`(yas test)`'s `run-tests` calls it) that need to set a
 process exit code.
 
+## GC
+
+```scheme
+(gc)          ; run a full collection cycle to completion
+(gc-start)    ; begin a cycle without draining it (mainly for testing/tools)
+(gc-stats)    ; => #hash(:ALLOCATED <bytes> :PHASE <int>)
+```
+
+`gc-stats`'s `:PHASE` is `0` (idle), `1` (marking), or `2` (sweeping) - see
+[GC.md](GC.md) for the collector's design.
+
 ## call/cc
 
 ```scheme

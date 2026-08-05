@@ -5,12 +5,18 @@
 ```sh
 make            # builds ./yas
 make test       # runs suite.ys, gates on its process exit code
+make stress-test  # runs the slow stress/benchmark scripts in aux/
 make clean
 ```
 
 Requires a C99 compiler and `libreadline`. Sources are in `src/`;
 `src/stdlib.h` is generated from `std/yas/*.ys` by `embed.py` and is not
 tracked in git.
+
+`aux/` holds slow interpreted stress/benchmark/fuzz scripts that aren't
+part of the `make test` gate (`suite.ys` should stay fast) - run
+individually with `./yas aux/<script>.ys` or all together with `make
+stress-test`.
 
 ### FFI support
 
@@ -55,6 +61,7 @@ it - see [AOT.md](AOT.md#cccc-issues-found-along-the-way), point 9.
 src/            interpreter + AOT compiler sources
 std/yas/*.ys    stdlib, embedded into src/stdlib.h at build time
 aot/            AOT pass: aot.c (cccc comptime side), examples/, tests/
+aux/            slow stress/benchmark/fuzz scripts (make stress-test)
 docs/           this directory
 suite.ys        interpreter test suite (make test)
 ```

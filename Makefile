@@ -63,6 +63,16 @@ test: yas
 	fi; \
 	echo "make test: PASSED"
 
+# aux/ holds slow stress/benchmark/fuzz scripts that aren't part of the
+# regular `make test` gate - run individually as needed, e.g.:
+#   ./yas aux/gc_continuation_stress.ys
+.PHONY: stress-test
+stress-test: yas
+	@for f in aux/*.ys; do \
+		echo "=== $$f ==="; \
+		./yas $$f || exit 1; \
+	done
+
 # ============================================================
 # AOT: lowers a .ys file to C at compile time via cccc's comptime pass +
 # reflection API. See docs/AOT.md for the design and aot/aot.c for the

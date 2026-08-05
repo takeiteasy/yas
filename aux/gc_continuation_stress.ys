@@ -1,0 +1,63 @@
+;; Stress/regression test for the AtomType_Continuation GC-tracing fix.
+;;
+;; gc_mark() (src/data.c) must trace a continuation's captured stack the
+;; same way it traces Pair/Closure/Macro - they share the same underlying
+;; `Allocation`. Before the fix, gc_mark() returned immediately for
+;; AtomType_Continuation without marking that Allocation, so a
+;; continuation reachable ONLY through a binding - not through the live
+;; evaluator stack at the moment gc() runs - had its backing pairs swept
+;; and use-after-freed on the next invocation.
+;;
+;; The key detail: capturing a continuation and invoking it again from
+;; *within the same call/cc dynamic extent* does not exercise the bug,
+;; because the captured frames are still part of the live stack (and
+;; therefore already marked via the ordinary stack root) when gc() runs.
+;; The bug only shows up once that extent has unwound *normally* and the
+;; continuation is reachable solely via an environment binding - so this
+;; test captures a continuation, lets its call/cc return normally
+;; (unwinding the live stack), forces GC pressure, and only then invokes
+;; the stashed continuation from an unrelated later form. On unfixed code
+;; this segfaults.
+;;
+;; This file is not part of `make test` / suite.ys - it deliberately
+;; forces GC cycles (the collector triggers every 100,000 conses; see
+;; src/eval.c) via a plain interpreted loop, which is slow (tens of
+;; seconds). Run it directly: ./yas aux/gc_continuation_stress.ys
+
+(import (yas base) (yas test))
+
+;; Allocate n throwaway pairs to force gc() cycles.
+(define (churn n)
+  (let loop ((i 0))
+    (if (< i n)
+        (begin (cons i i) (loop (+ i 1)))
+        nil)))
+
+(define *k1* nil)
+(define (capture-and-return-normally)
+  (+ 100 (call/cc (lambda (k) (set! *k1* k) 1))))
+
+(test "a continuation stashed off the live stack survives GC, invoked from a later form"
+  ;; capture-and-return-normally() completes and unwinds normally first -
+  ;; *k1* is now reachable only via this top-level binding, not the live
+  ;; evaluator stack.
+  (check (capture-and-return-normally) 101)
+  (churn 200000)   ; forces 2+ gc() cycles while *k1* is off the live stack
+  ;; Invoking *k1* here must not crash or read freed memory. Multi-shot
+  ;; re-entry from an unrelated later form doesn't flow control back to
+  ;; this call site (see docs/LANGUAGE_REFERENCE.md#call-cc) so this is a
+  ;; liveness/crash check, not a return-value check.
+  (*k1* 999)
+  (check t t))
+
+(define *k2* nil)
+(define (capture-second)
+  (* 3 (call/cc (lambda (k) (set! *k2* k) 7))))
+
+(test "a second continuation stays valid after further GC pressure and prior continuation use"
+  (check (capture-second) 21)
+  (churn 200000)
+  (*k2* 5)
+  (check t t))
+
+(run-tests)

@@ -185,7 +185,11 @@ allocation points:
 - `gc_mark()` traces `AtomType_Continuation` the same way as `Pair`/
   `Closure`/`Macro` (it shares the same underlying `Allocation`), so a
   continuation reachable only through application state is protected from
-  collection like any other live value.
+  collection like any other live value. `aux/gc_continuation_stress.ys`
+  regression-tests this: it captures a continuation, lets its `call/cc`
+  unwind normally so the continuation is reachable only via a binding
+  (not the live evaluator stack), forces `gc()` cycles, then invokes it
+  from a later top-level form - on unfixed code this segfaults.
 
 ## Module system
 

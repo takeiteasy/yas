@@ -1,10 +1,10 @@
 /* plan_test.c - plain-C reference interpreter for the plan op stream
- * produced by aot_plan.c, used to validate the plan compiler (mangling,
+ * produced by plan.c, used to validate the plan compiler (mangling,
  * type inference, let/let* scoping, op emission) with no cccc involved.
  *
  * This exists because a purely-comptime debugging loop is expensive (each
  * iteration needs a full cccc invocation); the actual compiler logic in
- * aot_plan.c is ordinary, plain-C-testable code, and this is where it
+ * plan.c is ordinary, plain-C-testable code, and this is where it
  * should be developed and regression-tested. aot/aot.c's replay loop
  * (real cccc reflection Node* construction) is a thin, mechanical
  * translation of the exact same two-pass shape used here: consume the
@@ -24,7 +24,7 @@
  *          aot/tests/plan_test.c -L. -lyas -Wl,-rpath,.
  * (see the Makefile's `test-aot` target)
  */
-#include "aot_plan.h"
+#include "plan.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -208,7 +208,7 @@ static Val call_fn(struct YasPlan *p, int fn, Val *args)
 	for (int i = 0; i < local_count; i++)
 		locals[i] = yas_plan_fn_local_is_float(p, fn, i) ? vfloat(0) : vint(0);
 
-	/* Built fresh per call: aot_plan.c owns the op list, this is a cheap
+	/* Built fresh per call: plan.c owns the op list, this is a cheap
 	 * re-walk of it, not a cache invalidation concern. A real embedding
 	 * would build once and reuse - not needed for this test harness. */
 	Ast *tree = build(p, fn);

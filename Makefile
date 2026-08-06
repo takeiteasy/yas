@@ -1,6 +1,11 @@
-sources=$(wildcard src/*.c)
+# aot/plan.c is the AOT compiler proper (see aot/plan.h and docs/AOT.md) -
+# ordinary plain C, built into `yas`/libyas alongside everything in src/,
+# just kept out of src/ since it's conceptually part of the AOT pass, not
+# the interpreter. Not picked up by the src/*.c wildcard, so listed
+# explicitly.
+sources=$(wildcard src/*.c) aot/plan.c
 
-CFLAGS=-Wall -O0 -g --std=c99 -D_GNU_SOURCE
+CFLAGS=-Wall -O0 -g --std=c99 -D_GNU_SOURCE -iquote src
 LDFLAGS=-lreadline
 
 # Optional FFI support: make YAS_FFI=1
@@ -17,12 +22,20 @@ endif
 LDFLAGS += -lffi
 endif
 
+# Optional AddressSanitizer build: make YAS_ASAN=1. Paired with
+# YAS_GC_STRESS (see data.c) as the audit tool for allocation-triggered
+# GC stepping - see docs/GC.md "Testing" and `test-gc-stress` below.
+ifdef YAS_ASAN
+CFLAGS += -fsanitize=address -fno-omit-frame-pointer
+LDFLAGS += -fsanitize=address
+endif
+
 objects=$(sources:.c=.o)
 
 yas: $(objects)
 	$(CC) $(CFLAGS) -o $@ $^ $(LDFLAGS)
 
-$(objects): $(wildcard src/*.h)
+$(objects): $(wildcard src/*.h) aot/plan.h
 
 src/stdlib.h: embed.py $(wildcard std/yas/*.ys)
 	python3 embed.py $@ $(wildcard std/yas/*.ys)
@@ -30,7 +43,7 @@ src/stdlib.h: embed.py $(wildcard std/yas/*.ys)
 src/module.o: src/stdlib.h
 src/module.pic.o: src/stdlib.h
 
-# libyas: the AOT plan compiler (aot_plan.c) exposed as a shared library,
+# libyas: the AOT plan compiler (aot/plan.c) exposed as a shared library,
 # so cccc's comptime pass can dlopen it. Everything except main.c - a
 # library has no business with the REPL/CLI entry point.
 lib_sources=$(filter-out src/main.c,$(sources))
@@ -45,6 +58,9 @@ LIBFLAGS=-shared
 endif
 
 src/%.pic.o: src/%.c
+	$(CC) $(CFLAGS) -fPIC -c -o $@ $<
+
+aot/%.pic.o: aot/%.c
 	$(CC) $(CFLAGS) -fPIC -c -o $@ $<
 
 $(libyas): $(lib_objects)
@@ -63,17 +79,18 @@ test: yas
 	fi; \
 	echo "make test: PASSED"
 
-# C-level GC regression tests (tests/gc_test.c) - things suite.ys can't
+# C-level GC regression tests (aux/gc_test.c) - things suite.ys can't
 # reach: the root-registration API and collector internals that need
 # controlled stepping (write barrier mid-cycle, deep-list marking).
 .PHONY: test-gc
 test-gc: $(libyas)
 	@mkdir -p build
-	$(CC) -std=c99 -Wall -D_GNU_SOURCE -iquote src -o build/gc_test tests/gc_test.c -L. -lyas -Wl,-rpath,.
+	$(CC) -std=c99 -Wall -D_GNU_SOURCE -iquote src -o build/gc_test aux/gc_test.c -L. -lyas -Wl,-rpath,.
 	./build/gc_test
 
-# aux/ holds slow stress/benchmark/fuzz scripts that aren't part of the
-# regular `make test` gate - run individually as needed, e.g.:
+# aux/ holds slow stress/benchmark/fuzz scripts (plus gc_test.c above)
+# that aren't part of the regular `make test` gate - run individually as
+# needed, e.g.:
 #   ./yas aux/gc_continuation_stress.ys
 .PHONY: stress-test
 stress-test: yas
@@ -81,6 +98,30 @@ stress-test: yas
 		echo "=== $$f ==="; \
 		./yas $$f || exit 1; \
 	done
+
+# The audit gate for allocation-triggered GC stepping (docs/GC.md,
+# "Allocation-triggered stepping"): YAS_GC_STRESS=1 shrinks the cycle-
+# start threshold and step quantum to 1 byte (see data.c's
+# gc_min_threshold_get()/gc_debt_quantum_get()), so a collection cycle
+# starts and advances on essentially every allocation instead of only
+# once ~256KB has accumulated - turning a one-in-a-million unrooted-
+# local race into something suite.ys/aux/*.ys/gc_alloc_stress.ys hit
+# every run. Pair with `make test-gc-stress YAS_ASAN=1` so a surviving
+# bug reports a stack trace naming the exact function instead of an
+# opaque crash.
+.PHONY: test-gc-stress
+test-gc-stress: yas $(libyas)
+	@echo "=== suite.ys (YAS_GC_STRESS=1) ==="
+	@YAS_GC_STRESS=1 ./yas suite.ys || exit 1
+	@for f in aux/*.ys; do \
+		echo "=== $$f (YAS_GC_STRESS=1) ==="; \
+		YAS_GC_STRESS=1 ./yas $$f || exit 1; \
+	done
+	@mkdir -p build
+	@echo "=== aux/gc_test.c (YAS_GC_STRESS=1) ==="
+	$(CC) -std=c99 -Wall -D_GNU_SOURCE -iquote src -o build/gc_test aux/gc_test.c -L. -lyas -Wl,-rpath,.
+	@YAS_GC_STRESS=1 ./build/gc_test || exit 1
+	@echo "make test-gc-stress: PASSED"
 
 # ============================================================
 # AOT: lowers a .ys file to C at compile time via cccc's comptime pass +
@@ -141,7 +182,7 @@ aot-gen: aot/aot.c $(AOT_SRC) $(AOT_MAIN) $(libyas)
 # not a generic "test whatever `make aot` was last pointed at" target.
 test-aot: libyas
 	$(MAKE) aot AOT_SRC=aot/examples/fib.ys AOT_MAIN=aot/fib_main.c AOT_OUT=fib
-	$(CC) -std=c99 -Wall -D_GNU_SOURCE -iquote src -o build/plan_test aot/tests/plan_test.c -L. -lyas -Wl,-rpath,.
+	$(CC) -std=c99 -Wall -D_GNU_SOURCE -iquote src -iquote aot -o build/plan_test aot/tests/plan_test.c -L. -lyas -Wl,-rpath,.
 	./build/plan_test
 	@out=$$(./build/fib); \
 	rc=$$?; \

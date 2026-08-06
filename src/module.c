@@ -47,7 +47,17 @@ YasAtom yas_define_native_module(const char *name_str, YasAtom *out_env, YasAtom
 	/* Parse "yas/primitives" -> (YAS PRIMITIVES) */
 	YasAtom name = yas_nil;
 	YasAtom tail = yas_nil;
-	
+
+	/* `name`/`tail` accumulate across repeated yas_cons() calls below,
+	 * same shape as yas_list_create()'s accumulator (data.c) - root
+	 * `name` for the loop's duration. `tail` needs no separate root:
+	 * once yas_set_cdr(tail, node) links a new node in, it's reachable
+	 * by walking cdrs from `name`; only the very first node (before
+	 * `name`/`tail` are ever assigned) relies on `node` itself being
+	 * safe, which it is - it doesn't exist during its own yas_cons()
+	 * call's pacing (see gc_alloc()). */
+	yas_gc_push_root(&name);
+
 	char *s = strdup(name_str);
 	char *token = strtok(s, "/");
 	while (token) {
@@ -57,7 +67,7 @@ YasAtom yas_define_native_module(const char *name_str, YasAtom *out_env, YasAtom
 			if (*p >= 'a' && *p <= 'z') *p -= 32;
 			p++;
 		}
-		
+
 		YasAtom sym = yas_make_sym(token);
 		YasAtom node = yas_cons(sym, yas_nil);
 		if (yas_nilp(name)) {
@@ -69,15 +79,24 @@ YasAtom yas_define_native_module(const char *name_str, YasAtom *out_env, YasAtom
 		token = strtok(NULL, "/");
 	}
 	free(s);
-	
+
 	YasAtom lib = make_library(name);
-	
+	/* `name`'s root is no longer needed past this call (last use); `lib`
+	 * takes over as the fresh, otherwise-unreachable local that needs
+	 * protecting - it isn't registered into yas_library_registry (its
+	 * only other reachability path) until the yas_hash_set() at the end
+	 * of this function, and yas_make_string(name_str) below definitely
+	 * allocates. */
+	yas_gc_pop_roots(1); /* name */
+	yas_gc_push_root(&lib);
+
 	*out_env = yas_hash_ref(lib, yas_make_sym("*env*"), yas_nil);
 	*out_exports = yas_hash_ref(lib, yas_make_sym("*exports*"), yas_nil);
-	
+
 	YasAtom key = yas_make_string(name_str);
 	yas_hash_set(yas_library_registry, key, lib);
-	
+
+	yas_gc_pop_roots(1); /* lib */
 	return lib;
 }
 
@@ -309,8 +328,24 @@ void yas_load_all_modules(void)
 	
 	/* Initialize default search paths if not set */
 	if (yas_nilp(yas_global_search_paths)) {
-		yas_global_search_paths = yas_cons(yas_make_string("./lib"), 
-		                           yas_cons(yas_make_string("."), yas_nil));
+		/* Was a single nested expression - yas_cons(yas_make_string(...),
+		 * yas_cons(yas_make_string(...), nil)) - which is a Class-B
+		 * hazard: each yas_make_string() result is an unrooted C
+		 * temporary until the yas_cons() consuming it returns, but a
+		 * *sibling* argument's own allocating call can step the GC first
+		 * and free it before it's ever linked in. Named locals, rooted,
+		 * one built at a time. */
+		YasAtom lib_dir = yas_make_string("./lib");
+		yas_gc_push_root(&lib_dir);
+		YasAtom cwd_dir = yas_make_string(".");
+		yas_gc_push_root(&cwd_dir);
+		YasAtom tail = yas_cons(cwd_dir, yas_nil);
+		yas_gc_push_root(&tail);
+		/* lib_dir/tail must both stay rooted through this final yas_cons
+		 * call too - they're its arguments, still unlinked into anything
+		 * until it returns. */
+		yas_global_search_paths = yas_cons(lib_dir, tail);
+		yas_gc_pop_roots(3); /* tail, cwd_dir, lib_dir */
 	}
 	
 	for (int i = 0; native_modules[i].name; i++)
@@ -375,9 +410,15 @@ static char *find_library_file(const char *lib_path)
 /* Create a new library record */
 static YasAtom make_library(YasAtom name) {
 	YasAtom lib = yas_make_hash();
+	/* `lib` is a fresh, otherwise-unreachable local held across three
+	 * further allocating calls below (yas_env_create() conses, the
+	 * second yas_make_hash(), and yas_make_sym() for any not-yet-
+	 * interned name) - root it for the function's duration. */
+	yas_gc_push_root(&lib);
 	yas_hash_set(lib, yas_make_sym("*name*"), name);
 	yas_hash_set(lib, yas_make_sym("*env*"), yas_env_create(yas_nil));
 	yas_hash_set(lib, yas_make_sym("*exports*"), yas_make_hash()); /* exports map: ext->int */
+	yas_gc_pop_roots(1);
 	return lib;
 }
 
@@ -392,8 +433,24 @@ YasAtom yas_library_load(YasAtom name_parts)
 	
 	/* Initialize default search paths if not set */
 	if (yas_nilp(yas_global_search_paths)) {
-		yas_global_search_paths = yas_cons(yas_make_string("./lib"), 
-		                           yas_cons(yas_make_string("."), yas_nil));
+		/* Was a single nested expression - yas_cons(yas_make_string(...),
+		 * yas_cons(yas_make_string(...), nil)) - which is a Class-B
+		 * hazard: each yas_make_string() result is an unrooted C
+		 * temporary until the yas_cons() consuming it returns, but a
+		 * *sibling* argument's own allocating call can step the GC first
+		 * and free it before it's ever linked in. Named locals, rooted,
+		 * one built at a time. */
+		YasAtom lib_dir = yas_make_string("./lib");
+		yas_gc_push_root(&lib_dir);
+		YasAtom cwd_dir = yas_make_string(".");
+		yas_gc_push_root(&cwd_dir);
+		YasAtom tail = yas_cons(cwd_dir, yas_nil);
+		yas_gc_push_root(&tail);
+		/* lib_dir/tail must both stay rooted through this final yas_cons
+		 * call too - they're its arguments, still unlinked into anything
+		 * until it returns. */
+		yas_global_search_paths = yas_cons(lib_dir, tail);
+		yas_gc_pop_roots(3); /* tail, cwd_dir, lib_dir */
 	}
 	
 	YasAtom key = yas_make_string(key_str);

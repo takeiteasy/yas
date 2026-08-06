@@ -1,6 +1,6 @@
-/* aot_plan.h
+/* plan.h
  *
- * The yas AOT compiler proper: parses a .ys file (via aot_plan.c's own
+ * The yas AOT compiler proper: parses a .ys file (via plan.c's own
  * boxed-Atom reader front end), mangles names, infers long-vs-double per
  * function, resolves let/let* bindings to numbered local slots, and
  * flattens every function body into a linear list of stack-machine ops.
@@ -60,7 +60,7 @@ int yas_plan_op_b(struct YasPlan *p, int fn, int i);     /* second int operand (
 long   yas_plan_op_i(struct YasPlan *p, int fn, int i);  /* PUSH_INT literal */
 double yas_plan_op_f(struct YasPlan *p, int fn, int i);  /* PUSH_FLOAT literal */
 
-/* The flat stack-machine opcode set: emitted by aot_plan.c, replayed by
+/* The flat stack-machine opcode set: emitted by plan.c, replayed by
  * aot/aot.c (cccc comptime code) into cccc reflection Node* trees. Kept
  * dependency-free for the same @comptime-include reason as the rest of
  * this header.

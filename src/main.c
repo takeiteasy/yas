@@ -109,7 +109,12 @@ int main(int argc, char **argv)
 
 	/* Import (yas base) */
 	YasAtom yas_base = yas_list_create(2, yas_make_sym("YAS"), yas_make_sym("BASE"));
+	/* `yas_base` is a fresh, otherwise-unreachable local held across the
+	 * further allocating yas_list_create(1, yas_base) call right below -
+	 * root it for that one call. */
+	yas_gc_push_root(&yas_base);
 	YasAtom import_args = yas_list_create(1, yas_base);
+	yas_gc_pop_roots(1); /* yas_base */
 	YasAtom ignore;
 	/* Same reasoning as `env` above: import_args is a fresh, otherwise-
 	 * unreachable list that yas_module_import walks across the same

@@ -58,62 +58,117 @@ IDLE`, each step bounded to `YAS_GC_STEP_LIMIT` objects of work
 - **Atomic phase**: once the gray worklist empties, roots are re-marked
   and drained to completion *within the same `yas_gc_step()` call* -
   never persisting across a call boundary, so no allocation can race it.
-  This exists because the cycle spans many evaluator safe points, and the
-  evaluator's own roots (`expr`/`env`/`stack`, reassigned constantly as
-  `eval_vm()` runs) can only be trusted as of *this* snapshot, not the one
-  at cycle start. Because it never persists, `yas_gc_phase()` only ever
+  This exists because the cycle spans many separate `yas_gc_step()` calls,
+  and the evaluator's own roots (`expr`/`env`/`stack`, reassigned
+  constantly as `eval_vm()` runs) can only be trusted as of *this*
+  snapshot, not the one at cycle start. Because it never persists, `yas_gc_phase()` only ever
   reports IDLE/MARKING/SWEEPING to callers - there is no externally
   observable "atomic" phase.
 - **SWEEPING**: walks the entire `gc_all` list once per cycle, freeing
   WHITE objects and leaving everything else untouched (see "survivor
   colors" below).
 
-### Why steps run at the evaluator safe point, not inside `gc_alloc()`
+### Allocation-triggered stepping
 
-do2 (the sibling project this collector's shape is ported from) steps the
-GC directly inside its allocator. Doing that here would mean a collection
-could complete in the middle of *any* builtin - and roughly twenty
-`builtin_*.c` files hold `YasAtom` C locals across further allocating
-calls without being rooted (that's the normal, expected style for a
-builtin that isn't itself re-entering the evaluator). Retrofitting
-`yas_gc_push_root()` through every builtin is a much larger audit and
-explicitly out of scope for this port.
+`gc_alloc()` (`data.c`) paces `yas_gc_step()` itself - allocation is what
+advances the collector, not `eval_vm()`'s loop. do2 (the sibling project
+this collector's shape is ported from) does the same. An earlier version
+of this port stepped only once per `eval_vm()` loop iteration instead,
+specifically to avoid the audit this section describes; that tradeoff is
+gone now that the audit has been done (see "The rooting contract" below).
 
-Instead, `yas_gc_step()` is called once per `eval_vm()` loop iteration
-(`eval.c`) - the same place the old counter-triggered stop-the-world
-collector used to fire, except now every iteration takes one bounded
-slice instead of waiting for a 100,000-cons counter and then doing the
-whole mark+sweep in one burst. `eval_roots` is valid at that point and no
-builtin call is "in flight" (a builtin either returns without further
-evaluation, or itself calls back into `yas_eval_expr()`, which pushes its
-own `EvalRoot` and gets its own safe points).
+**Pacing**: `gc_pace()` (`data.c`) accumulates a byte counter (`gc_debt`,
+fed by both `gc_alloc()` and `gc_account_extra()` - the latter matters
+because vector/hash/bytevector growth can be the dominant source of
+allocated bytes without a single `gc_alloc()` call to hang a step off of)
+and runs one bounded `yas_gc_step()` every `YAS_GC_DEBT_QUANTUM` bytes
+(default 4KB, overridable via that env var). Pacing arithmetic: a cons
+cell (`struct Allocation` = `YasGCHeader` + `YasPair`) is 56 bytes on a
+typical LP64 build, so one quantum is roughly 73 conses; `YAS_GC_STEP_LIMIT`
+(512 objects marked per step) is ~7x that - comfortably enough for
+marking to outpace allocation.
 
-This still leaves an "unrooted local across an allocating call" hazard
-for any C function that re-enters the evaluator: a nested `eval_vm()`
-*does* step the GC, while the *outer* frame's own `YasAtom` C locals stay
-unrooted unless something explicitly protects them. That set of
-re-entering functions is closed and fully audited: `yas_eval_expr()`,
-`yas_eval_source()`, `yas_eval_file()`, and `yas_library_load()` are the
-only ways C code re-enters the evaluator (there is no `yas_apply()`), and
-every call site in `eval.c` and `module.c` has been checked. `eval_vm()`
-now roots its own output slot too (`struct EvalRoot`'s `result` member),
-closing the whole class of "previous nested call's result still live
-across the next one" - see "Root-registration API" below - and the
-remaining genuinely-local slots (a fresh `yas_env_create()`, a `TRY`
-clause's bound-exception environment) are each protected with an explicit
-`yas_gc_push_root()`/`yas_gc_pop_roots()` pair. No `builtin_*.c` file,
-`ffi.c`, `io.c`, `read.c`, or `print.c` re-enters the evaluator, so this
-audit does not extend into that ~20-file "unrooted local across *any*
-allocating call" hazard described above - that's still what blocks moving
-`yas_gc_step()` into `gc_alloc()` (see "Future work").
+`gc_pace()` is called from *inside* `gc_alloc()`, before the `calloc` -
+not after. The object being allocated doesn't exist yet at that point, so
+a step (even one that completes a whole cycle) cannot possibly free the
+very object this call is about to create; the risk that ordering avoids
+is real, not theoretical - pacing *after* linking and coloring the new
+object was tried and produces an immediate use-after-free on the object
+under construction, once the collector has already been told a cycle is
+active (see the "Testing" section's note on `YAS_GC_STRESS`, which is
+exactly when this matters). A `gc_stepping` re-entrancy guard prevents a
+step's own internals from re-triggering `gc_pace()` - today nothing a
+step does (`gc_mark_step`/`gc_sweep_step` use plain `realloc`/`free`,
+never `gc_alloc()`) can hit that, so it's insurance against a future
+change rather than a live fix.
 
-One caveat worth stating explicitly: `(gc)`/`(gc-start)` (`yas_gc()`/
-`yas_gc_start()`, exposed as builtins in `builtin_core.c`) can force a
-collection from *builtin* context at any call depth, not just at
-`eval_vm()`'s own automatic safe point. "The evaluator safe point is the
-only place a step may run" describes the automatic threshold-triggered
-stepping, not a hard invariant - Lisp code can force one anywhere a
-builtin can run, including mid-library-load.
+`eval_vm()`'s loop no longer calls `yas_gc_step()` at all; `EvalRoot`
+(`expr`/`env`/`stack`/`result`) is still a root source, just no longer
+the pacing site.
+
+#### The rooting contract
+
+Since a collection can now complete during *any* allocating call, not
+just at `eval_vm()`'s old safe point, the rooting contract is broader
+than it used to be: **any C function - builtin, reader, evaluator
+internals - that holds a `YasAtom` local across a further allocating call
+needs to root it**, unless that value is already reachable another way
+(see "Callers not affected" below). This was audited across `data.c`,
+`read.c`, `eval.c`, `module.c`, and the `builtin_*.c` files; the two
+concrete shapes found repeatedly:
+
+- **Accumulator hazard** - a loop building a list/string by holding a
+  head/tail pair across repeated allocating calls (`yas_list_create()`,
+  `yas_copy_list()`, `read_list()`, `yas_builtin_list_append()`'s
+  `append`, `yas_define_native_module()`'s name-parsing loop, and others)
+  - fixed by rooting the head for the loop's duration; the tail needs no
+  separate root once linked in, since it's reachable by walking cdrs from
+  the (rooted) head.
+- **Nested-temporary hazard** - `f(alloc_a(), alloc_b())`: whichever of
+  `alloc_a()`/`alloc_b()` runs first produces an unrooted C temporary
+  that survives only as an argument-evaluation-order artifact until `f`
+  itself is called, and `f`'s own `gc_alloc()` can step the GC before
+  linking that temporary in (`yas_env_define()`'s binding cons,
+  `yas_library_load()`'s default search-path construction, `read.c`'s
+  quote-wrapper construction and string-interpolation parts list, and
+  others) - fixed by naming and rooting each intermediate value instead
+  of nesting the expressions.
+
+A narrower, non-obvious third case: a constructor's *own* freshly
+allocated object can need rooting internally, if the object is created
+while the collector is IDLE (colored WHITE) and a *later* allocation in
+the same function is what starts the next cycle - for a small enough live
+heap, a single bounded step can complete an entire mark+sweep, so the
+object is swept before its own constructor ever returns it anywhere.
+`yas_make_vector()`/`yas_make_hash()`/`yas_make_bytevector*()` all hit
+this between their initial `gc_alloc()` and the `gc_account_extra()` call
+that grows their external buffer, and root themselves across that window.
+
+One bound that keeps the contract usable rather than infinite: a
+builtin's `args` (and everything reachable through them) arrive already
+rooted via the evaluator's own call-frame stack (`eval_do_apply()`,
+`eval.c`, reachable through `EvalRoot->stack`) - only values a function
+*creates itself* and then holds across another allocation need explicit
+rooting. See "Callers not affected" below for the general version of this
+reasoning.
+
+A closely related, pre-existing bug class surfaced by the same audit:
+raw `yas_cdr(p) = x` / `*result = x` assignments that write into
+GC-tracked pair storage without going through `yas_set_car`/`yas_set_cdr`
+or an explicit `yas_gc_write_barrier()` call bypass the write barrier
+entirely (see "Write barrier" below). `read_list()` had two such
+assignments building its result list; `read_expr_internal()`'s
+quote/quasiquote/unquote branches write through `&yas_car(yas_cdr(*result))`
+- a raw pointer that aliases into an existing pair's car slot - which is
+exactly the same hazard by a different route. Both are fixed. These were
+dormant before this change (a collection could not previously land inside
+a single reader call), not something allocation-triggered stepping
+introduced.
+
+`(gc)`/`(gc-start)` (`yas_gc()`/`yas_gc_start()`, exposed as builtins in
+`builtin_core.c`) can still force a collection from *builtin* context at
+any call depth - true before this change and still true now, just no
+longer the only way a collection can start mid-builtin.
 
 ## Survivor colors and the allocate-during-sweep hazard
 
@@ -174,6 +229,17 @@ Call sites:
   directly instead of going through one of the helpers above.
 - `yas_make_vector()`'s fill value (one barrier call covers every slot,
   since it's the same atom repeated).
+- `read_expr_internal()`'s quote/quasiquote/unquote branches (`read.c`) -
+  the recursive parse writes its result through
+  `&yas_car(yas_cdr(*result))`, a raw pointer into the freshly-allocated
+  wrapper pair's car slot rather than through `yas_set_car()`, so the
+  quote branch calls `yas_gc_write_barrier()` explicitly once the
+  recursive read succeeds. This is the general shape to watch for beyond
+  the helpers above: any raw pointer write through a caller-supplied
+  `YasAtom*` that happens to alias into existing pair storage bypasses
+  the barrier exactly like a raw `yas_cdr(p) = x` assignment would (see
+  "Allocation-triggered stepping" above - `read_list()` had two such
+  bypasses, now converted to `yas_set_cdr()`).
 
 **The barrier still matters during SWEEPING, not just MARKING.** Live
 code keeps running between `yas_gc_step()` calls, and can legitimately
@@ -328,15 +394,22 @@ explicitly managed via `ffi-close`/`ffi-free`.
 
 ## Testing
 
-- `tests/gc_test.c` (`make test-gc`) - C-level: root protection actually
+- `aux/gc_test.c` (`make test-gc`) - C-level: root protection actually
   survives real collection, push/pop balance, the write barrier firing
   during MARKING and during SWEEPING specifically, a million-element list
   to confirm `yas_gc_mark()`'s non-recursive marker doesn't overflow the
-  C stack the way the old recursive one could, and `yas_eval_source()`'s
+  C stack the way the old recursive one could, `yas_eval_source()`'s
   fresh-`env` rooting (a source string that imports `(yas base)`, forces
   a collection with `(gc)`, then `define`s into that same env - only
   reachable from C, since the vulnerable env only ever exists on the
-  `yas_library_load()` path).
+  `yas_library_load()` path), and three cases specific to allocation-
+  triggered stepping: a rooted value surviving `gc_alloc()`'s own
+  automatic pacing with no explicit `yas_gc()`/`yas_gc_step()` call at
+  all, `yas_gc_allocated()` staying bounded across a long churn loop
+  (pacing actually keeping up with allocation, not just eventually
+  running), and heavy allocation while a cycle is already active still
+  reaching IDLE (the `gc_stepping` re-entrancy guard not stalling
+  progress).
 - `suite.ys` ("GC rooting across nested eval") - Lisp-level: a `TRY`
   whose `FINALLY` clause calls `(gc)`, checking the try-block's result
   survives; a `CATCH` whose first body form recurses deeply enough to
@@ -347,6 +420,11 @@ explicitly managed via `ffi-close`/`ffi-free`.
   `(gc-start)` immediately followed by allocation would not catch a
   regression here, since `gc_alloc()` colors new objects BLACK (and
   therefore survives) while a cycle is already active.
+- `suite.ys` ("allocation-triggered stepping mid-builtin") - a single
+  `append` call spanning several thousand conses, entirely inside one
+  builtin C call with no return to `eval_vm()`'s loop in between and no
+  explicit `(gc)`/`(gc-start)` - exercises the mid-builtin collection
+  window that could never occur before allocation-triggered stepping.
 - `aux/gc_continuation_stress.ys` - a continuation reachable only via a
   binding (not the live evaluator stack) survives GC, exercising that
   `YAS_ATOM_TYPE_CONTINUATION` is traced the same as Pair/Closure/Macro
@@ -355,16 +433,33 @@ explicitly managed via `ffi-close`/`ffi-free`.
   strings, vectors, hashes, lists) held live across heavy allocation
   churn, exercising many real incremental cycles under normal safe-point
   stepping rather than a single controlled phase transition.
+- `aux/gc_alloc_stress.ys` + `make test-gc-stress` - the audit gate for
+  allocation-triggered stepping itself. `YAS_GC_STRESS=<n>` (`data.c`)
+  shrinks both the cycle-start threshold and the debt quantum to `n`
+  bytes via `gc_min_threshold_get()`/`gc_debt_quantum_get()` (env
+  overridable individually as `YAS_GC_MIN_THRESHOLD`/
+  `YAS_GC_DEBT_QUANTUM`), instead of the ~256KB/4KB defaults - so cycles
+  start and advance on essentially every allocation, using the exact same
+  pacing code path production does. `make test-gc-stress` runs
+  `suite.ys` + every `aux/*.ys` script + `aux/gc_test.c` at `n=1`; add
+  `YAS_ASAN=1` so a surviving bug reports a stack trace naming the exact
+  function.
+
+  Two other designs were tried first and rejected - worth knowing if
+  revisiting this: running a *full* `yas_gc()` to completion on every
+  Nth allocation always ends back at IDLE, which colors every subsequent
+  object WHITE and defeats allocate-black, manufacturing use-after-frees
+  for values that were never actually unsafe (an object only needs to
+  survive to the next *cycle boundary*, not to the next allocation).
+  Forcing `yas_gc_start()` (bypassing the threshold) on every single
+  allocation preserves that invariant but is O(heap) per allocation
+  whenever the heap is small enough for one bounded step to complete an
+  entire cycle - which is most of the time for a small/medium heap
+  (measured: a ~170KB library bootstrap didn't finish in 2 minutes).
+  Shrinking the threshold instead reuses the ordinary, already-correct
+  pacing path, so it's neither unsound nor quadratic.
 
 ## Future work
 
-- **Allocation-triggered incrementality.** Steps currently only run at
-  `eval_vm()`'s safe point; moving them into `gc_alloc()` itself (as do2
-  does) would give tighter pause bounds. This depends on the
-  ~20-file `builtin_*.c` audit described under "Why steps run at the
-  evaluator safe point" above landing first - every builtin that holds a
-  `YasAtom` local across a further allocating call (the normal style for
-  one that isn't itself re-entering the evaluator) would need rooting,
-  otherwise a step could fire inside any of those unrooted-local windows.
 - **Avoid the O(n) per-cycle color-clear** in `yas_gc_start()` via an
   alternating-white-color scheme, if profiling shows it matters.

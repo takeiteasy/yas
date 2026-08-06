@@ -2,7 +2,7 @@
  *
  * All the actual compiler work - reading, mangling, type inference,
  * let/let* scope resolution, flattening each function body to a postfix
- * op list - happens in ordinary C in src/aot_plan.c, tested independently
+ * op list - happens in ordinary C in src/plan.c, tested independently
  * of cccc (aot/tests/plan_test.c). This file's only job is to walk that
  * flat op list once per function and rebuild it as cccc reflection
  * `Node *` trees via a small, non-recursive stack machine, then hand the
@@ -54,7 +54,7 @@
  * because the file-scope statics they type need them there.
  */
 
-#include @comptime "../src/aot_plan.h"
+#include @comptime "plan.h"
 #include @comptime <dlfcn.h>
 
 typedef struct YasPlan *(*fp_plan)(const char *);
@@ -159,7 +159,7 @@ void yas_aot_compile(char *path)
 	}
 
 	/* pass 2: bodies - each is a small, non-recursive stack machine over
-	 * the flat op list, exactly mirroring aot_plan.c/plan_test.c's build()
+	 * the flat op list, exactly mirroring plan.c/plan_test.c's build()
 	 * pass but pushing cccc Node* instead of a plain-C Ast*. COND builds a
 	 * real ternary (ND_COND) whose *generated code* short-circuits at the
 	 * AOT-compiled program's own runtime - construction here never

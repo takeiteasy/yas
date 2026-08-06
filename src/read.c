@@ -233,9 +233,19 @@ static int read_list(const char *start, const char **end, YasAtom *result,
 	*end = start;
 	p = *result = yas_nil;
 
+	/* `*result` (the list being built) accumulates across repeated
+	 * yas_cons() calls below and has no protection of its own before
+	 * this function ever sees it (a caller several frames up may root
+	 * its own copy, e.g. yas_eval_source()'s `expr`, but every level of
+	 * *nested* list/quote reading introduces its own fresh, unrooted
+	 * `result`/`item` locals) - root `*result` for this whole call. `p`
+	 * needs no separate root: once linked in, it's always reachable by
+	 * walking cdrs from `*result`. */
+	yas_gc_push_root(result);
+
 	for (;;) {
 		const char *token;
-		YasAtom item;
+		YasAtom item = yas_nil;
 		YasError e;
 
 		e = lex(*end, &token, end, source, filename, err);
@@ -245,39 +255,51 @@ static int read_list(const char *start, const char **end, YasAtom *result,
 				set_error(err, YAS_ERROR_SYNTAX, source, start - 1, filename,
 				          "Unterminated list - missing ')'");
 			}
+			yas_gc_pop_roots(1);
 			return e;
 		}
 
-		if (token[0] == ')')
+		if (token[0] == ')') {
+			yas_gc_pop_roots(1);
 			return YAS_ERROR_OK;
+		}
 
 		if (token[0] == '.' && *end - token == 1) {
 			/* Improper list */
 			if (yas_nilp(p)) {
 				set_error(err, YAS_ERROR_SYNTAX, source, token, filename,
 				          "Unexpected '.' at start of list");
+				yas_gc_pop_roots(1);
 				return YAS_ERROR_SYNTAX;
 			}
 
 			e = yas_read_expr(*end, end, &item, err);
-			if (e)
+			if (e) {
+				yas_gc_pop_roots(1);
 				return e;
+			}
 
-			yas_cdr(p) = item;
+			/* yas_set_cdr(), not the raw yas_cdr() assignment macro -
+			 * this store needs the write barrier like any other (see
+			 * yas.h's yas_set_car/yas_set_cdr contract). */
+			yas_set_cdr(p, item);
 
 			/* Read the closing ')' */
 			e = lex(*end, &token, end, source, filename, err);
 			if (e) {
 				set_error(err, YAS_ERROR_SYNTAX, source, *end, filename,
 				          "Expected ')' after dotted pair");
+				yas_gc_pop_roots(1);
 				return e;
 			}
 			if (token[0] != ')') {
 				set_error(err, YAS_ERROR_SYNTAX, source, token, filename,
 				          "Only one expression allowed after '.'");
+				yas_gc_pop_roots(1);
 				return YAS_ERROR_SYNTAX;
 			}
 
+			yas_gc_pop_roots(1);
 			return YAS_ERROR_OK;
 		}
 
@@ -286,17 +308,25 @@ static int read_list(const char *start, const char **end, YasAtom *result,
 			/* Feature conditional excluded this expression, continue reading */
 			continue;
 		}
-		if (e)
+		if (e) {
+			yas_gc_pop_roots(1);
 			return e;
+		}
 
+		/* `item` is a fresh, otherwise-unreachable local held across
+		 * the further allocating yas_cons() call right below - root it
+		 * for that one call. */
+		yas_gc_push_root(&item);
 		if (yas_nilp(p)) {
 			/* First item */
 			*result = yas_cons(item, yas_nil);
 			p = *result;
 		} else {
-			yas_cdr(p) = yas_cons(item, yas_nil);
-			p = yas_cdr(p);
+			YasAtom node = yas_cons(item, yas_nil);
+			yas_set_cdr(p, node);
+			p = node;
 		}
+		yas_gc_pop_roots(1); /* item */
 	}
 }
 
@@ -318,26 +348,50 @@ static int read_expr_internal(const char *input, const char **end, YasAtom *resu
 		          "Unexpected ')'");
 		return YAS_ERROR_SYNTAX;
 	} else if (token[0] == '\'') {
+		/* `*result` (the (QUOTE ...) wrapper) is a fresh, otherwise-
+		 * unreachable local across the recursive read_expr_internal()
+		 * call below, which allocates heavily for a nested form - root
+		 * it. The recursive call writes its result through
+		 * &yas_car(yas_cdr(*result)) - a raw pointer into the wrapper
+		 * pair's car slot, not through yas_set_car() - so if that pair
+		 * was allocated BLACK (an active cycle, see gc_alloc()) this
+		 * bypasses the write barrier exactly like a raw yas_cdr()
+		 * assignment would; apply it explicitly once the recursive read
+		 * succeeds. */
 		*result = yas_cons(yas_make_sym("QUOTE"), yas_cons(yas_nil, yas_nil));
+		yas_gc_push_root(result);
 		e = read_expr_internal(*end, end, &yas_car(yas_cdr(*result)), source, filename, err);
+		if (!e)
+			yas_gc_write_barrier(yas_cdr(*result), yas_car(yas_cdr(*result)));
+		yas_gc_pop_roots(1);
 		if (e && err) {
 			set_error(err, YAS_ERROR_SYNTAX, source, token, filename,
 			          "Expected expression after quote");
 		}
 		return e;
 	} else if (token[0] == '`') {
+		/* Same rationale as the quote branch above. */
 		*result = yas_cons(yas_make_sym("QUASIQUOTE"), yas_cons(yas_nil, yas_nil));
+		yas_gc_push_root(result);
 		e = read_expr_internal(*end, end, &yas_car(yas_cdr(*result)), source, filename, err);
+		if (!e)
+			yas_gc_write_barrier(yas_cdr(*result), yas_car(yas_cdr(*result)));
+		yas_gc_pop_roots(1);
 		if (e && err) {
 			set_error(err, YAS_ERROR_SYNTAX, source, token, filename,
 			          "Expected expression after quasiquote");
 		}
 		return e;
 	} else if (token[0] == ',') {
+		/* Same rationale as the quote branch above. */
 		*result = yas_cons(yas_make_sym(
 			token[1] == '@' ? "UNQUOTE-SPLICING" : "UNQUOTE"),
 			yas_cons(yas_nil, yas_nil));
+		yas_gc_push_root(result);
 		e = read_expr_internal(*end, end, &yas_car(yas_cdr(*result)), source, filename, err);
+		if (!e)
+			yas_gc_write_barrier(yas_cdr(*result), yas_car(yas_cdr(*result)));
+		yas_gc_pop_roots(1);
 		if (e && err) {
 			set_error(err, YAS_ERROR_SYNTAX, source, token, filename,
 			          "Expected expression after unquote");
@@ -406,8 +460,14 @@ static int read_expr_internal(const char *input, const char **end, YasAtom *resu
 		/* Has interpolation - build (string-append ...) form */
 		YasAtom parts = yas_nil;
 		YasAtom parts_tail = yas_nil;
+		/* `parts` accumulates across repeated yas_cons() calls in the
+		 * loop below, same shape as read_list()'s own accumulator -
+		 * root it for the duration. `parts_tail` needs no separate
+		 * root once linked in (reachable by walking cdrs from `parts`),
+		 * matching the same established pattern. */
+		yas_gc_push_root(&parts);
 		p = str_start;
-		
+
 		while (*p && *p != '"') {
 			if (p[0] == '{' && p[1] == '{') {
 				/* Interpolation - parse expression */
@@ -431,28 +491,45 @@ static int read_expr_internal(const char *input, const char **end, YasAtom *resu
 				if (depth != 0) {
 					set_error(err, YAS_ERROR_SYNTAX, source, p, filename,
 					          "Unterminated interpolation - missing }}");
+					yas_gc_pop_roots(1); /* parts */
 					return YAS_ERROR_SYNTAX;
 				}
-				
+
 				/* Parse the expression */
-				YasAtom expr;
+				YasAtom expr = yas_nil;
 				const char *parse_end;
 				e = read_expr_internal(expr_start, &parse_end, &expr, source, filename, err);
-				if (e) return e;
-				
+				if (e) {
+					yas_gc_pop_roots(1); /* parts */
+					return e;
+				}
+
+				/* `expr`/`expr_list`/`tostr_call` are fresh, otherwise-
+				 * unreachable locals held across further allocating
+				 * yas_cons() calls - root each in turn. (Was a single
+				 * nested expression - yas_cons(sym, yas_cons(expr,
+				 * nil)) - same Class-B shape as module.c's default
+				 * search-paths fix.) */
+				yas_gc_push_root(&expr);
+				YasAtom expr_list = yas_cons(expr, yas_nil);
+				yas_gc_pop_roots(1); /* expr */
+				yas_gc_push_root(&expr_list);
 				/* Wrap in (->string expr) */
-				YasAtom tostr_call = yas_cons(yas_make_sym("->STRING"), yas_cons(expr, yas_nil));
-				
+				YasAtom tostr_call = yas_cons(yas_make_sym("->STRING"), expr_list);
+				yas_gc_pop_roots(1); /* expr_list */
+				yas_gc_push_root(&tostr_call);
+
 				/* Add to parts list */
 				YasAtom new_cell = yas_cons(tostr_call, yas_nil);
+				yas_gc_pop_roots(1); /* tostr_call */
 				if (yas_nilp(parts)) {
 					parts = new_cell;
 					parts_tail = new_cell;
 				} else {
-					yas_cdr(parts_tail) = new_cell;
+					yas_set_cdr(parts_tail, new_cell);
 					parts_tail = new_cell;
 				}
-				
+
 				p = expr_end + 2;  /* Skip }} */
 			} else {
 				/* Literal string segment */
@@ -495,41 +572,52 @@ static int read_expr_internal(const char *input, const char **end, YasAtom *resu
 					
 					YasAtom str_atom = yas_make_string(seg_buf);
 					free(seg_buf);
-					
+
+					/* `str_atom` held across the further allocating
+					 * yas_cons() call right below - root it. */
+					yas_gc_push_root(&str_atom);
 					YasAtom new_cell = yas_cons(str_atom, yas_nil);
+					yas_gc_pop_roots(1); /* str_atom */
 					if (yas_nilp(parts)) {
 						parts = new_cell;
 						parts_tail = new_cell;
 					} else {
-						yas_cdr(parts_tail) = new_cell;
+						yas_set_cdr(parts_tail, new_cell);
 						parts_tail = new_cell;
 					}
 				}
 			}
 		}
-		
+
 		if (*p != '"') {
 			set_error(err, YAS_ERROR_SYNTAX, source, token, filename,
 			          "Unterminated string");
+			yas_gc_pop_roots(1); /* parts */
 			return YAS_ERROR_SYNTAX;
 		}
-		
+
 		*end = p + 1;  /* Skip closing quote */
-		
+
 		/* Build (string-append part1 part2 ...) */
 		*result = yas_cons(yas_make_sym("STRING-APPEND"), parts);
+		yas_gc_pop_roots(1); /* parts */
 		return YAS_ERROR_OK;
 	} else if (token[0] == '#' && token[1] == '(') {
 		/* Vector literal #(1 2 3) */
 		YasAtom list_result;
 		e = read_list(*end, end, &list_result, source, filename, err);
 		if (e) return e;
-		
+
+		/* `list_result` is a fresh, otherwise-unreachable local held
+		 * across the further allocating yas_make_vector() call below -
+		 * root it until every element has been copied out. */
+		yas_gc_push_root(&list_result);
+
 		/* Count list length */
 		size_t len = 0;
 		YasAtom p = list_result;
 		while (!yas_nilp(p)) { len++; p = yas_cdr(p); }
-		
+
 		/* Create vector from list */
 		*result = yas_make_vector(len, yas_nil);
 		p = list_result;
@@ -537,6 +625,7 @@ static int read_expr_internal(const char *input, const char **end, YasAtom *resu
 			yas_vector_set(*result, i, yas_car(p));
 			p = yas_cdr(p);
 		}
+		yas_gc_pop_roots(1);
 		return YAS_ERROR_OK;
 	} else if (token[0] == '#' && strncmp(token, "#vec(", 5) == 0) {
 		/* SIMD vector literal #vec(1 2) or #vec(1 2 3) or #vec(1 2 3 4) */
@@ -620,7 +709,13 @@ static int read_expr_internal(const char *input, const char **end, YasAtom *resu
 		YasAtom list_result;
 		e = read_list(*end, end, &list_result, source, filename, err);
 		if (e) return e;
-		
+
+		/* `list_result` is a fresh, otherwise-unreachable local held
+		 * across the further allocating yas_make_hash()/yas_make_sym()
+		 * calls below - root it until the loop is done walking it.
+		 * (`*result` itself needs no extra root: writing through it
+		 * updates whatever slot our own caller already rooted.) */
+		yas_gc_push_root(&list_result);
 		*result = yas_make_hash();
 		YasAtom p = list_result;
 		while (!yas_nilp(p) && !yas_nilp(yas_cdr(p))) {
@@ -633,16 +728,23 @@ static int read_expr_internal(const char *input, const char **end, YasAtom *resu
 			yas_hash_set(*result, key, val);
 			p = yas_cdr(yas_cdr(p));
 		}
+		yas_gc_pop_roots(1);
 		return YAS_ERROR_OK;
 	} else if (token[0] == '#' && (token[1] == '+' || token[1] == '-')) {
 		/* Reader conditionals: #+(feature expr) or #-(feature expr) */
 		int include_if_present = (token[1] == '+');
 		
-		/* Read the feature name (symbol) */
-		YasAtom feature;
+		/* Read the feature name (symbol, or a compound list expression -
+		 * see below) */
+		YasAtom feature = yas_nil;
 		e = read_expr_internal(*end, end, &feature, source, filename, err);
 		if (e) return e;
-		
+
+		/* `feature` can be a compound list expression ("(or macos
+		 * linux)"), not just a bare symbol - root it across the further
+		 * allocating read_expr_internal() call below. */
+		yas_gc_push_root(&feature);
+
 		/* Check if feature is present - supports compound expressions like (or macos linux) */
 		int feature_present = yas_eval_feature_expr(feature);
 
@@ -651,8 +753,9 @@ static int read_expr_internal(const char *input, const char **end, YasAtom *resu
 		                   (!include_if_present && !feature_present);
 
 		/* Read the expression (we must consume it either way) */
-		YasAtom expr;
+		YasAtom expr = yas_nil;
 		e = read_expr_internal(*end, end, &expr, source, filename, err);
+		yas_gc_pop_roots(1); /* feature */
 		if (e) return e;
 
 		if (include_expr) {

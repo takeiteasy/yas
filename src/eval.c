@@ -66,7 +66,15 @@ int yas_env_define(YasAtom env, YasAtom symbol, YasAtom value)
 		bs = yas_cdr(bs);
 	}
 
-	yas_set_cdr(env, yas_cons(yas_cons(symbol, value), yas_cdr(env)));
+	/* Was a single nested expression - yas_cons(yas_cons(symbol, value),
+	 * yas_cdr(env)) - a Class-B hazard: the inner binding pair is an
+	 * unrooted C temporary until the outer yas_cons() call that links it
+	 * in returns, but that outer call's own gc_alloc() can step the GC
+	 * first and free it. Name it and root it. */
+	YasAtom binding = yas_cons(symbol, value);
+	yas_gc_push_root(&binding);
+	yas_set_cdr(env, yas_cons(binding, yas_cdr(env)));
+	yas_gc_pop_roots(1);
 
 	return YAS_ERROR_OK;
 }
@@ -133,7 +141,7 @@ int yas_eval_source(const char *text, const char *path, YasAtom env, YasAtom *re
 	yas_current_file_path = path;
 	
 	const char *p = text;
-	YasAtom expr;
+	YasAtom expr = yas_nil;
 	YasErrorContext err = {0};
 	err.pos.filename = path;
 	err.pos.source = text;
@@ -150,15 +158,32 @@ int yas_eval_source(const char *text, const char *path, YasAtom env, YasAtom *re
 	 * iteration's call and equally unreachable otherwise (it is not the
 	 * nested eval_vm's own result slot - that's `&ignore` below, rooted
 	 * separately per call). One root each covers every iteration, since
-	 * yas_gc_push_root() tracks the slot's address, not a snapshot. */
+	 * yas_gc_push_root() tracks the slot's address, not a snapshot.
+	 *
+	 * `expr` also needs its own root: yas_read_expr() (read.c)
+	 * accumulates it across many allocating calls (read_list()'s own
+	 * unrooted accumulator, one yas_cons() per list element) with no
+	 * protection of its own before this function ever sees it - a large
+	 * top-level form (e.g. a define-library block) is exactly the kind
+	 * of long allocation run that can trip the collector mid-parse. */
 	yas_gc_push_root(&env);
 	yas_gc_push_root(result);
+	yas_gc_push_root(&expr);
 
 	while (1) {
 		err.code = YAS_ERROR_OK;
 		err.message[0] = '\0';
 
+		/* Balance check for the reader's own push_root()/pop_roots()
+		 * pairs (read.c) - read_list() and read_expr_internal()'s
+		 * quote/quasiquote/unquote/string-interpolation/#hash(/#(
+		 * branches each push and pop around their own locals, several
+		 * with multiple early-return error paths. A parse failure
+		 * exercises those error paths far less often than a successful
+		 * one, so verify balance on every call, not just success. */
+		int reader_roots_before = yas_gc_root_count();
 		YasError read_err = yas_read_expr(p, &p, &expr, &err);
+		assert(yas_gc_root_count() == reader_roots_before);
 		if (read_err == YAS_ERROR_SKIP) {
 			/* Feature conditional excluded this expression, continue */
 			continue;
@@ -167,7 +192,7 @@ int yas_eval_source(const char *text, const char *path, YasAtom env, YasAtom *re
 			if (err.message[0] != '\0') {
 				yas_error_print(&err);
 				yas_current_file_path = saved_path;
-				yas_gc_pop_roots(2);
+				yas_gc_pop_roots(3);
 				return YAS_ERROR_SYNTAX;
 			}
 			break;  /* End of file */
@@ -177,14 +202,14 @@ int yas_eval_source(const char *text, const char *path, YasAtom env, YasAtom *re
 		YasError eval_err = yas_eval_expr(expr, env, &ignore);
 		if (eval_err) {
 			yas_current_file_path = saved_path;
-			yas_gc_pop_roots(2);
+			yas_gc_pop_roots(3);
 			return eval_err;
 		}
 		*result = ignore; // result is last expr
 	}
 
 	yas_current_file_path = saved_path;
-	yas_gc_pop_roots(2);
+	yas_gc_pop_roots(3);
 	return YAS_ERROR_OK;
 }
 
@@ -755,8 +780,9 @@ static int eval_vm(YasAtom expr, YasAtom env, YasAtom *result, struct EvalRoot *
 
 	/* Caller-supplied `result` storage is uninitialized (main.c's
 	 * `YasAtom result;`, this file's `YasAtom ignore;`/`ignored;`, etc.)
-	 * - nil it before rooting so a GC step at the very first safe point
-	 * below doesn't mark garbage. */
+	 * - nil it before rooting so the very first allocation below (which
+	 * can now step the GC directly - see docs/GC.md, "Allocation-
+	 * triggered stepping") doesn't mark garbage. */
 	*result = yas_nil;
 
 	root->expr = &expr;
@@ -765,14 +791,12 @@ static int eval_vm(YasAtom expr, YasAtom env, YasAtom *result, struct EvalRoot *
 	root->result = result;
 
 	do {
-		/* The evaluator's safe point: eval_roots is valid here and no
-		 * builtin/native call is in flight, so this is the only place
-		 * a GC step may run (see docs/GC.md). yas_gc_step() is a cheap
-		 * no-op unless a cycle is active or the byte threshold has
-		 * tripped, so calling it every iteration keeps pauses bounded
-		 * (YAS_GC_STEP_LIMIT objects at a time) instead of the old
-		 * every-100,000-conses stop-the-world burst. */
-		yas_gc_step();
+		/* No per-iteration yas_gc_step() call here anymore: gc_alloc()
+		 * itself now paces steps (a byte-proportional debt counter, see
+		 * data.c), so allocation is what advances the collector rather
+		 * than the evaluator's loop. `expr`/`env`/`stack`/`result` stay
+		 * rooted via `root` (EvalRoot) regardless of where in this loop
+		 * a step happens to land. */
 
 		if (expr.type == YAS_ATOM_TYPE_SYMBOL) {
 			err = yas_env_get(env, expr, result);

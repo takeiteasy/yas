@@ -98,13 +98,13 @@ in every minimal reproduction. Chasing them one at a time did not converge.
 
 The actual design splits the work by *where it can safely run*:
 
-- **`src/aot_plan.c`** - ordinary C, compiled by the system compiler, with
+- **`aot/plan.c`** - ordinary C, compiled by the system compiler, with
   none of cccc's constraints. Does everything: reads the file (via a
   private boxed-`YasAtom` reader front end at the top of this file - kept
-  private since nothing outside `aot_plan.c` ever calls it directly),
+  private since nothing outside `plan.c` ever calls it directly),
   mangles names, infers long-vs-double per function, resolves `let`/`let*`
   bindings to numbered local slots, and flattens each function body into a
-  flat **postfix op list** (opcodes declared in `src/aot_plan.h`) -
+  flat **postfix op list** (opcodes declared in `aot/plan.h`) -
   `PUSH_INT`, `PUSH_PARAM`, `BINOP`, `COND`, `CALL`, `CAST_LONG`, `SEQ`,
   etc. Fully unit-testable with a plain `cc` and no cccc in the loop:
   `aot/tests/plan_test.c` builds a small in-memory AST from the op list
@@ -132,7 +132,7 @@ actually made it work reliably.
 several VM-level issues worth reporting upstream; each is reproduced as a
 small standalone case during development (not currently checked into this
 repo - recreate from the description if needed) and documented at its
-trigger site in `aot/aot.c` / `src/aot_plan.h`:
+trigger site in `aot/aot.c` / `aot/plan.h`:
 
 1. **Forward-declared comptime functions crash the VM.** A
    `[[cccc::comptime]]` function prototype, forward-declared and defined

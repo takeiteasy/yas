@@ -12,10 +12,10 @@
    One intrusive list (`gc_all`), threaded through the `struct
    YasGCHeader` embedded in every heap type, replaces the ten
    near-identical mark/next + sweep-loop copies this file used to have.
-   See docs/GC.md for the full design: the tricolor invariant, why steps
-   run at the evaluator safe point rather than inside gc_alloc(), the
-   allocate-during-sweep hazard and how insertion position avoids it,
-   and the write barrier.
+   See docs/GC.md for the full design: the tricolor invariant,
+   allocation-triggered stepping (gc_alloc() paces steps via a
+   byte-proportional debt counter), the allocate-during-sweep hazard and
+   how insertion position avoids it, and the write barrier.
    ══════════════════════════════════════════════════════════════════ */
 
 /* Pair/Closure/Macro/Continuation share this allocation - the atom's
@@ -40,13 +40,124 @@ typedef enum {
 static struct YasGCHeader *gc_all = NULL;
 static GCPhase gc_phase = YAS_GC_IDLE;
 static size_t gc_allocated = 0;
-static size_t gc_threshold = YAS_GC_INIT_THRESHOLD;
+static size_t gc_threshold = 0;   /* 0 = "not yet initialized", see gc_min_threshold_get() */
 
 static struct YasGCHeader **gc_gray = NULL;
 static int gc_gray_count = 0;
 static int gc_gray_cap = 0;
 
 static struct YasGCHeader *gc_sweep_prev = NULL;
+
+/* ── Allocation-triggered stepping ───────────────────────────────────
+ * gc_alloc() (below) paces yas_gc_step() itself instead of relying on
+ * eval_vm()'s loop to call it once per iteration - a single builtin or
+ * reader call that allocates heavily used to run to completion with no
+ * collector progress at all, so the "incremental" pause bound only held
+ * between VM iterations, not within one. See docs/GC.md.
+ *
+ * gc_debt accumulates bytes allocated (gc_alloc() and gc_account_extra()
+ * both feed it - the latter matters because vector/hash/bytevector
+ * growth can be the dominant source of allocated bytes without a single
+ * gc_alloc() call to hang a step off of) and triggers one bounded step
+ * every YAS_GC_DEBT_QUANTUM bytes. Pacing arithmetic: a cons cell
+ * (struct Allocation = YasGCHeader + YasPair) is 56 bytes on a typical
+ * LP64 build, so one quantum is roughly 73 conses; YAS_GC_STEP_LIMIT
+ * (512 objects marked per step) is ~7x that - comfortably enough for
+ * marking to outpace allocation. Revisit this comment if either
+ * constant changes. */
+#define YAS_GC_DEBT_QUANTUM_DEFAULT (4 * 1024)  /* bytes allocated per step */
+static size_t gc_debt = 0;
+static size_t gc_debt_quantum = 0;   /* 0 = "not yet read from env" */
+static int    gc_stepping = 0;       /* re-entrancy guard, see gc_alloc() */
+
+/* GC_STRESS mode (make test-gc-stress / YAS_GC_STRESS=1) is built on
+ * top of the *ordinary* debt-paced yas_gc_step() call below, not a
+ * separate code path - two designs were tried and rejected first:
+ *
+ *   - Running a full yas_gc() every Nth allocation always ends back at
+ *     IDLE, which colors every subsequent object WHITE regardless of
+ *     whether a cycle is conceptually active - defeating allocate-black
+ *     (gc_alloc()'s `obj->color = ... YAS_GC_BLACK`) and manufacturing
+ *     use-after-frees for values that were never actually unsafe under
+ *     the collector's real invariant (an object only needs to survive
+ *     to the *next cycle boundary*, not to the next allocation).
+ *   - Forcing yas_gc_start() (bypassing the byte threshold) on every
+ *     single allocation preserves that invariant, but is O(heap) per
+ *     allocation whenever the live heap is small enough for one bounded
+ *     step to complete an entire cycle - which, empirically, is most of
+ *     the time for a small/medium heap (measured: a ~170KB library
+ *     bootstrap didn't finish in 2 minutes). Quadratic, not usable.
+ *
+ * What actually works: keep the normal, already-correct pacing path
+ * (which respects allocate-black because it never forces more than one
+ * bounded step, and never resets to IDLE except by naturally finishing
+ * a sweep) and just make the *threshold* for starting a new cycle tiny,
+ * via gc_min_threshold_get() below, instead of the normal 256KB floor.
+ * YAS_GC_STRESS=<n> is a one-var convenience that sets both the min
+ * threshold and the debt quantum to `n` bytes unless either is
+ * overridden explicitly via YAS_GC_MIN_THRESHOLD/YAS_GC_DEBT_QUANTUM. */
+static size_t gc_min_threshold = 0;  /* 0 = "not yet read from env" */
+static long   gc_stress_bytes = -1;  /* -1 = "not yet read from env"; 0 = unset */
+
+static long gc_stress_get(void)
+{
+	if (gc_stress_bytes < 0) {
+		const char *env = getenv("YAS_GC_STRESS");
+		long v = env ? atol(env) : 0;
+		gc_stress_bytes = (v > 0) ? v : 0;
+	}
+	return gc_stress_bytes;
+}
+
+static size_t gc_min_threshold_get(void)
+{
+	if (gc_min_threshold == 0) {
+		const char *env = getenv("YAS_GC_MIN_THRESHOLD");
+		long v = env ? atol(env) : 0;
+		if (v > 0) {
+			gc_min_threshold = (size_t)v;
+		} else {
+			long stress = gc_stress_get();
+			gc_min_threshold = (stress > 0) ? (size_t)stress : YAS_GC_INIT_THRESHOLD;
+		}
+	}
+	return gc_min_threshold;
+}
+
+static size_t gc_debt_quantum_get(void)
+{
+	if (gc_debt_quantum == 0) {
+		const char *env = getenv("YAS_GC_DEBT_QUANTUM");
+		long v = env ? atol(env) : 0;
+		if (v > 0) {
+			gc_debt_quantum = (size_t)v;
+		} else {
+			long stress = gc_stress_get();
+			gc_debt_quantum = (stress > 0) ? (size_t)stress : YAS_GC_DEBT_QUANTUM_DEFAULT;
+		}
+	}
+	return gc_debt_quantum;
+}
+
+/* Shared by gc_alloc() and gc_account_extra(): advance the debt counter
+ * by `size` bytes and, if due, run one paced step. gc_stepping guards
+ * against re-entering gc_alloc() from inside a step; today nothing a
+ * step does (gc_mark_step/gc_sweep_step use plain realloc/free, never
+ * gc_alloc()) can trigger that, so this is insurance against a future
+ * change, not a live fix. */
+static void gc_pace(size_t size)
+{
+	if (gc_stepping)
+		return;
+
+	gc_debt += size;
+	if (gc_debt >= gc_debt_quantum_get()) {
+		gc_debt = 0;
+		gc_stepping = 1;
+		yas_gc_step();
+		gc_stepping = 0;
+	}
+}
 
 /* Interning tables, needed by gc_mark_roots() below - forward-declared
  * here since they're otherwise only used starting from yas_make_sym()/
@@ -158,6 +269,22 @@ static struct YasGCHeader *atom_to_header(YasAtom a)
 
 static void *gc_alloc(size_t size, YasGCObjType type)
 {
+	/* Pace *before* allocating, not after: `obj` doesn't exist yet at
+	 * this point, so a step - even a full YAS_GC_STRESS collection -
+	 * cannot possibly free the object this very call is about to create.
+	 * (Pacing after linking+coloring was tried and reverted - it does
+	 * NOT help: under YAS_GC_STRESS, the collector always ends a cycle
+	 * back at IDLE, so a freshly-linked object is colored WHITE just
+	 * like any other IDLE-time allocation, and a pace call immediately
+	 * afterward can sweep *this* object before its car/cdr/fields are
+	 * ever populated - an immediate use-after-free on the object under
+	 * construction, worse than the hazard this ordering is meant to
+	 * avoid.) The hazard this leaves is exactly the one docs/GC.md
+	 * documents: *other*, already-returned, still-unrooted objects a
+	 * caller is holding across this call. That's the intended audit
+	 * target, not a bug in this function. */
+	gc_pace(size);
+
 	struct YasGCHeader *obj = calloc(1, size);
 	if (!obj)
 		return NULL;
@@ -191,6 +318,12 @@ static void gc_account_extra(struct YasGCHeader *obj, size_t delta)
 {
 	obj->backing_size += delta;
 	gc_allocated += delta;
+	/* Feeds the same pacing counter gc_alloc() does - vector/hash/
+	 * bytevector growth can be the dominant source of allocated bytes
+	 * without a single gc_alloc() call to hang a step off of, so
+	 * without this a program churning large buffers would starve
+	 * marking mid-cycle. */
+	gc_pace(delta);
 }
 
 /* ── Write barrier ────────────────────────────────────────────────── */
@@ -442,8 +575,8 @@ static void gc_sweep_step(int limit)
 		gc_phase = YAS_GC_IDLE;
 		gc_sweep_prev = NULL;
 		gc_threshold = gc_allocated * 2;
-		if (gc_threshold < YAS_GC_INIT_THRESHOLD)
-			gc_threshold = YAS_GC_INIT_THRESHOLD;
+		if (gc_threshold < gc_min_threshold_get())
+			gc_threshold = gc_min_threshold_get();
 #ifndef NDEBUG
 		gc_check_idle_invariant();
 #endif
@@ -470,13 +603,19 @@ void yas_gc_start(void)
 }
 
 /* One bounded slice of whichever phase is active; a no-op (besides the
- * threshold check) when IDLE and under budget. Called from eval.c's
- * safe point every eval_vm loop iteration - see docs/GC.md for why steps
- * live there rather than inside gc_alloc(). */
+ * threshold check) when IDLE and under budget. Paced by gc_alloc()/
+ * gc_account_extra() via gc_pace() above - every YAS_GC_DEBT_QUANTUM
+ * bytes allocated gets one call here, so allocation itself is what
+ * advances the collector (see docs/GC.md, "Allocation-triggered
+ * stepping"). Also callable directly - (gc-start) exposes yas_gc_start()
+ * and (gc)/yas_gc() drain to completion via the loops below, both of
+ * which can still be invoked from arbitrary builtin context. */
 void yas_gc_step(void)
 {
 	switch (gc_phase) {
 	case YAS_GC_IDLE:
+		if (gc_threshold == 0)
+			gc_threshold = gc_min_threshold_get();
 		if (gc_allocated <= gc_threshold)
 			return;
 		yas_gc_start();
@@ -645,19 +784,38 @@ YasAtom yas_make_vector(size_t size, YasAtom fill)
 {
 	YasAtom a;
 	struct YasVector *v = gc_alloc(sizeof(struct YasVector), YAS_GC_OBJ_VECTOR);
-	v->size = size;
+	a.type = YAS_ATOM_TYPE_VECTOR;
+	a.value.vector = v;
+	/* `v` is fully linked into gc_all and colored by gc_alloc() above,
+	 * but nothing marks it reachable yet - it's not returned to our
+	 * caller until this function returns. Ordinarily allocate-black
+	 * would protect it for the rest of an already-active cycle, but if
+	 * *this* gc_alloc() is what happened to run while IDLE (v colored
+	 * WHITE) and gc_account_extra() below is what starts the next cycle
+	 * (e.g. the very first collection of the process, when the live
+	 * heap is small enough for a single bounded step to complete an
+	 * entire mark+sweep), v was never inside an active cycle at all -
+	 * it would be swept in the very call that starts one. Root `a` to
+	 * cover that window. */
+	yas_gc_push_root(&a);
+
+	/* v->size is left at 0 (calloc's zero-init, via gc_alloc()) until
+	 * the fill loop below has written a valid YasAtom into every slot -
+	 * gc_scan_object() walks exactly v->data[0..v->size), and setting
+	 * v->size before v->data is malloc'd/filled would let a step scan
+	 * uninitialized/garbage bytes as YasAtoms. */
 	v->capacity = size > 0 ? size : 4;
 	v->data = malloc(sizeof(YasAtom) * v->capacity);
 	gc_account_extra(&v->gc, sizeof(YasAtom) * v->capacity);
 	for (size_t i = 0; i < size; i++) {
 		v->data[i] = fill;
 	}
-	a.type = YAS_ATOM_TYPE_VECTOR;
-	a.value.vector = v;
+	v->size = size;
 
 	if (size > 0)
 		yas_gc_write_barrier(a, fill);
 
+	yas_gc_pop_roots(1);
 	return a;
 }
 
@@ -665,15 +823,19 @@ YasAtom yas_make_hash(void)
 {
 	YasAtom a;
 	struct YasHash *h = gc_alloc(sizeof(struct YasHash), YAS_GC_OBJ_HASH);
+	a.type = YAS_ATOM_TYPE_HASH;
+	a.value.hash = h;
+	/* Same rationale as yas_make_vector() above. */
+	yas_gc_push_root(&a);
+
 	h->size = 0;
 	h->capacity = 16;
 	h->keys = malloc(sizeof(YasAtom) * h->capacity);
 	h->values = malloc(sizeof(YasAtom) * h->capacity);
 	gc_account_extra(&h->gc, sizeof(YasAtom) * h->capacity * 2);
 	h->metatable = NULL;
-	a.type = YAS_ATOM_TYPE_HASH;
-	a.value.hash = h;
 
+	yas_gc_pop_roots(1);
 	return a;
 }
 
@@ -813,6 +975,15 @@ YasAtom yas_copy_list(YasAtom list)
 		return yas_nil;
 
 	a = yas_cons(yas_car(list), yas_nil);
+	/* `a` (the new list's head) is a fresh, otherwise-unreachable local
+	 * built up across further yas_cons() calls below - root it for the
+	 * loop's duration. `p` needs no separate root: it's always reachable
+	 * by walking cdrs from `a`, since each iteration's yas_set_cdr()
+	 * links the newly-consed node in before `p` ever advances past it.
+	 * `list` (the *source* being copied) is this function's parameter,
+	 * not a value it created - whether it needs protection is the
+	 * caller's responsibility, per docs/GC.md's "Callers not affected". */
+	yas_gc_push_root(&a);
 	p = a;
 	list = yas_cdr(list);
 
@@ -822,6 +993,7 @@ YasAtom yas_copy_list(YasAtom list)
 		list = yas_cdr(list);
 	}
 
+	yas_gc_pop_roots(1);
 	return a;
 }
 
@@ -830,6 +1002,16 @@ YasAtom yas_list_create(int n, ...)
 	va_list ap;
 	YasAtom list = yas_nil;
 
+	/* `list` accumulates across repeated yas_cons() calls below - each
+	 * one is a fresh, otherwise-unreachable pair until the *next*
+	 * iteration links it in, so root the slot for the whole loop (one
+	 * push covers every reassignment - yas_gc_push_root() tracks the
+	 * slot's address, not a snapshot). This is not hypothetical: two
+	 * items are already enough to reproduce a real use-after-free here
+	 * (main.c's own top-level (yas base) import, at process startup
+	 * before the heap is large enough for bounded stepping to make this
+	 * astronomically unlikely instead of merely unlikely). */
+	yas_gc_push_root(&list);
 	va_start(ap, n);
 	while (n--) {
 		YasAtom item = va_arg(ap, YasAtom);
@@ -838,6 +1020,7 @@ YasAtom yas_list_create(int n, ...)
 	va_end(ap);
 
 	yas_list_reverse(&list);
+	yas_gc_pop_roots(1);
 	return list;
 }
 
@@ -905,12 +1088,18 @@ YasAtom yas_make_bytevector(size_t size)
 {
 	YasAtom a;
 	struct YasBytevector *bv = gc_alloc(sizeof(struct YasBytevector), YAS_GC_OBJ_BYTEVECTOR);
+	a.type = YAS_ATOM_TYPE_BYTEVECTOR;
+	a.value.bytevector = bv;
+	/* Same rationale as yas_make_vector() above: `bv` itself (not its
+	 * contents - bytevectors are GC leaves, gc_scan_object() never reads
+	 * bv->data) needs protecting across gc_account_extra() below. */
+	yas_gc_push_root(&a);
+
 	bv->size = size;
 	bv->data = calloc(size, 1);
 	gc_account_extra(&bv->gc, size);
-	a.type = YAS_ATOM_TYPE_BYTEVECTOR;
-	a.value.bytevector = bv;
 
+	yas_gc_pop_roots(1);
 	return a;
 }
 
@@ -918,13 +1107,17 @@ YasAtom yas_make_bytevector_from_data(const unsigned char *data, size_t size)
 {
 	YasAtom a;
 	struct YasBytevector *bv = gc_alloc(sizeof(struct YasBytevector), YAS_GC_OBJ_BYTEVECTOR);
+	a.type = YAS_ATOM_TYPE_BYTEVECTOR;
+	a.value.bytevector = bv;
+	/* Same rationale as yas_make_bytevector() above. */
+	yas_gc_push_root(&a);
+
 	bv->size = size;
 	bv->data = malloc(size);
 	memcpy(bv->data, data, size);
 	gc_account_extra(&bv->gc, size);
-	a.type = YAS_ATOM_TYPE_BYTEVECTOR;
-	a.value.bytevector = bv;
 
+	yas_gc_pop_roots(1);
 	return a;
 }
 

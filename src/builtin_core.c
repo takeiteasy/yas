@@ -147,12 +147,22 @@ int yas_builtin_list_length(YasAtom args, YasAtom *result)
 int yas_builtin_list_append(YasAtom args, YasAtom *result)
 {
 	YasAtom head = yas_nil, tail = yas_nil;
+	/* `head` accumulates across repeated yas_cons() calls below, same
+	 * shape as yas_list_create()'s accumulator (data.c) - root it for
+	 * the duration. `args` (this builtin's own input) needs no root:
+	 * it's reachable via the evaluator's rooted call-frame args (see
+	 * eval_do_apply(), eval.c) for as long as this call is on the
+	 * C stack. `tail` needs no separate root once linked in, reachable
+	 * by walking cdrs from `head`. */
+	yas_gc_push_root(&head);
 	YasAtom p = args;
 	while (!yas_nilp(p)) {
 		YasAtom list = yas_car(p);
 		while (!yas_nilp(list)) {
-			if (list.type != YAS_ATOM_TYPE_PAIR)
+			if (list.type != YAS_ATOM_TYPE_PAIR) {
+				yas_gc_pop_roots(1);
 				return yas_raise_error("type-error", "append: arguments must be lists");
+			}
 			YasAtom new_cons = yas_cons(yas_car(list), yas_nil);
 			if (yas_nilp(head)) {
 				head = tail = new_cons;
@@ -165,6 +175,7 @@ int yas_builtin_list_append(YasAtom args, YasAtom *result)
 		p = yas_cdr(p);
 	}
 	*result = head;
+	yas_gc_pop_roots(1);
 	return YAS_ERROR_OK;
 }
 

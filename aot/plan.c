@@ -1,6 +1,6 @@
-/* aot_plan.c - see aot_plan.h for the why. Ordinary C; test with a plain
+/* plan.c - see plan.h for the why. Ordinary C; test with a plain
  * `cc` + libyas, no cccc involved (see aot/tests/plan_test.c). */
-#include "aot_plan.h"
+#include "plan.h"
 #include "yas.h"
 
 #include <stdarg.h>
@@ -19,14 +19,14 @@
  * A pointer-only view onto the yas reader, kept private to this file.
  * `YasAtom` (yas.h) is a 16-byte union passed by value; this pass never
  * needs it directly, so every form gets boxed on the heap and only
- * pointers/long/double/const char* flow through the rest of aot_plan.c
+ * pointers/long/double/const char* flow through the rest of plan.c
  * below. That's not a hard requirement of *this* file (it's ordinary C,
- * not comptime code - see aot_plan.h), but keeping the boundary here
+ * not comptime code - see plan.h), but keeping the boundary here
  * means the exact same reader front end could still be reused by a
  * comptime-side caller later without redesigning it, and it keeps
  * yas.h's platform SIMD intrinic includes (xmmintrin.h / arm_neon.h /
  * ...) contained to this one translation unit instead of leaking into
- * aot_plan.h's public surface.
+ * plan.h's public surface.
  *
  * Note: `YasForm`/`YasForms` are forward-declared as plain `struct X`
  * opaque handles below (not `typedef struct X X;`) even though they're
@@ -187,7 +187,7 @@ static const char *yas_aot_sym(struct YasForm *form)
 	return form && form->atom.type == YAS_ATOM_TYPE_SYMBOL ? form->atom.value.symbol : NULL;
 }
 
-/* ---- the AOT compiler proper (see aot_plan.h) ---- */
+/* ---- the AOT compiler proper (see plan.h) ---- */
 
 typedef struct {
 	int kind;   /* YasOpKind */

@@ -153,6 +153,35 @@
            (catch (e string?) (gc-rooting-churn 8000) e))
          "oops"))
 
+;; Regression coverage for allocation-triggered GC stepping (docs/GC.md,
+;; "Allocation-triggered stepping"): gc_alloc() now paces yas_gc_step()
+;; itself, so a *single* builtin call that internally loops over many
+;; yas_cons() calls without ever returning to eval_vm's loop (append's C
+;; implementation, builtin_core.c) can now have a collection cycle
+;; complete in the middle of it - something that could never happen
+;; before this feature, since stepping only ran at eval_vm's own safe
+;; point between forms. Unlike the "GC rooting across nested eval" test
+;; above, this never calls (gc)/(gc-start) explicitly: the point is that
+;; ordinary allocation alone, with no explicit trigger, is what advances
+;; the collector now.
+(define (make-numbered-list n)
+  (let loop ((i 0) (acc nil))
+    (if (= i n)
+        acc
+        (loop (+ i 1) (cons i acc)))))
+
+(test "allocation-triggered stepping mid-builtin (append)"
+  ;; Several thousand-element list arguments, appended in one call -
+  ;; enough total conses for append()'s own internal accumulator to
+  ;; plausibly span an automatic collection cycle.
+  (define big-appended
+    (append (make-numbered-list 3000)
+            (make-numbered-list 3000)
+            (make-numbered-list 3000)))
+  (check (length big-appended) 9000)
+  (check (car big-appended) 2999)
+  (check (car (reverse big-appended)) 0))
+
 (test "Docstrings"
   ;; Function with docstring
   (define (documented x) "This is documented" x)

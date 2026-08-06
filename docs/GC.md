@@ -106,6 +106,12 @@ change rather than a live fix.
 (`expr`/`env`/`stack`/`result`) is still a root source, just no longer
 the pacing site.
 
+`yas_make_sym()`/`yas_make_keyword()` (`data.c`) are not a stepping
+trigger at all: the symbol/keyword intern tables are plain `malloc`'d
+hash tables, not GC-managed, so interning a token never calls
+`gc_alloc()`. That removes a rooting hazard that used to exist on every
+token the reader produces.
+
 #### The rooting contract
 
 Since a collection can now complete during *any* allocating call, not
@@ -371,8 +377,10 @@ one of:
   still whatever those point to, or reachable transitively from it, at
   the moment a GC step runs).
 - Already-anchored global state - `yas_library_registry`,
-  `yas_global_search_paths`, `yas_global_features`, `sym_table`/
-  `kw_table` (interning tables).
+  `yas_global_search_paths`, `yas_global_features`. (The symbol/keyword
+  intern tables are not GC-managed at all - see "Allocation-triggered
+  stepping" above - so a symbol/keyword atom needs no root on this basis
+  either; it isn't a GC-heap value in the first place.)
 
 For example, a freshly created library environment (`lib_env`) is safe to
 use across nested evaluation immediately after `yas_hash_set(registry,

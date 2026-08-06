@@ -376,4 +376,61 @@
     (for x in '(a b c) do (set! acc (cons x acc)))
     (check (reverse acc) '(a b c))))
 
+(test "Symbol interning under growth"
+  (define sym-growth-list (list 'SYM-0 'SYM-1 'SYM-2 'SYM-3 'SYM-4 'SYM-5
+    'SYM-6 'SYM-7 'SYM-8 'SYM-9 'SYM-10 'SYM-11 'SYM-12 'SYM-13 'SYM-14
+    'SYM-15 'SYM-16 'SYM-17 'SYM-18 'SYM-19 'SYM-20 'SYM-21 'SYM-22 'SYM-23
+    'SYM-24 'SYM-25 'SYM-26 'SYM-27 'SYM-28 'SYM-29 'SYM-30 'SYM-31 'SYM-32
+    'SYM-33 'SYM-34 'SYM-35 'SYM-36 'SYM-37 'SYM-38 'SYM-39 'SYM-40 'SYM-41
+    'SYM-42 'SYM-43 'SYM-44 'SYM-45 'SYM-46 'SYM-47 'SYM-48 'SYM-49 'SYM-50
+    'SYM-51 'SYM-52 'SYM-53 'SYM-54 'SYM-55 'SYM-56 'SYM-57 'SYM-58 'SYM-59
+    'SYM-60 'SYM-61 'SYM-62 'SYM-63 'SYM-64 'SYM-65 'SYM-66 'SYM-67 'SYM-68
+    'SYM-69 'SYM-70 'SYM-71 'SYM-72 'SYM-73 'SYM-74 'SYM-75 'SYM-76 'SYM-77
+    'SYM-78 'SYM-79 'SYM-80 'SYM-81 'SYM-82 'SYM-83 'SYM-84 'SYM-85 'SYM-86
+    'SYM-87 'SYM-88 'SYM-89 'SYM-90 'SYM-91 'SYM-92 'SYM-93 'SYM-94 'SYM-95
+    'SYM-96 'SYM-97 'SYM-98 'SYM-99 'SYM-100 'SYM-101 'SYM-102 'SYM-103
+    'SYM-104 'SYM-105 'SYM-106 'SYM-107 'SYM-108 'SYM-109 'SYM-110 'SYM-111
+    'SYM-112 'SYM-113 'SYM-114 'SYM-115 'SYM-116 'SYM-117 'SYM-118 'SYM-119
+    'SYM-120 'SYM-121 'SYM-122 'SYM-123 'SYM-124 'SYM-125 'SYM-126 'SYM-127
+    'SYM-128 'SYM-129 'SYM-130 'SYM-131 'SYM-132 'SYM-133 'SYM-134 'SYM-135
+    'SYM-136 'SYM-137 'SYM-138 'SYM-139 'SYM-140 'SYM-141 'SYM-142 'SYM-143
+    'SYM-144 'SYM-145 'SYM-146 'SYM-147 'SYM-148 'SYM-149 'SYM-150 'SYM-151
+    'SYM-152 'SYM-153 'SYM-154 'SYM-155 'SYM-156 'SYM-157 'SYM-158 'SYM-159
+    'SYM-160 'SYM-161 'SYM-162 'SYM-163 'SYM-164 'SYM-165 'SYM-166 'SYM-167
+    'SYM-168 'SYM-169 'SYM-170 'SYM-171 'SYM-172 'SYM-173 'SYM-174 'SYM-175
+    'SYM-176 'SYM-177 'SYM-178 'SYM-179 'SYM-180 'SYM-181 'SYM-182 'SYM-183
+    'SYM-184 'SYM-185 'SYM-186 'SYM-187 'SYM-188 'SYM-189 'SYM-190 'SYM-191
+    'SYM-192 'SYM-193 'SYM-194 'SYM-195 'SYM-196 'SYM-197 'SYM-198 'SYM-199
+    'SYM-200 'SYM-201 'SYM-202 'SYM-203 'SYM-204 'SYM-205 'SYM-206 'SYM-207
+    'SYM-208 'SYM-209 'SYM-210 'SYM-211 'SYM-212 'SYM-213 'SYM-214 'SYM-215
+    'SYM-216 'SYM-217 'SYM-218 'SYM-219 'SYM-220 'SYM-221 'SYM-222 'SYM-223
+    'SYM-224 'SYM-225 'SYM-226 'SYM-227 'SYM-228 'SYM-229 'SYM-230 'SYM-231
+    'SYM-232 'SYM-233 'SYM-234 'SYM-235 'SYM-236 'SYM-237 'SYM-238 'SYM-239
+    'SYM-240 'SYM-241 'SYM-242 'SYM-243 'SYM-244 'SYM-245 'SYM-246 'SYM-247
+    'SYM-248 'SYM-249 'SYM-250 'SYM-251 'SYM-252 'SYM-253 'SYM-254 'SYM-255
+    'SYM-256 'SYM-257 'SYM-258 'SYM-259 'SYM-260 'SYM-261 'SYM-262 'SYM-263
+    'SYM-264 'SYM-265 'SYM-266 'SYM-267 'SYM-268 'SYM-269 'SYM-270 'SYM-271
+    'SYM-272 'SYM-273 'SYM-274 'SYM-275 'SYM-276 'SYM-277 'SYM-278 'SYM-279
+    'SYM-280 'SYM-281 'SYM-282 'SYM-283 'SYM-284 'SYM-285 'SYM-286 'SYM-287
+    'SYM-288 'SYM-289 'SYM-290 'SYM-291 'SYM-292 'SYM-293 'SYM-294 'SYM-295
+    'SYM-296 'SYM-297 'SYM-298 'SYM-299))
+  (check (length sym-growth-list) 300)
+  ;; every symbol re-quoted here must be eq? to its first occurrence -
+  ;; forces the intern table to grow (initial capacity 256, 300 distinct
+  ;; symbols crosses the 70% rehash threshold) and checks identity survives
+  (check (eq? (list-ref sym-growth-list 0) 'SYM-0) t)
+  (check (eq? (list-ref sym-growth-list 150) 'SYM-150) t)
+  (check (eq? (list-ref sym-growth-list 299) 'SYM-299) t)
+  (check (eq? 'SYM-0 'SYM-0) t)
+  (check (eq? 'SYM-1 'SYM-2) nil))
+
+(test "Keyword interning under growth"
+  (define kw-growth-list nil)
+  (for i from 0 to 300 do
+    (set! kw-growth-list (cons (string->keyword (string-append "KW-" (number->string i))) kw-growth-list)))
+  (check (length kw-growth-list) 300)
+  (check (eq? (string->keyword "KW-0") (string->keyword "KW-0")) t)
+  (check (eq? (string->keyword "KW-150") (string->keyword "KW-150")) t)
+  (check (eq? (string->keyword "KW-1") (string->keyword "KW-2")) nil))
+
 (run-tests)

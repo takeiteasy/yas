@@ -169,9 +169,10 @@ generic mark/sweep, instead of ten near-identical per-type copies.
 `gc_alloc()` paces steps itself in bounded slices, driven by a live-byte
 debt counter rather than a cons counter - allocation is what advances the
 collector, not `eval_vm()`'s loop. `gc_mark_roots()` walks `eval_roots`,
-`yas_ctx_exception`, `sym_table`, `kw_table`, `yas_library_registry`,
-`yas_global_search_paths`, `yas_global_features`, and the
-root-registration shadow stack below.
+`yas_ctx_exception`, `yas_library_registry`, `yas_global_search_paths`,
+`yas_global_features`, and the root-registration shadow stack below. The
+symbol/keyword intern tables (`data.c`) are plain `malloc`, not
+GC-managed, so they are not part of this root set - see "Symbols" below.
 
 Full design - the phase state machine, the write barrier, the
 allocate-during-sweep hazard and how it's avoided, and worked examples -
@@ -242,11 +243,18 @@ reference is O(frame depth x frame size); there is no slot resolution.
 
 ## Symbols
 
-Interned by `strdup`'d string identity in a linear list (`data.c`);
-`yas_make_sym()` is an O(n) `strcmp` scan over the whole table on every new
-symbol, with an equivalent parallel table for keywords. Symbol comparison
-everywhere else is pointer equality, not `strcmp` - the interning is what
-makes that valid.
+Interned by `strdup`'d string identity in an open-addressed hash table
+(`data.c`, one for symbols and a parallel one for keywords - FNV-1a over
+the string, linear probing, grow-and-rehash at 70% load, no deletes so no
+tombstones). `yas_make_sym()`/`yas_make_keyword()` are O(1) amortized.
+Both tables are plain `malloc`, not GC-managed - the interned strings are
+immortal for the process lifetime, so there is nothing here for the
+collector to trace and no GC root needed (unlike everything else
+`gc_mark_roots()` walks, above). Symbol comparison everywhere else is
+pointer equality, not `strcmp` - the interning is what makes that valid.
+A side effect: `yas_make_sym()` no longer allocates on the GC heap, so it
+is no longer a GC-stepping trigger for every token the reader produces
+(see [GC.md](GC.md)'s "Allocation-triggered stepping").
 
 ## Arithmetic: interpreter vs. `yas/base`
 

@@ -159,11 +159,91 @@ static void gc_pace(size_t size)
 	}
 }
 
-/* Interning tables, needed by gc_mark_roots() below - forward-declared
- * here since they're otherwise only used starting from yas_make_sym()/
- * yas_make_keyword() further down this file. */
-static YasAtom sym_table = { YAS_ATOM_TYPE_NIL };
-static YasAtom kw_table = { YAS_ATOM_TYPE_NIL };
+/* ── Symbol/keyword interning ────────────────────────────────────────
+ * Open-addressed `char *` tables keyed by string content, probed by
+ * yas_make_sym()/yas_make_keyword() further down this file. Plain
+ * malloc, not GC-managed - the interned strings are immortal for the
+ * process lifetime (nothing ever un-interns a symbol), so there is
+ * nothing for the collector to trace here and no GC root needed (see
+ * gc_mark_roots() below, which used to mark a cons-list version of
+ * these tables). */
+struct YasInternTable {
+	char **slots;    /* NULL = empty slot */
+	size_t capacity; /* always a power of two */
+	size_t count;
+};
+
+static struct YasInternTable sym_intern = { NULL, 0, 0 };
+static struct YasInternTable kw_intern = { NULL, 0, 0 };
+
+static size_t fnv1a_hash(const char *s)
+{
+	size_t h = 2166136261u;
+	while (*s) {
+		h ^= (unsigned char)*s++;
+		h *= 16777619u;
+	}
+	return h;
+}
+
+/* Insert `s` (already known absent) into `t` without taking ownership -
+ * caller passes a pointer it already owns (a fresh strdup or one being
+ * relocated by intern_grow()). */
+static void intern_insert(struct YasInternTable *t, char *s)
+{
+	size_t mask = t->capacity - 1;
+	size_t i = fnv1a_hash(s) & mask;
+	while (t->slots[i])
+		i = (i + 1) & mask;
+	t->slots[i] = s;
+	t->count++;
+}
+
+static void intern_grow(struct YasInternTable *t)
+{
+	size_t old_capacity = t->capacity;
+	char **old_slots = t->slots;
+
+	t->capacity = old_capacity ? old_capacity * 2 : 256;
+	t->slots = calloc(t->capacity, sizeof(char *));
+	t->count = 0;
+
+	for (size_t i = 0; i < old_capacity; i++)
+		if (old_slots[i])
+			intern_insert(t, old_slots[i]);
+	free(old_slots);
+}
+
+/* Probe `t` for `s`; return the interned pointer on a hit, NULL on a
+ * miss. Grows (rehashing every live entry) at 70% load before an
+ * insert would cross it - open addressing with no deletes, so no
+ * tombstones to worry about. */
+static char *intern_find_or_insert(struct YasInternTable *t, const char *s)
+{
+	if (t->capacity == 0)
+		intern_grow(t);
+
+	size_t mask = t->capacity - 1;
+	size_t i = fnv1a_hash(s) & mask;
+	while (t->slots[i]) {
+		if (strcmp(t->slots[i], s) == 0)
+			return t->slots[i];
+		i = (i + 1) & mask;
+	}
+
+	if ((t->count + 1) * 10 >= t->capacity * 7) {
+		intern_grow(t);
+		/* Table moved/rehashed - re-probe from scratch. */
+		mask = t->capacity - 1;
+		i = fnv1a_hash(s) & mask;
+		while (t->slots[i])
+			i = (i + 1) & mask;
+	}
+
+	char *owned = strdup(s);
+	intern_insert(t, owned);
+	return owned;
+}
 
 /* Root-registration API (see yas.h and docs/GC.md). A stack of pointers
  * to caller-owned YasAtom slots, scanned in gc_mark_roots(). */
@@ -393,8 +473,6 @@ void yas_gc_mark(YasAtom root)
 
 static void gc_mark_roots(void)
 {
-	yas_gc_mark(sym_table);
-	yas_gc_mark(kw_table);
 	yas_gc_mark(yas_library_registry);
 	yas_gc_mark(yas_global_search_paths);
 	yas_gc_mark(yas_global_features);
@@ -697,39 +775,17 @@ YasAtom yas_make_int(long x)
 
 YasAtom yas_make_sym(const char *s)
 {
-	YasAtom a, p;
-
-	p = sym_table;
-	while (!yas_nilp(p)) {
-		a = yas_car(p);
-		if (strcmp(a.value.symbol, s) == 0)
-			return a;
-		p = yas_cdr(p);
-	}
-
+	YasAtom a;
 	a.type = YAS_ATOM_TYPE_SYMBOL;
-	a.value.symbol = strdup(s);
-	sym_table = yas_cons(a, sym_table);
-
+	a.value.symbol = intern_find_or_insert(&sym_intern, s);
 	return a;
 }
 
 YasAtom yas_make_keyword(const char *s)
 {
-	YasAtom a, p;
-
-	p = kw_table;
-	while (!yas_nilp(p)) {
-		a = yas_car(p);
-		if (strcmp(a.value.keyword, s) == 0)
-			return a;
-		p = yas_cdr(p);
-	}
-
+	YasAtom a;
 	a.type = YAS_ATOM_TYPE_KEYWORD;
-	a.value.keyword = strdup(s);
-	kw_table = yas_cons(a, kw_table);
-
+	a.value.keyword = intern_find_or_insert(&kw_intern, s);
 	return a;
 }
 

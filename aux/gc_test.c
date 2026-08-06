@@ -8,7 +8,7 @@
  * docs/GC.md for the design these tests are checking.
  *
  * Build: cc -std=c99 -Wall -D_GNU_SOURCE -iquote src -o build/gc_test \
- *          tests/gc_test.c -L. -lyas -Wl,-rpath,. (see the Makefile's
+ *          aux/gc_test.c -L. -lyas -Wl,-rpath,. (see the Makefile's
  * `test-gc` target)
  */
 #include "yas.h"
@@ -208,6 +208,87 @@ static void test_eval_source_roots_fresh_env(void)
 	CHECK(result.value.integer == 1);
 }
 
+/* 7. gc_alloc() itself paces steps now (docs/GC.md, "Allocation-triggered
+ * stepping") - unlike test_root_protection() above, this test never calls
+ * yas_gc()/yas_gc_start()/yas_gc_step() explicitly. churn() alone, given
+ * enough iterations to cross the default byte threshold, must trigger
+ * enough automatic collector progress from inside gc_alloc() that an
+ * unrooted value gets swept while a rooted one survives - proving the
+ * pacing added to gc_alloc()/gc_account_extra() actually runs a real
+ * builtin/allocator would exercise, not just the explicit-call API. */
+static void test_gc_alloc_paces_itself(void)
+{
+	YasAtom rooted = yas_make_string("survives-automatic-pacing");
+	yas_gc_push_root(&rooted);
+
+	/* Plenty to cross the default ~256KB threshold (a cons cell is 56
+	 * bytes) several times over via gc_alloc()'s own internal pacing
+	 * alone. */
+	churn(200000);
+
+	CHECK(rooted.type == YAS_ATOM_TYPE_STRING);
+	CHECK(strcmp(rooted.value.string, "survives-automatic-pacing") == 0);
+	/* Automatic pacing must have actually run at least one cycle by now -
+	 * otherwise this test isn't exercising anything different from
+	 * test_root_protection()'s explicit yas_gc() calls. */
+	CHECK(yas_gc_allocated() < 200000 * 56);
+
+	yas_gc_pop_roots(1);
+}
+
+/* 8. Pacing must keep up with allocation, not just eventually run: the
+ * live-bytes counter should stay bounded (proportional to what's actually
+ * rooted, not to total allocation volume) across a long churn loop -
+ * otherwise "gc_alloc() paces itself" could still mean an effectively
+ * unbounded heap if steps fall behind allocation. */
+static void test_pacing_keeps_up_with_allocation(void)
+{
+	YasAtom held = yas_make_int(0);
+	yas_gc_push_root(&held);
+
+	size_t max_seen = 0;
+	for (int batch = 0; batch < 20; batch++) {
+		churn(20000);
+		size_t allocated = yas_gc_allocated();
+		if (allocated > max_seen)
+			max_seen = allocated;
+	}
+
+	/* Total garbage generated was ~20 * 20000 * 56 bytes (~22MB); if
+	 * pacing kept up, live bytes tracked at any snapshot should stay a
+	 * small fraction of that - a generous bound (2MB) that's still far
+	 * below "the collector never ran". */
+	CHECK(max_seen < 2 * 1024 * 1024);
+
+	yas_gc_pop_roots(1);
+}
+
+/* 9. gc_stepping re-entrancy guard (data.c's gc_pace()): force a cycle
+ * active, then allocate heavily *while* it's active, from inside what
+ * looks like (to gc_alloc()) a step already in progress is not the case
+ * here - this just confirms ordinary heavy allocation during an
+ * already-active, externally-started cycle still terminates cleanly and
+ * reaches IDLE, rather than the guard causing stepping to silently stop
+ * making progress once a cycle happens to already be running. */
+static void test_allocation_during_active_cycle_terminates(void)
+{
+	YasAtom held = yas_make_int(0);
+	yas_gc_push_root(&held);
+
+	yas_gc_start();
+	CHECK(yas_gc_phase() != 0);
+
+	churn(50000);
+
+	/* Heavy allocation during an active cycle must not prevent it from
+	 * ever finishing - drain explicitly and confirm IDLE is reachable. */
+	while (yas_gc_phase() != 0)
+		yas_gc_step();
+	CHECK(yas_gc_phase() == 0);
+
+	yas_gc_pop_roots(1);
+}
+
 int main(void)
 {
 	test_root_protection();
@@ -216,6 +297,9 @@ int main(void)
 	test_write_barrier_during_sweeping();
 	test_deep_list_no_stack_overflow();
 	test_eval_source_roots_fresh_env();
+	test_gc_alloc_paces_itself();
+	test_pacing_keeps_up_with_allocation();
+	test_allocation_during_active_cycle_terminates();
 
 	if (failures) {
 		fprintf(stderr, "gc_test: %d FAILURE(S)\n", failures);

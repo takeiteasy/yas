@@ -1,0 +1,38 @@
+;; Hash-table-heavy workload for aux/bench/bench.py (docs/BENCHMARKING.md) -
+;; insert/lookup/remove churn, as opposed to fib's call/arith weight or
+;; alloc's cons-cell weight. Needs (import (yas hash)) -
+;; MAKE-HASH/HASH-SET!/HASH-REF/HASH-REMOVE!/HASH-LENGTH are (yas hash)
+;; builtins, not auto-imported like (yas base) - see CLAUDE.md and
+;; docs/BENCHMARKING.md's note on this (same caveat as string.ys).
+;;
+;; Inserts N integer keys 0..N-1 (value i*i), removes every odd key, then
+;; sums every key's value back out via lookup (a removed key contributes
+;; its HASH-REF default of 0). The checksum combines that sum with the
+;; final HASH-LENGTH so both the insert/remove and the lookup paths are
+;; load-bearing - printing only the sum wouldn't catch a HASH-REMOVE! bug
+;; that left the table oversized. Deliberately never dumps or iterates the
+;; table's own key order (HASH-KEYS et al.) - iteration order isn't the
+;; same across yas/Python/Ruby/Lua hashes, so a workload built on it would
+;; be non-portable rather than slow.
+(import (yas hash))
+
+(define (fill! h n i)
+  (if (= i n)
+      nil
+      (begin (hash-set! h i (* i i)) (fill! h n (+ i 1)))))
+
+(define (remove-odds! h n i)
+  (if (>= i n)
+      nil
+      (begin (hash-remove! h i) (remove-odds! h n (+ i 2)))))
+
+(define (sum-lookup h n i acc)
+  (if (= i n)
+      acc
+      (sum-lookup h n (+ i 1) (+ acc (hash-ref h i 0)))))
+
+(define n 6000)
+(define h (make-hash))
+(fill! h n 0)
+(remove-odds! h n 1)
+(print (+ (sum-lookup h n 0 0) (hash-length h)))

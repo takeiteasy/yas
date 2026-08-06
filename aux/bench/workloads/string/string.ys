@@ -1,0 +1,29 @@
+;; String-heavy workload for aux/bench/bench.py (docs/BENCHMARKING.md) -
+;; string-append/substring/string=?/number->string churn, as opposed to
+;; fib's call/arith weight or alloc's cons-cell weight. Needs
+;; (import (yas text)) - STRING-APPEND/SUBSTRING/STRING=?/NUMBER->STRING
+;; are (yas text) builtins, not auto-imported like (yas base) (main.c only
+;; imports base unconditionally - see CLAUDE.md). So unlike fib.ys/
+;; alloc.ys, this row also measures std/yas/text.ys's interpreted setup,
+;; not just C primitives - see docs/BENCHMARKING.md's note on this.
+;;
+;; Deliberately avoids indexed per-character loops over the *accumulated*
+;; string: STRING-REF/STRING-LENGTH/SUBSTRING are UTF-8 and walk the
+;; string from the start each call (O(n) per call - see
+;; yas_utf8_codepoint_at/yas_utf8_strlen in src/utf8.c), so scanning a
+;; length-n accumulated string one character at a time would be O(n^2) in
+;; yas but O(n) in the other languages - measuring that gap instead of
+;; string-op cost. Instead, each small per-iteration chunk (never the
+;; growing accumulator) is the only thing SUBSTRING/STRING=? touch, so
+;; every call stays O(1) in the chunk size.
+(import (yas text))
+
+(define (build n acc matches)
+  (if (= n 0)
+      (+ (string-length acc) matches)
+      (let ((chunk (number->string n)))
+        (build (- n 1)
+               (string-append acc chunk ",")
+               (if (string=? (substring chunk 0 1) "1") (+ matches 1) matches)))))
+
+(print (build 6000 "" 0))

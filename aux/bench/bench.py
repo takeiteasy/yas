@@ -33,6 +33,11 @@ BUILD_DIR = REPO_ROOT / "build"  # gitignored - compiled variants land here
 WORKLOADS = {
     "fib": {"expected": "46368\n"},
     "alloc": {"expected": "1250025000\n"},
+    "string": {"expected": "30004\n"},
+    "hash": {"expected": "35982005000\n"},
+    "loop": {"expected": "45000470400\n"},
+    "closure": {"expected": "18667266670000\n"},
+    "array": {"expected": "430\n"},
 }
 
 # (runtime name, file extension, argv-builder for a given workload path).
@@ -51,7 +56,8 @@ def which_ok(cmd):
 def best_of(argv, runs, expect_stdout=None, cwd=None):
     """Run argv `runs` times, return (best_seconds, stdout_of_last_run).
     Raises RuntimeError if the process fails, or if expect_stdout is given
-    and doesn't match."""
+    and doesn't match - checked on every run, not just the last, so a
+    variant that's only wrong on an early iteration can't slip through."""
     best = None
     out = None
     for _ in range(runs):
@@ -63,10 +69,10 @@ def best_of(argv, runs, expect_stdout=None, cwd=None):
                 f"{' '.join(argv)} exited {proc.returncode}: {proc.stderr.strip()}"
             )
         out = proc.stdout
+        if expect_stdout is not None and out != expect_stdout:
+            raise RuntimeError(f"{' '.join(argv)}: expected {expect_stdout!r}, got {out!r}")
         if best is None or elapsed < best:
             best = elapsed
-    if expect_stdout is not None and out != expect_stdout:
-        raise RuntimeError(f"{' '.join(argv)}: expected {expect_stdout!r}, got {out!r}")
     return best, out
 
 

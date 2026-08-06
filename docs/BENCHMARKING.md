@@ -35,13 +35,28 @@ test-aot` checking `build/fib`'s exact output. A runtime that isn't
 installed (`ruby`, `lua`, `cccc`, ...) is reported `skipped` and does not
 fail the run; only a *present* runtime producing the wrong output does.
 
-Two workloads today:
+Seven workloads today:
 
 - **`fib`** - naive recursive `fib(24)`, call/arithmetic-heavy.
 - **`alloc`** - build and sum a 50000-element linked list, allocation/GC-
   pressure-heavy (a plain array in the non-yas variants would test
   something different, so each variant builds an actual linked
   list/cons-cell chain).
+- **`string`** - build a string via 6000 rounds of `string-append` +
+  `number->string`, checksummed via `substring`/`string=?` on each small
+  per-round chunk (never the growing accumulator - see the "UTF-8 string
+  ops are O(n)" note below).
+- **`hash`** - insert 6000 integer keys, remove every odd one, sum every
+  key's value back out by lookup; the checksum combines that sum with the
+  final table size so both the insert/remove and lookup paths matter.
+- **`loop`** - a small (800-deep) non-tail recursive sum next to a much
+  larger (300000-deep) tail-recursive one, to see whether TCO (or its
+  absence) shows up in the timing.
+- **`closure`** - `map`/`filter`/`foldl` over a 40000-element list, each
+  step calling through a closure and allocating a fresh list.
+- **`array`** - sieve of Eratosthenes over a 3000-element vector,
+  `vector-ref`/`vector-set!` indexed access rather than cons-cell or hash
+  churn.
 
 Each row also gets a `python3`, `ruby`, `lua` (interpreted) and `c`
 (native, `cc -O2`) variant, plus a `startup` row measuring empty-program
@@ -49,11 +64,28 @@ interpreter startup cost in isolation - printed as its own column, never
 subtracted from a workload's total (subtracting two noisy wall-clock
 measurements would invent precision, not add it).
 
+**`string`/`hash`/`array` need an explicit `(import ...)`**, unlike
+`fib`/`alloc`/`loop`/`closure`. `main.c` only auto-imports `(yas base)`
+into every top-level environment (see `CLAUDE.md`) - `(yas text)`,
+`(yas hash)`, and `(yas vector)` are separate native modules, so those
+three workloads' numbers also include evaluating the relevant slice of
+`std/yas/text.ys`/`hash.ys`/`vector.ys` at import time, the same caveat
+`(yas base)` gets below. That's still the representative case for real
+`./yas` usage of those features, just not a raw-C-primitive number.
+
+**`string-ref`/`string-length` are UTF-8 and walk the string, O(n) per
+call** (`yas_utf8_codepoint_at`/`yas_utf8_strlen` in `src/utf8.c`), so an
+indexed per-character loop over a long string is O(n²) in yas but O(n) in
+the other languages - that would measure the gap between those two
+complexities, not string-op cost. `string.ys` avoids this by only ever
+calling `substring`/`string=?` on the small per-round chunk, never the
+growing accumulator.
+
 **The `yas` under test is the default optimized build** (`-O2 -g`, see
-[BUILDING.md](BUILDING.md) - ticket #38 found this ~2.2x faster than the
-old `-O0` default for `fib(24)`, for no source change). To compare
-optimization levels, rebuild between runs: `make clean && make OPT=<level>
-&& make bench` - there's no opt-level sweep inside `bench.py` itself.
+[BUILDING.md](BUILDING.md) - about 2.2x faster than the old `-O0` default
+for `fib(24)`, for no source change). To compare optimization levels,
+rebuild between runs: `make clean && make OPT=<level> && make bench` -
+there's no opt-level sweep inside `bench.py` itself.
 
 **The yas numbers include `(yas base)`.** `main.c` imports `(yas base)`
 into every top-level environment unconditionally (interpreter and REPL,
@@ -73,6 +105,36 @@ output against a native-C `fib(30)` - a different input from the `fib`
 workload's `fib(24)` above, so the two are not comparable to each other,
 only "yas AOT" vs "native C" at n=30 is. A follow-up ticket tracks
 replacing this once the AOT pipeline covers more of the language.
+
+## Results
+
+Sample `make bench` output, one machine (macOS/arm64), default `-O2`
+build, best-of-3. Not a committed regression baseline - re-run `make
+bench` for current numbers on your own hardware; this is a snapshot to
+give a sense of scale, not a number to diff against.
+
+**TL;DR:** yas is roughly 2 orders of magnitude slower than Python/Ruby/
+Lua on every workload here, and roughly 3 orders of magnitude slower than
+native C - expected for a tree-walking interpreter with no JIT (the
+default `-O2` build this doc's numbers already reflect is the biggest
+single lever found so far - see [BUILDING.md](BUILDING.md)). `array`
+(the sieve, dominated by `while`/`dotimes` macro-expansion overhead per
+iteration) and `loop`'s tail-recursive leg are the widest gaps to the
+other interpreted languages; `alloc` and `fib` are the narrowest.
+
+| workload | yas | python3 | ruby | lua | c |
+|---|---|---|---|---|---|
+| `fib` (n=24) | 1.173s | 0.017s | 0.057s | 0.006s | 0.002s |
+| `alloc` (n=50000) | 0.731s | 0.018s | 0.057s | 0.008s | 0.002s |
+| `string` (n=6000) | 2.258s | 0.015s | 0.068s | 0.010s | 0.013s |
+| `hash` (n=6000) | 2.715s | 0.012s | 0.052s | 0.003s | 0.002s |
+| `loop` (800 / 300000) | 3.322s | 0.024s | 0.061s | 0.006s | 0.002s |
+| `closure` (n=40000) | 2.247s | 0.017s | 0.055s | 0.006s | 0.002s |
+| `array` (n=3000) | 3.591s | 0.012s | 0.053s | 0.003s | 0.002s |
+| `startup` | 0.006s | 0.016s | 0.057s | 0.003s | - |
+
+`fib (n=30, AOT)`: `yas-aot` 0.011s vs native `c` 0.005s - see the
+placeholder note above; not comparable to the `fib` row (different n).
 
 ## Self-timed scripts (`aux/bench_*.ys`)
 

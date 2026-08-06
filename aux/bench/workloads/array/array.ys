@@ -1,0 +1,36 @@
+;; Indexed-array-heavy workload for aux/bench/bench.py (docs/BENCHMARKING.md)
+;; - sieve of Eratosthenes over a preallocated vector, strided writes plus
+;; a linear scan (VECTOR-REF/VECTOR-SET!), as opposed to the cons-cell
+;; churn of alloc.ys or fib.ys's call/arith weight. Needs
+;; (import (yas vector)) - MAKE-VECTOR/VECTOR-REF/VECTOR-SET! are
+;; (yas vector) builtins, not auto-imported like (yas base) - see
+;; CLAUDE.md and docs/BENCHMARKING.md's note on this (same caveat as
+;; string.ys/hash.ys). DOTIMES/WHILE come from (yas base), which is
+;; auto-imported.
+;;
+;; 0 marks "still a candidate", 1 marks "known composite" - counts primes
+;; below N rather than printing them, so the checksum is a single integer
+;; and the result can't be constant-folded away.
+(import (yas vector))
+
+(define n 3000)
+(define sieve (make-vector n 0))
+
+(vector-set! sieve 0 1)
+(vector-set! sieve 1 1)
+
+(dotimes (i n)
+  (if (= (vector-ref sieve i) 0)
+      (let ((j (* i i)))
+        (while (< j n)
+          (vector-set! sieve j 1)
+          (set! j (+ j i))))
+      nil))
+
+(define count 0)
+(dotimes (i n)
+  (if (= (vector-ref sieve i) 0)
+      (set! count (+ count 1))
+      nil))
+
+(print count)

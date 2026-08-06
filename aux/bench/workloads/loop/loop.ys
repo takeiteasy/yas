@@ -1,0 +1,28 @@
+;; Tail-recursive accumulator loop vs. non-tail recursive descent - same
+;; total work (summing 1..N), different call shape, so a TCO gap (or lack
+;; of one) shows up in the timing rather than needing separate `while` and
+;; recursive workloads. No explicit (import (yas base)) - `+ - =` here are
+;; (yas base)'s variadic closures, same as fib.ys/alloc.ys (see their
+;; comments) - main.c imports base unconditionally.
+;;
+;; NON-TAIL_N is kept small (800) because `sum-nontail` grows one real
+;; call frame per recursive step in every language here, and CPython's
+;; default recursion limit is 1000 - the non-tail variant has to survive
+;; there too, so this workload can't lean on it being large. TAIL_N is
+;; ~375x bigger (300000): yas's evaluator handles a tail call as a loop,
+;; not a growing call stack (same as alloc.ys's 50000-deep `build`/`suml`),
+;; so it can afford to be. Python/Ruby have no guaranteed TCO, so their
+;; "tail" variant is written as the ordinary `while` loop a programmer
+;; would reach for there anyway - the comparison is "yas recursion at
+;; TAIL_N" against "everyone's loop at TAIL_N", not forcing Python into a
+;; blown stack.
+(define non-tail-n 800)
+(define tail-n 300000)
+
+(define (sum-nontail n)
+  (if (= n 0) 0 (+ n (sum-nontail (- n 1)))))
+
+(define (sum-tail n acc)
+  (if (= n 0) acc (sum-tail (- n 1) (+ acc n))))
+
+(print (+ (sum-nontail non-tail-n) (sum-tail tail-n 0)))

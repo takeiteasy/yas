@@ -1,0 +1,20 @@
+;; Closure/higher-order-function-heavy workload for aux/bench/bench.py
+;; (docs/BENCHMARKING.md) - map/filter/foldl over a large list, each step
+;; allocating a fresh list and calling through a closure per element, as
+;; opposed to fib's call/arith weight or alloc's raw cons-cell weight.
+;; No explicit (import (yas base)) needed - MAP/FOLDL are (yas base)
+;; exports and base is auto-imported by main.c, same as fib.ys/alloc.ys
+;; (see their comments). `filter` isn't a base export, so it's defined
+;; locally below via FOLDR, the same combinator base.ys itself builds
+;; MAP/APPEND from.
+(define (build-range n acc)
+  (if (= n 0) acc (build-range (- n 1) (cons n acc))))
+
+(define (filter pred lst)
+  (foldr (lambda (x acc) (if (pred x) (cons x acc) acc)) nil lst))
+
+(define n 40000)
+(define lst (build-range n nil))
+(define squared (map (lambda (x) (* x x)) lst))
+(define big (filter (lambda (x) (> x 400000000)) squared))
+(print (foldl + 0 big))

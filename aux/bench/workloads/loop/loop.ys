@@ -5,17 +5,17 @@
 ;; (yas base)'s variadic closures, same as fib.ys/alloc.ys (see their
 ;; comments) - main.c imports base unconditionally.
 ;;
-;; NON-TAIL_N is kept small (800) because `sum-nontail` grows one real
-;; call frame per recursive step in every language here, and CPython's
-;; default recursion limit is 1000 - the non-tail variant has to survive
-;; there too, so this workload can't lean on it being large. TAIL_N is
-;; ~375x bigger (300000): yas's evaluator handles a tail call as a loop,
-;; not a growing call stack (same as alloc.ys's 50000-deep `build`/`suml`),
-;; so it can afford to be. Python/Ruby have no guaranteed TCO, so their
-;; "tail" variant is written as the ordinary `while` loop a programmer
-;; would reach for there anyway - the comparison is "yas recursion at
-;; TAIL_N" against "everyone's loop at TAIL_N", not forcing Python into a
-;; blown stack.
+;; NON-TAIL_N is kept small (800), well under CPython's default recursion
+;; limit of 1000, since the non-tail variant is real per-language
+;; recursion (Python/Ruby/C all grow a call frame per step here) and has
+;; to survive there too - this workload can't lean on it being large.
+;; TAIL_N is ~375x bigger (300000): yas's evaluator handles a tail call as
+;; a loop, not a growing call stack (same as alloc.ys's 50000-deep
+;; `build`/`suml`), so it can afford to be. Python/Ruby have no guaranteed
+;; TCO, so their "tail" variant is written as the ordinary `while` loop a
+;; programmer would reach for there anyway - the comparison is "yas
+;; recursion at TAIL_N" against "everyone's loop at TAIL_N", not forcing
+;; Python into a blown stack.
 (define non-tail-n 800)
 (define tail-n 300000)
 

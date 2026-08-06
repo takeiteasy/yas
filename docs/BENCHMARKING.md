@@ -124,16 +124,16 @@ other interpreted languages; `alloc` and `fib` are the narrowest.
 
 | workload | yas | python3 | ruby | lua | c |
 |---|---|---|---|---|---|
-| `fib` (n=24) | 1.173s | 0.017s | 0.057s | 0.006s | 0.002s |
-| `alloc` (n=50000) | 0.731s | 0.018s | 0.057s | 0.008s | 0.002s |
-| `string` (n=6000) | 2.258s | 0.015s | 0.068s | 0.010s | 0.013s |
-| `hash` (n=6000) | 2.715s | 0.012s | 0.052s | 0.003s | 0.002s |
-| `loop` (800 / 300000) | 3.322s | 0.024s | 0.061s | 0.006s | 0.002s |
-| `closure` (n=40000) | 2.247s | 0.017s | 0.055s | 0.006s | 0.002s |
-| `array` (n=3000) | 3.591s | 0.012s | 0.053s | 0.003s | 0.002s |
-| `startup` | 0.006s | 0.016s | 0.057s | 0.003s | - |
+| `fib` (n=24) | 1.174s | 0.017s | 0.057s | 0.006s | 0.002s |
+| `alloc` (n=50000) | 0.728s | 0.018s | 0.059s | 0.008s | 0.003s |
+| `string` (n=6000) | 2.271s | 0.015s | 0.073s | 0.010s | 0.011s |
+| `hash` (n=6000) | 2.728s | 0.012s | 0.053s | 0.003s | 0.002s |
+| `loop` (800 / 300000) | 3.290s | 0.024s | 0.062s | 0.006s | 0.002s |
+| `closure` (n=40000) | 2.365s | 0.019s | 0.055s | 0.006s | 0.002s |
+| `array` (n=3000) | 3.585s | 0.013s | 0.060s | 0.004s | 0.002s |
+| `startup` | 0.004s | 0.011s | 0.052s | 0.003s | - |
 
-`fib (n=30, AOT)`: `yas-aot` 0.011s vs native `c` 0.005s - see the
+`fib (n=30, AOT)`: `yas-aot` 0.012s vs native `c` 0.005s - see the
 placeholder note above; not comparable to the `fib` row (different n).
 
 ## Self-timed scripts (`aux/bench_*.ys`)

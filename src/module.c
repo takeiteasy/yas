@@ -466,12 +466,20 @@ YasAtom yas_library_load(YasAtom name_parts)
 			/* We need to set registry BEFORE eval to allow recursive refs if needed?
 			   Or define-library does it. define-library does it. */
 
+			/* Unlike the file-load branch below, this `lib` is not
+			 * inserted into yas_library_registry before the eval - it's
+			 * refetched from the registry afterward instead (line 479),
+			 * relying on define-library to have populated it. Until
+			 * then it's reachable from nothing, so it must be rooted
+			 * across the eval that can trigger a nested GC step. */
+			yas_gc_push_root(&lib);
 			YasAtom ignore;
 			int err = yas_eval_source(stdlib_files[i].source, key_str, yas_env_create(yas_nil), &ignore);
+			yas_gc_pop_roots(1); /* lib */
 
 			free(key_str);
 			if (err) {
-				yas_gc_pop_roots(1);
+				yas_gc_pop_roots(1); /* key */
 				return yas_nil;
 			}
 
@@ -574,8 +582,14 @@ static YasAtom resolve_import_set(YasAtom set) {
 				/* (except set id ...) */
 				YasAtom child_map = resolve_import_set(yas_car(yas_cdr(set)));
 				if (yas_nilp(child_map)) return yas_nil;
-				
+
 				YasAtom result = yas_make_hash();
+				/* Raw struct YasHash* held across this loop bypasses the
+				 * GC header - safe only because nothing in this loop
+				 * re-enters the evaluator or otherwise allocates in a
+				 * way that could resize/free it today. See the yas
+				 * tracker for the ticket tracking a more structural
+				 * fix. */
 				struct YasHash *h = child_map.value.hash;
 				
 				/* Collect excepted ids into a list for easier check? Or naive search */

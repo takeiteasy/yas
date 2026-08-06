@@ -116,6 +116,43 @@
       (finally (set! side-effect 1)))
     (check side-effect 1)))
 
+;; Regression coverage for GC roots that only exist across a nested
+;; eval_vm() re-entry (TRY/CATCH/FINALLY calling back into the
+;; evaluator). (gc-start) followed by allocation would NOT catch these,
+;; since gc_alloc() colors new objects BLACK (survives) while a cycle is
+;; active - only an object allocated while IDLE and then swept by a
+;; cycle forced mid-call is a real regression check. See docs/GC.md.
+
+;; Recurses deeply enough (each call allocates via cons) to exceed the
+;; GC's byte threshold and drive a full automatic mark+sweep cycle to
+;; completion from *inside* a single catch-body call - the closure call
+;; itself reassigns eval_vm's `env` away from catch_env for the whole
+;; recursion, exactly the window that leaves catch_env unrooted.
+(define (gc-rooting-churn n)
+  (if (= n 0)
+      0
+      (begin (cons n n) (gc-rooting-churn (- n 1)))))
+
+(test "GC rooting across nested eval"
+  ;; The try-block's result lives in eval_vm's *result across the
+  ;; FINALLY eval. Without rooting it, (gc) in finally sweeps the fresh
+  ;; list (only reachable via that unrooted slot) before it's returned.
+  (check (try
+           (list 1 2 3)
+           (finally (gc)))
+         '(1 2 3))
+
+  ;; catch's environment (binding the caught exception) is a fresh,
+  ;; otherwise-unreachable env. Calling gc-rooting-churn as the first
+  ;; body form reassigns env away from catch_env for the whole
+  ;; recursion and allocates well past the GC threshold, so a full
+  ;; automatic cycle completes while catch_env is unrooted; the second
+  ;; form's lookup of `e` then depends on catch_env still being valid.
+  (check (try
+           (error "oops")
+           (catch (e string?) (gc-rooting-churn 8000) e))
+         "oops"))
+
 (test "Docstrings"
   ;; Function with docstring
   (define (documented x) "This is documented" x)

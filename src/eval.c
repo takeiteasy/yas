@@ -1,4 +1,5 @@
 #include "yas.h"
+#include <assert.h>
 #include <string.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -9,6 +10,16 @@ struct EvalRoot {
 	YasAtom *expr;
 	YasAtom *env;
 	YasAtom *stack;
+	/* eval_vm()'s output slot. A builtin/native caller re-entering the
+	 * evaluator (yas_eval_expr() from TRY/CATCH/FINALLY/INCLUDE, etc.)
+	 * routinely holds the *previous* nested call's result live across
+	 * the *next* one - unrooted otherwise, since nothing but this
+	 * struct can see a plain C `YasAtom result` local. Rooting it here
+	 * closes that whole class at once instead of requiring every call
+	 * site to push/pop its own result slot. Must be nulled-out (yas_nil)
+	 * by eval_vm() before this root is installed - callers pass
+	 * uninitialized storage. */
+	YasAtom *result;
 	struct EvalRoot *prev;
 };
 
@@ -16,10 +27,10 @@ static struct EvalRoot *eval_roots = NULL;
 static int eval_vm(YasAtom expr, YasAtom env, YasAtom *result, struct EvalRoot *root);
 
 /* Called from data.c's gc_mark_roots() - the live evaluator's roots are
- * pointers to eval_vm()'s own C locals (expr/env/stack), not to anything
- * an embedder or a nested yas_eval_expr() caller can see, so they stay a
- * separate root source from the yas_gc_push_root() shadow stack. Two
- * root sources, one collector. */
+ * pointers to eval_vm()'s own C locals (expr/env/stack/result), not to
+ * anything an embedder or a nested yas_eval_expr() caller can see, so
+ * they stay a separate root source from the yas_gc_push_root() shadow
+ * stack. Two root sources, one collector. */
 void yas_eval_mark_roots(void)
 {
 	struct EvalRoot *r = eval_roots;
@@ -27,6 +38,7 @@ void yas_eval_mark_roots(void)
 		yas_gc_mark(*r->expr);
 		yas_gc_mark(*r->env);
 		if (!yas_nilp(*r->stack)) yas_gc_mark(*r->stack);
+		yas_gc_mark(*r->result);
 		r = r->prev;
 	}
 }
@@ -126,11 +138,26 @@ int yas_eval_source(const char *text, const char *path, YasAtom env, YasAtom *re
 	err.pos.filename = path;
 	err.pos.source = text;
 	*result = yas_nil;
-	
+
+	/* `env` and `*result` both span the yas_eval_expr() call below, which
+	 * can trigger a nested GC step. For every caller in module.c this
+	 * `env` is a bare yas_env_create(yas_nil) temporary that nothing
+	 * else references - reachable only transiently as the nested
+	 * eval_vm's own `env`, which gets reassigned on closure entry - so
+	 * an import that triggers a collection mid-load can free the
+	 * top-level env out from under the rest of this loop. `*result`
+	 * holds the *previous* form's value, live across the *next*
+	 * iteration's call and equally unreachable otherwise (it is not the
+	 * nested eval_vm's own result slot - that's `&ignore` below, rooted
+	 * separately per call). One root each covers every iteration, since
+	 * yas_gc_push_root() tracks the slot's address, not a snapshot. */
+	yas_gc_push_root(&env);
+	yas_gc_push_root(result);
+
 	while (1) {
 		err.code = YAS_ERROR_OK;
 		err.message[0] = '\0';
-		
+
 		YasError read_err = yas_read_expr(p, &p, &expr, &err);
 		if (read_err == YAS_ERROR_SKIP) {
 			/* Feature conditional excluded this expression, continue */
@@ -140,21 +167,24 @@ int yas_eval_source(const char *text, const char *path, YasAtom env, YasAtom *re
 			if (err.message[0] != '\0') {
 				yas_error_print(&err);
 				yas_current_file_path = saved_path;
+				yas_gc_pop_roots(2);
 				return YAS_ERROR_SYNTAX;
 			}
 			break;  /* End of file */
 		}
-		
+
 		YasAtom ignore;
 		YasError eval_err = yas_eval_expr(expr, env, &ignore);
 		if (eval_err) {
 			yas_current_file_path = saved_path;
+			yas_gc_pop_roots(2);
 			return eval_err;
 		}
 		*result = ignore; // result is last expr
 	}
-	
+
 	yas_current_file_path = saved_path;
+	yas_gc_pop_roots(2);
 	return YAS_ERROR_OK;
 }
 
@@ -702,9 +732,19 @@ int yas_eval_expr(YasAtom expr, YasAtom env, YasAtom *result)
 	root.prev = eval_roots;
 	eval_roots = &root;
 
+	/* Balance guard for the yas_gc_push_root()/yas_gc_pop_roots() shadow
+	 * stack: every re-entering caller in this file and module.c pushes
+	 * and pops in matched pairs, and there is no setjmp/longjmp in the
+	 * tree (call/cc is implemented on the VM's own explicit stack), so
+	 * every unwind is a plain C return - balance is always achievable.
+	 * Catches a future unbalanced push here instead of a slow root-stack
+	 * leak. */
+	int root_count_before = yas_gc_root_count();
+
 	int err = eval_vm(expr, env, result, &root);
 
 	eval_roots = root.prev;
+	assert(yas_gc_root_count() == root_count_before);
 	return err;
 }
 
@@ -713,9 +753,16 @@ static int eval_vm(YasAtom expr, YasAtom env, YasAtom *result, struct EvalRoot *
 	YasError err = YAS_ERROR_OK;
 	YasAtom stack = yas_nil;
 
+	/* Caller-supplied `result` storage is uninitialized (main.c's
+	 * `YasAtom result;`, this file's `YasAtom ignore;`/`ignored;`, etc.)
+	 * - nil it before rooting so a GC step at the very first safe point
+	 * below doesn't mark garbage. */
+	*result = yas_nil;
+
 	root->expr = &expr;
 	root->env = &env;
 	root->stack = &stack;
+	root->result = result;
 
 	do {
 		/* The evaluator's safe point: eval_roots is valid here and no
@@ -846,42 +893,64 @@ static int eval_vm(YasAtom expr, YasAtom env, YasAtom *result, struct EvalRoot *
 									break;
 								}
 								
-								/* Bind exception for predicate check and body */
+								/* Bind exception for predicate check and body.
+								 * catch_env is a fresh yas_env_create(env) that
+								 * nothing else references (env's own binding
+								 * list doesn't point back at its children), so
+								 * it must stay rooted for as long as it's used
+								 * below - through the predicate eval and the
+								 * catch body loop, both of which can trigger a
+								 * nested GC step. Popped on every exit from
+								 * this clause: the predicate-error break, the
+								 * matched-and-executed break, and the
+								 * not-matched fall-through to the next
+								 * clause. */
 								YasAtom catch_env = yas_env_create(env);
 								yas_env_define(catch_env, var, yas_ctx_exception);
-								
+								yas_gc_push_root(&catch_env);
+
 								int match = 1;
 								if (!yas_nilp(pred)) {
 									/* Check predicate: (pred var) */
 									YasAtom pred_expr = yas_cons(pred, yas_cons(var, yas_nil));
 									YasAtom pred_res;
 									YasError pred_err = yas_eval_expr(pred_expr, catch_env, &pred_res);
-									
+
 									if (pred_err) {
 										/* Error evaluating predicate? Propagate it unless it's an exception? */
 										/* If predicate throws, we probably abort catch logic and propagate that error */
 										err = pred_err;
-										break; 
+										yas_gc_pop_roots(1); /* catch_env */
+										break;
 									}
-									
+
 									if (yas_nilp(pred_res)) match = 0;
 								}
-								
+
 								if (match) {
-									/* Execute body */
+									/* Execute body. last_res carries the
+									 * previous body form's value across the
+									 * next form's yas_eval_expr() - unrooted
+									 * otherwise, since it's a plain C local
+									 * distinct from eval_vm's own *result
+									 * (only copied into *result after the
+									 * loop). */
 									YasAtom last_res = yas_nil;
+									yas_gc_push_root(&last_res);
 									while (!yas_nilp(catch_body)) {
 										err = yas_eval_expr(yas_car(catch_body), catch_env, &last_res);
 										if (err) break; /* Exception inside catch? */
 										catch_body = yas_cdr(catch_body);
 									}
 									*result = last_res;
+									yas_gc_pop_roots(2); /* last_res, catch_env */
 									caught = 1;
 									(void)caught; /* suppress warning */
 									break;
 								} else {
 									/* Restore exception state for next iteration */
 									err = YAS_ERROR_EXCEPTION;
+									yas_gc_pop_roots(1); /* catch_env */
 								}
 							}
 							p = yas_cdr(p);

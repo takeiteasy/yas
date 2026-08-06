@@ -163,10 +163,6 @@ static void *gc_alloc(size_t size, YasGCObjType type)
 		return NULL;
 	obj->obj_type = (unsigned char)type;
 	/* New objects during an active cycle are BLACK so a caller who
-	 * hasn't rooted them yet doesn't lose them to the current sweep.
-	 * Constructors must write-barrier every reference they store into a
-	 * fresh object for exactly this reason - see yas_cons() etc. below. */
-	/* New objects during an active cycle are BLACK so a caller who
 	 * hasn't rooted them yet doesn't lose them to the current sweep -
 	 * constructors write-barrier every reference they store into a
 	 * fresh object for exactly this reason (see yas_cons() etc. below).

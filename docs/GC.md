@@ -88,16 +88,32 @@ builtin call is "in flight" (a builtin either returns without further
 evaluation, or itself calls back into `yas_eval_expr()`, which pushes its
 own `EvalRoot` and gets its own safe points).
 
-This does **not** fully close the "unrooted local across an allocating
-call" hazard: a builtin that calls `yas_eval_expr()` recursively (a real
-and existing pattern - see `process_import_set()` in `module.c`) enters a
-nested `eval_vm()` that *does* step the GC, while the *outer* builtin's
-own `YasAtom` C locals remain unrooted. This is not a regression - the old
-counter-based collector had the identical exposure, just far less likely
-to trigger given its coarser, rarer firing. Fixing it is a separate,
-larger audit (see "Future work" below); the specific instance that
-surfaced during this port (`yas_library_load()`'s own lookup key, held
-across nested library loads) is fixed - see "A worked example" below.
+This still leaves an "unrooted local across an allocating call" hazard
+for any C function that re-enters the evaluator: a nested `eval_vm()`
+*does* step the GC, while the *outer* frame's own `YasAtom` C locals stay
+unrooted unless something explicitly protects them. That set of
+re-entering functions is closed and fully audited: `yas_eval_expr()`,
+`yas_eval_source()`, `yas_eval_file()`, and `yas_library_load()` are the
+only ways C code re-enters the evaluator (there is no `yas_apply()`), and
+every call site in `eval.c` and `module.c` has been checked. `eval_vm()`
+now roots its own output slot too (`struct EvalRoot`'s `result` member),
+closing the whole class of "previous nested call's result still live
+across the next one" - see "Root-registration API" below - and the
+remaining genuinely-local slots (a fresh `yas_env_create()`, a `TRY`
+clause's bound-exception environment) are each protected with an explicit
+`yas_gc_push_root()`/`yas_gc_pop_roots()` pair. No `builtin_*.c` file,
+`ffi.c`, `io.c`, `read.c`, or `print.c` re-enters the evaluator, so this
+audit does not extend into that ~20-file "unrooted local across *any*
+allocating call" hazard described above - that's still what blocks moving
+`yas_gc_step()` into `gc_alloc()` (see "Future work").
+
+One caveat worth stating explicitly: `(gc)`/`(gc-start)` (`yas_gc()`/
+`yas_gc_start()`, exposed as builtins in `builtin_core.c`) can force a
+collection from *builtin* context at any call depth, not just at
+`eval_vm()`'s own automatic safe point. "The evaluator safe point is the
+only place a step may run" describes the automatic threshold-triggered
+stepping, not a hard invariant - Lisp code can force one anywhere a
+builtin can run, including mid-library-load.
 
 ## Survivor colors and the allocate-during-sweep hazard
 
@@ -172,17 +188,31 @@ non-white before the sweep cursor can reach and free it.
 
 ## Root-registration API
 
-`EvalRoot`/`eval_roots` (`eval.c`) remain exactly as they were - they root
-pointers to `eval_vm()`'s *own* C locals (`expr`, `env`, and the
-continuation-passing `stack`), which a caller of `yas_eval_expr()` can't
-see or reuse. That's a separate root source from the shadow stack below;
-`gc_mark_roots()` (`data.c`) walks both.
+`EvalRoot`/`eval_roots` (`eval.c`) root pointers to `eval_vm()`'s *own* C
+locals - `expr`, `env`, the continuation-passing `stack`, and its output
+slot `result` - which a caller of `yas_eval_expr()` can't see or reuse.
+That's a separate root source from the shadow stack below;
+`gc_mark_roots()` (`data.c`) walks both. Rooting `result` closes a whole
+class of hazard by itself: any re-entering caller that holds the
+*previous* nested `yas_eval_expr()` call's output live across the *next*
+one (`TRY`'s try-block result staying live across `FINALLY`, a source
+loop's last-form value staying live across the next form) is protected
+automatically, with no per-call-site `push_root`/`pop_roots` needed. It
+must be nulled to `yas_nil` before this root is installed, since callers
+pass uninitialized storage.
 
 ```c
 void yas_gc_push_root(YasAtom *slot);   /* register &slot as a root */
 void yas_gc_pop_roots(int n);           /* pop the last n roots (LIFO) */
 int  yas_gc_root_count(void);           /* for push/pop balance asserts */
 ```
+
+`yas_eval_expr()` asserts `yas_gc_root_count()` is unchanged across its
+own call, catching any future unbalanced `push_root`/`pop_roots` pair as
+a test failure. This is safe to rely on: there is no `setjmp`/`longjmp`
+in the tree, and `call/cc` is implemented on the VM's own explicit stack,
+so every unwind (including a thrown exception) is a plain C `return` -
+push/pop balance is always achievable.
 
 Slot-based, not value-copy: a root is the *address* of a `YasAtom`
 variable, not a snapshot of its value, so it keeps protecting whatever
@@ -245,6 +275,25 @@ has two similar top-level cases (the REPL/CLI's top-level environment and
 its initial `(import (yas base))` argument list), both now rooted the same
 way.
 
+The rest of the audit this motivated turned up the same shape in a few
+more places, all fixed with the same pattern:
+
+- `yas_eval_source()`'s own `env` parameter and `result` output slot
+  (`eval.c`) - for every `module.c` caller, `env` is a bare
+  `yas_env_create(yas_nil)` temporary that nothing else references, and
+  the loop's `*result` holds the previous top-level form's value live
+  across the next form's evaluation. This is the highest-frequency
+  instance: it runs on every library load.
+- The `TRY`/`CATCH` clause's bound-exception environment (`catch_env`,
+  `eval_vm()` in `eval.c`) - a fresh `yas_env_create(env)` with nothing
+  pointing back at it, rooted for the duration of the predicate check and
+  the catch body, popped on every exit from the clause (matched, not
+  matched, or a predicate error).
+- `yas_library_load()`'s pure-Lisp-library branch (`module.c`) - unlike
+  the file-load branch, `lib` isn't inserted into `yas_library_registry`
+  before evaluating the library's source, so it's unreachable across that
+  eval until re-fetched afterward.
+
 ### Callers not affected
 
 Not every `YasAtom` held across an evaluating call needs a root - only
@@ -281,9 +330,23 @@ explicitly managed via `ffi-close`/`ffi-free`.
 
 - `tests/gc_test.c` (`make test-gc`) - C-level: root protection actually
   survives real collection, push/pop balance, the write barrier firing
-  during MARKING and during SWEEPING specifically, and a
-  million-element list to confirm `yas_gc_mark()`'s non-recursive marker
-  doesn't overflow the C stack the way the old recursive one could.
+  during MARKING and during SWEEPING specifically, a million-element list
+  to confirm `yas_gc_mark()`'s non-recursive marker doesn't overflow the
+  C stack the way the old recursive one could, and `yas_eval_source()`'s
+  fresh-`env` rooting (a source string that imports `(yas base)`, forces
+  a collection with `(gc)`, then `define`s into that same env - only
+  reachable from C, since the vulnerable env only ever exists on the
+  `yas_library_load()` path).
+- `suite.ys` ("GC rooting across nested eval") - Lisp-level: a `TRY`
+  whose `FINALLY` clause calls `(gc)`, checking the try-block's result
+  survives; a `CATCH` whose first body form recurses deeply enough to
+  cross the byte threshold and drive a full automatic cycle to
+  completion while `catch_env` is the *only* thing keeping the bound
+  exception variable reachable. Both allocate the object under test
+  while the collector is IDLE and force the cycle *afterward* -
+  `(gc-start)` immediately followed by allocation would not catch a
+  regression here, since `gc_alloc()` colors new objects BLACK (and
+  therefore survives) while a cycle is already active.
 - `aux/gc_continuation_stress.ys` - a continuation reachable only via a
   binding (not the live evaluator stack) survives GC, exercising that
   `YAS_ATOM_TYPE_CONTINUATION` is traced the same as Pair/Closure/Macro
@@ -295,17 +358,13 @@ explicitly managed via `ffi-close`/`ffi-free`.
 
 ## Future work
 
-- **Root builtin locals held across nested `yas_eval_expr()`.** As noted
-  above, a builtin that itself calls back into the evaluator (`module.c`'s
-  import/library-loading machinery is the known example) can have a GC
-  step fire mid-call while its own C locals are unrooted. Not a
-  regression from this port, but the root API now exists to fix it
-  properly - needs an audit of `yas_eval_expr()` callers from builtin
-  context.
 - **Allocation-triggered incrementality.** Steps currently only run at
   `eval_vm()`'s safe point; moving them into `gc_alloc()` itself (as do2
-  does) would give tighter pause bounds, but depends on the audit above
-  landing first - otherwise a step could fire inside any builtin's
-  unrooted-local window.
+  does) would give tighter pause bounds. This depends on the
+  ~20-file `builtin_*.c` audit described under "Why steps run at the
+  evaluator safe point" above landing first - every builtin that holds a
+  `YasAtom` local across a further allocating call (the normal style for
+  one that isn't itself re-entering the evaluator) would need rooting,
+  otherwise a step could fire inside any of those unrooted-local windows.
 - **Avoid the O(n) per-cycle color-clear** in `yas_gc_start()` via an
   alternating-white-color scheme, if profiling shows it matters.

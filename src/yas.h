@@ -194,6 +194,14 @@ struct YasHash {
 	size_t size;
 	size_t capacity;
 	struct YasHash *metatable;  /* Metatable for operator overloading */
+	/* Open-addressed index over `keys`/`values` (data.c): `index[slot]`
+	 * is the row in `keys`/`values`, or (size_t)-1 for an empty slot.
+	 * `index_capacity` is always `capacity * 2` (power of two, since
+	 * `capacity` is), keeping load factor <= 50% - metadata over atoms
+	 * the hash already owns, so it needs no GC marking or write barrier
+	 * of its own; the barriers on keys[]/values[] writes are unchanged. */
+	size_t *index;
+	size_t index_capacity;
 };
 
 /* An environment frame: `parent` (NIL at the root) plus an open-addressed

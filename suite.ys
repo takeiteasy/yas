@@ -433,4 +433,34 @@
   (check (eq? (string->keyword "KW-150") (string->keyword "KW-150")) t)
   (check (eq? (string->keyword "KW-1") (string->keyword "KW-2")) nil))
 
+(test "Hash growth and mixed key types"
+  (let ((h (make-hash)))
+    (for i from 0 to 300 do
+      (hash-set! h i (* i i)))
+    (check (hash-length h) 300)
+    (check (hash-ref h 0) 0)
+    (check (hash-ref h 150) 22500)
+    (check (hash-ref h 299) 89401)
+    (hash-remove! h 150)
+    (check (hash-ref h 150 'missing) 'missing)
+    (check (hash-length h) 299)
+    (hash-set! h 150 22500)
+    (check (hash-ref h 150) 22500)
+    (check (hash-length h) 300))
+  (let ((h (make-hash)))
+    (hash-set! h 'sym-key "symbol")
+    (hash-set! h :kw-key "keyword")
+    (hash-set! h "str-key" "string")
+    (hash-set! h 42 "integer")
+    (hash-set! h 3.5 "float")
+    (check (hash-ref h 'sym-key) "symbol")
+    (check (hash-ref h :kw-key) "keyword")
+    (check (hash-ref h "str-key") "string")
+    (check (hash-ref h 42) "integer")
+    (check (hash-ref h 3.5) "float")
+    ;; two distinct string allocations with equal content must hit the
+    ;; same slot - atom_hash() must hash string content (FNV-1a), not
+    ;; the string atom's pointer
+    (check (hash-ref h (string-append "str-" "key")) "string")))
+
 (run-tests)

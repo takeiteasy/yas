@@ -176,6 +176,12 @@ struct YasInternTable {
 static struct YasInternTable sym_intern = { NULL, 0, 0 };
 static struct YasInternTable kw_intern = { NULL, 0, 0 };
 
+/* Empty-slot sentinel for YasHash's open-addressed index (yas.h) -
+ * forward-declared here since yas_make_hash() (needs it to initialize a
+ * fresh index) is defined before yas_hash_set() and friends, where the
+ * index probing logic itself lives. */
+#define YAS_HASH_INDEX_EMPTY ((size_t)-1)
+
 static size_t fnv1a_hash(const char *s)
 {
 	size_t h = 2166136261u;
@@ -571,6 +577,7 @@ static void gc_free_object(struct YasGCHeader *obj, size_t *freed)
 		struct YasHash *h = (struct YasHash *)obj;
 		free(h->keys);
 		free(h->values);
+		free(h->index);
 		break;
 	}
 	case YAS_GC_OBJ_ENV: {
@@ -910,6 +917,12 @@ YasAtom yas_make_hash(void)
 	gc_account_extra(&h->gc, sizeof(YasAtom) * h->capacity * 2);
 	h->metatable = NULL;
 
+	h->index_capacity = h->capacity * 2;
+	h->index = malloc(sizeof(size_t) * h->index_capacity);
+	for (size_t i = 0; i < h->index_capacity; i++)
+		h->index[i] = YAS_HASH_INDEX_EMPTY;
+	gc_account_extra(&h->gc, sizeof(size_t) * h->index_capacity);
+
 	yas_gc_pop_roots(1);
 	return a;
 }
@@ -1080,7 +1093,12 @@ size_t yas_vector_length(YasAtom vec)
 	return vec.value.vector->size;
 }
 
-/* Hash operations - linear probing for simplicity */
+/* Hash operations - dense keys[]/values[] arrays (unchanged: iteration
+ * order and yas_hash_remove()'s swap-last-into-hole compaction, both
+ * relied on elsewhere - gc_scan_object(), hash-keys, module.c's export
+ * resolution - aren't a contract this index needs to preserve, but the
+ * dense storage itself is), plus an open-addressed `index` (yas.h) of
+ * slot numbers giving O(1) amortized lookup instead of an O(n) scan. */
 static int atom_equal(YasAtom a, YasAtom b)
 {
 	if (a.type != b.type) return 0;
@@ -1095,35 +1113,110 @@ static int atom_equal(YasAtom a, YasAtom b)
 	}
 }
 
+/* Must agree with atom_equal() above exactly, key type by key type -
+ * two atoms atom_equal() calls equal must hash identically. Reuses
+ * env_hash_ptr()/fnv1a_hash() (both defined earlier in this file, for
+ * the environment index and the symbol/keyword intern tables
+ * respectively) rather than a third hash implementation. Integer/float
+ * route their bit pattern through env_hash_ptr() as a pointer value -
+ * never dereferenced, just reusing its mixing step. */
+static size_t atom_hash(YasAtom a)
+{
+	switch (a.type) {
+	case YAS_ATOM_TYPE_NIL:
+		return 0;
+	case YAS_ATOM_TYPE_SYMBOL:
+		return env_hash_ptr(a.value.symbol);
+	case YAS_ATOM_TYPE_KEYWORD:
+		return env_hash_ptr(a.value.keyword);
+	case YAS_ATOM_TYPE_INTEGER:
+		return env_hash_ptr((const void *)(uintptr_t)a.value.integer);
+	case YAS_ATOM_TYPE_FLOAT: {
+		uint64_t bits;
+		memcpy(&bits, &a.value.floatval, sizeof(bits));
+		return env_hash_ptr((const void *)(uintptr_t)bits);
+	}
+	case YAS_ATOM_TYPE_STRING:
+		return fnv1a_hash(a.value.string);
+	default:
+		return env_hash_ptr(a.value.pair);
+	}
+}
+
+/* Probe `h->index` for `key` (already-computed `key_hash`). Returns the
+ * occupied slot on a hit, or the first empty slot on a miss -
+ * `h->index[slot] == YAS_HASH_INDEX_EMPTY` distinguishes the two. Open
+ * addressing, no deletes (yas_hash_remove() rebuilds wholesale instead
+ * of leaving a tombstone - see there). */
+static size_t hash_index_probe(struct YasHash *h, YasAtom key, size_t key_hash)
+{
+	size_t mask = h->index_capacity - 1;
+	size_t i = key_hash & mask;
+	while (h->index[i] != YAS_HASH_INDEX_EMPTY) {
+		if (atom_equal(h->keys[h->index[i]], key))
+			return i;
+		i = (i + 1) & mask;
+	}
+	return i;
+}
+
+/* Rebuilds `h->index` from scratch against the current `h->keys`/
+ * `h->size` - used both after growing `index_capacity` (yas_hash_set())
+ * and after yas_hash_remove()'s compaction shifts a slot number. Every
+ * key in `h->keys[0..size)` is already known unique, so no equal-key
+ * collision handling is needed here beyond ordinary open-addressing
+ * probing. */
+static void hash_index_rebuild(struct YasHash *h)
+{
+	for (size_t i = 0; i < h->index_capacity; i++)
+		h->index[i] = YAS_HASH_INDEX_EMPTY;
+	for (size_t i = 0; i < h->size; i++) {
+		size_t slot = hash_index_probe(h, h->keys[i], atom_hash(h->keys[i]));
+		h->index[slot] = i;
+	}
+}
+
 YasAtom yas_hash_ref(YasAtom hash, YasAtom key, YasAtom default_val)
 {
 	struct YasHash *h = hash.value.hash;
-	for (size_t i = 0; i < h->size; i++) {
-		if (atom_equal(h->keys[i], key))
-			return h->values[i];
-	}
+	size_t slot = hash_index_probe(h, key, atom_hash(key));
+	if (h->index[slot] != YAS_HASH_INDEX_EMPTY)
+		return h->values[h->index[slot]];
 	return default_val;
 }
 
 void yas_hash_set(YasAtom hash, YasAtom key, YasAtom value)
 {
 	struct YasHash *h = hash.value.hash;
-	/* Check if key exists */
-	for (size_t i = 0; i < h->size; i++) {
-		if (atom_equal(h->keys[i], key)) {
-			h->values[i] = value;
-			yas_gc_write_barrier(hash, value);
-			return;
-		}
+	size_t key_hash = atom_hash(key);
+	size_t slot = hash_index_probe(h, key, key_hash);
+
+	if (h->index[slot] != YAS_HASH_INDEX_EMPTY) {
+		h->values[h->index[slot]] = value;
+		yas_gc_write_barrier(hash, value);
+		return;
 	}
+
 	/* Add new key */
 	if (h->size >= h->capacity) {
 		h->capacity *= 2;
 		h->keys = realloc(h->keys, sizeof(YasAtom) * h->capacity);
 		h->values = realloc(h->values, sizeof(YasAtom) * h->capacity);
+
+		/* index_capacity tracks capacity * 2 (see yas.h) - rebuild
+		 * against the new, larger table rather than growing in place,
+		 * since every existing slot's probe sequence changes with the
+		 * mask. */
+		free(h->index);
+		h->index_capacity = h->capacity * 2;
+		h->index = malloc(sizeof(size_t) * h->index_capacity);
+		hash_index_rebuild(h);
+		slot = hash_index_probe(h, key, key_hash);
 	}
+
 	h->keys[h->size] = key;
 	h->values[h->size] = value;
+	h->index[slot] = h->size;
 	h->size++;
 	yas_gc_write_barrier(hash, key);
 	yas_gc_write_barrier(hash, value);
@@ -1132,21 +1225,26 @@ void yas_hash_set(YasAtom hash, YasAtom key, YasAtom value)
 int yas_hash_remove(YasAtom hash, YasAtom key)
 {
 	struct YasHash *h = hash.value.hash;
-	for (size_t i = 0; i < h->size; i++) {
-		if (atom_equal(h->keys[i], key)) {
-			/* Move last element to this position. Both the moved key
-			 * and value were already reachable through this same hash
-			 * before the move, so no new white child is introduced -
-			 * no write barrier needed here. */
-			h->size--;
-			if (i < h->size) {
-				h->keys[i] = h->keys[h->size];
-				h->values[i] = h->values[h->size];
-			}
-			return 1;
-		}
+	size_t slot = hash_index_probe(h, key, atom_hash(key));
+	if (h->index[slot] == YAS_HASH_INDEX_EMPTY)
+		return 0;
+
+	size_t i = h->index[slot];
+	/* Move last element to this position. Both the moved key and value
+	 * were already reachable through this same hash before the move,
+	 * so no new white child is introduced - no write barrier needed
+	 * here. */
+	h->size--;
+	if (i < h->size) {
+		h->keys[i] = h->keys[h->size];
+		h->values[i] = h->values[h->size];
 	}
-	return 0;
+	/* The move above changed which slot number names the relocated
+	 * entry, and open addressing has no delete - cheapest correct fix
+	 * is a wholesale rebuild rather than tombstone bookkeeping. Removal
+	 * is rare relative to ref/set, so this is not the hot path. */
+	hash_index_rebuild(h);
+	return 1;
 }
 
 size_t yas_hash_size(YasAtom hash)

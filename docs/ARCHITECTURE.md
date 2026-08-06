@@ -207,7 +207,9 @@ that holds `YasAtom`s across allocation points:
 
 `yas_library_registry` (`module.c`) is a `YasHash` keyed by strings like
 `"yas/base"` (built from `(yas base)` via `yas_library_name_to_string()`,
-which lowercases and slash-joins). A library record is itself a `YasHash`
+which lowercases and slash-joins) - an O(1) amortized lookup (see
+"Hashes" below), so resolving an already-loaded library doesn't get
+slower as more libraries load. A library record is itself a `YasHash`
 holding `*name*`, `*env*` (a fresh top-level environment), and
 `*exports*` (external-symbol -> internal-symbol).
 
@@ -237,10 +239,10 @@ evaluated in that environment, and `(include "file")`.
 ## Environments
 
 An environment frame (`struct YasEnv`, `yas.h`) is a GC-managed heap
-object: a `parent` atom plus an open-addressed table mapping interned
-symbol pointers to values (`data.c`, same shape as `YasHash` - linear
-probing, grow-and-rehash at 70% load, no deletes so no tombstones).
-`yas_env_get()`/`yas_env_set()` probe the current frame in O(1)
+object: a `parent` atom plus an open-addressed table (`data.c` - linear
+probing directly against a `syms`/`vals` array pair, grow-and-rehash at
+70% load, no deletes so no tombstones) mapping interned symbol pointers
+to values. `yas_env_get()`/`yas_env_set()` probe the current frame in O(1)
 amortized, then walk `parent` on a miss; `yas_env_define()` probes and
 either overwrites or inserts. There is still no compile-time slot
 resolution - every reference is a runtime lookup by symbol identity -
@@ -250,6 +252,25 @@ frame-to-frame remains a `parent`-chain walk. `yas_env_create()`,
 still the only way anything outside `data.c` touches an environment;
 `make_closure()` (`eval.c`) stores one as an opaque atom alongside a
 closure's args/body without looking inside it.
+
+## Hashes
+
+`YasHash` (`yas.h`) keeps its dense `keys`/`values` arrays exactly as
+they were - insertion order (`hash-keys`, `gc_scan_object()`'s marking
+loop) and `yas_hash_remove()`'s swap-last-element-into-the-hole
+compaction are relied on elsewhere, so the arrays stay untouched - but
+`yas_hash_ref()`/`yas_hash_set()` no longer scan them: an open-addressed
+`index` array (`data.c` - slot numbers into `keys`/`values`, linear
+probing, sized `capacity * 2` so load factor stays <= 50%) makes lookup
+O(1) amortized. `atom_hash()` (`data.c`) hashes a key exactly the way
+`atom_equal()` compares one - symbol/keyword by interned pointer,
+integer/float by bit pattern, string by content (FNV-1a, matching
+`atom_equal()`'s `strcmp`), everything else by pointer identity.
+`yas_hash_remove()` rebuilds the index wholesale after its compaction
+(removal is rare relative to ref/set); growing `keys`/`values` rebuilds
+the index against the new, larger table for the same reason resizing an
+open-addressed table always does - every slot's probe sequence changes
+with the mask.
 
 ## Symbols
 

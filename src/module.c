@@ -584,21 +584,25 @@ static YasAtom resolve_import_set(YasAtom set) {
 				if (yas_nilp(child_map)) return yas_nil;
 
 				YasAtom result = yas_make_hash();
-				/* Raw struct YasHash* held across this loop bypasses the
-				 * GC header - safe only because nothing in this loop
-				 * re-enters the evaluator or otherwise allocates in a
-				 * way that could resize/free it today. See the yas
-				 * tracker for the ticket tracking a more structural
-				 * fix. */
+				/* `child_map`/`result` are fresh, otherwise-unreachable
+				 * locals - root both for the loop's duration (ticket #33).
+				 * Once rooted, the raw struct YasHash* pulled from
+				 * child_map stays valid: this collector never moves
+				 * objects, so the only hazard was child_map's hash being
+				 * swept out from under `h` - and nothing here writes back
+				 * into child_map, so h->keys/h->values also never get
+				 * realloc'd mid-loop. */
+				yas_gc_push_root(&child_map);
+				yas_gc_push_root(&result);
 				struct YasHash *h = child_map.value.hash;
-				
+
 				/* Collect excepted ids into a list for easier check? Or naive search */
 				YasAtom exceptions = yas_cdr(yas_cdr(set));
-				
+
 				for (size_t i = 0; i < h->size; i++) {
 					YasAtom key = h->keys[i];
 					int skip = 0;
-					
+
 					YasAtom p = exceptions;
 					while (!yas_nilp(p)) {
 						if (yas_car(p).value.symbol == key.value.symbol) {
@@ -606,11 +610,12 @@ static YasAtom resolve_import_set(YasAtom set) {
 						}
 						p = yas_cdr(p);
 					}
-					
+
 					if (!skip) {
 						yas_hash_set(result, key, h->values[i]);
 					}
 				}
+				yas_gc_pop_roots(2); /* result, child_map */
 				return result;
 			} else if (strcmp(s, "PREFIX") == 0) {
 				/* (prefix set p) */
@@ -619,17 +624,21 @@ static YasAtom resolve_import_set(YasAtom set) {
 				if (prefix.type != YAS_ATOM_TYPE_SYMBOL) return yas_nil;
 				
 				YasAtom result = yas_make_hash();
+				/* Same rooting rationale as the EXCEPT branch above (ticket #33). */
+				yas_gc_push_root(&child_map);
+				yas_gc_push_root(&result);
 				struct YasHash *h = child_map.value.hash;
-				
+
 				for (size_t i = 0; i < h->size; i++) {
 					YasAtom key = h->keys[i];
 					/* Concat prefix + key */
 					char buf[256];
 					snprintf(buf, sizeof(buf), "%s%s", prefix.value.symbol, key.value.symbol);
 					YasAtom new_key = yas_make_sym(buf);
-					
+
 					yas_hash_set(result, new_key, h->values[i]);
 				}
+				yas_gc_pop_roots(2); /* result, child_map */
 				return result;
 			} else if (strcmp(s, "RENAME") == 0) {
 				/* (rename set (old new) ...) */
@@ -637,14 +646,17 @@ static YasAtom resolve_import_set(YasAtom set) {
 				YasAtom renames = yas_cdr(yas_cdr(set));
 				
 				YasAtom result = yas_make_hash();
+				/* Same rooting rationale as the EXCEPT branch above (ticket #33). */
+				yas_gc_push_root(&child_map);
+				yas_gc_push_root(&result);
 				struct YasHash *h = child_map.value.hash;
-				
+
 				/* Copy all, applying renames if match */
 				/* This approach: iterate original keys, check if renamed. */
 				for (size_t i = 0; i < h->size; i++) {
 					YasAtom key = h->keys[i];
 					YasAtom new_key = key;
-					
+
 					YasAtom p = renames;
 					while (!yas_nilp(p)) {
 						YasAtom pair = yas_car(p); // (old new)
@@ -656,6 +668,7 @@ static YasAtom resolve_import_set(YasAtom set) {
 					}
 					yas_hash_set(result, new_key, h->values[i]);
 				}
+				yas_gc_pop_roots(2); /* result, child_map */
 				return result;
 			}
 		}
@@ -670,7 +683,14 @@ static YasAtom resolve_import_set(YasAtom set) {
 
 	YasAtom result = yas_make_hash();
 	if (yas_nilp(exports_map) || exports_map.type != YAS_ATOM_TYPE_HASH) return result;
-	
+
+	/* `exports_map`/`result` are fresh, otherwise-unreachable locals -
+	 * root both for the loop's duration (ticket #33). Same rationale as
+	 * the EXCEPT branch above: this collector never moves objects, and
+	 * nothing here writes back into exports_map, so the raw struct
+	 * YasHash* `h` stays valid as long as exports_map is rooted. */
+	yas_gc_push_root(&exports_map);
+	yas_gc_push_root(&result);
 	struct YasHash *h = exports_map.value.hash;
 	for (size_t i = 0; i < h->size; i++) {
 		YasAtom ext = h->keys[i];
@@ -684,7 +704,8 @@ static YasAtom resolve_import_set(YasAtom set) {
 			yas_hash_set(result, ext, val);
 		}
 	}
-	
+	yas_gc_pop_roots(2); /* result, exports_map */
+
 	return result;
 }
 
@@ -697,18 +718,34 @@ static int process_import_set(YasAtom import_set, YasAtom target_env) {
 		return YAS_ERROR_UNBOUND; 
 	}
 	if (bindings.type != YAS_ATOM_TYPE_HASH) return YAS_ERROR_TYPE;
-	
+
+	/* `bindings` is a fresh, otherwise-unreachable local - root it for
+	 * the loop's duration (ticket #33). yas_env_define() below can
+	 * allocate (a fresh binding cons), so this is no longer safe to
+	 * leave unrooted once gc_alloc() itself can step the collector. */
+	yas_gc_push_root(&bindings);
 	struct YasHash *h = bindings.value.hash;
 	for (size_t i = 0; i < h->size; i++) {
 		YasAtom key = h->keys[i];
 		YasAtom val = h->values[i];
 		yas_env_define(target_env, key, val);
 	}
+	yas_gc_pop_roots(1); /* bindings */
 	return YAS_ERROR_OK;
 }
 
 int yas_module_import(YasAtom args, YasAtom env, YasAtom *result) {
-	/* (import set1 set2 ...) */
+	/* (import set1 set2 ...) - called synchronously from eval_vm()'s own
+	 * IMPORT special-form dispatch (eval.c), never via a separate
+	 * yas_eval_expr() re-entry. `env` is that frame's own `env` local, so
+	 * it's the live EvalRoot->env for the whole duration of this call -
+	 * no separate root needed. `p` walks `args`, which is `yas_cdr(expr)`
+	 * at the point eval_vm called in, and expr isn't reassigned until the
+	 * next eval_vm loop iteration - so every cons `p` visits is reachable
+	 * transitively from EvalRoot->expr throughout, per docs/GC.md's
+	 * "Callers not affected" (both hold even though process_import_set()
+	 * can trigger nested library loads, which re-enter the evaluator and
+	 * push their own EvalRoot without ever popping this frame's). */
 	YasAtom p = args;
 	while (!yas_nilp(p)) {
 		int err = process_import_set(yas_car(p), env);

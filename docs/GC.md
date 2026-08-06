@@ -7,7 +7,7 @@ root API.
 
 ## One header, one list
 
-Every heap-allocated object type (Pair, Vector, Hash, String, Port,
+Every heap-allocated object type (Pair, Vector, Hash, Env, String, Port,
 Bytevector, Vec2/3/4, Mat4, and - under `YAS_FFI` - `YasFFIFunction`/
 `YasFFIStructInstance`) embeds a `struct YasGCHeader`:
 
@@ -28,7 +28,7 @@ sweep loops (one per type). `gc_alloc()`/`gc_scan_object()`/
 **Header recovery differs by type**, because the `YasAtom` union doesn't
 always point at the allocation's start:
 
-- Vector, Hash, Port, Bytevector, and the two FFI types: the atom's
+- Vector, Hash, Env, Port, Bytevector, and the two FFI types: the atom's
   pointer *is* the allocation's address, so `gc` is the struct's first
   member and a plain cast recovers it.
 - Pair (and Closure/Macro/Continuation, which share the same underlying
@@ -230,6 +230,15 @@ Call sites:
   `yas_hash_remove()`'s move-last-element-into-the-gap reshuffle does
   *not* need a barrier: both relocated values were already reachable
   through the same hash before the move.
+- `yas_env_create()`, `yas_env_define()`, `yas_env_set()` (`data.c`) - a
+  `struct YasEnv` frame's `parent`/`syms[i]`/`vals[i]` are plain array
+  slots, the same shape as `YasVector`/`YasHash` above, so every write
+  (including `yas_env_create()`'s own initial `parent` store) goes
+  through `yas_gc_write_barrier()` rather than `yas_set_car`/
+  `yas_set_cdr`. `env_grow()`'s rehash-into-a-larger-table reshuffle
+  needs no barrier for the same reason as `yas_hash_remove()` above:
+  every relocated symbol/value was already reachable through the same
+  frame before the move.
 - `set-metatable!` (`builtin_hash.c`) - stores a raw `struct YasHash *`
   rather than a `YasAtom` field, so it calls `yas_gc_write_barrier()`
   directly instead of going through one of the helpers above.
@@ -415,9 +424,15 @@ explicitly managed via `ffi-close`/`ffi-free`.
   automatic pacing with no explicit `yas_gc()`/`yas_gc_step()` call at
   all, `yas_gc_allocated()` staying bounded across a long churn loop
   (pacing actually keeping up with allocation, not just eventually
-  running), and heavy allocation while a cycle is already active still
+  running), heavy allocation while a cycle is already active still
   reaching IDLE (the `gc_stepping` re-entrancy guard not stalling
-  progress).
+  progress), and a deep `yas_env_create()` parent chain (200 frames, 50
+  bindings each - enough to force several `env_grow()` rehashes per
+  frame) rooted only at its innermost frame surviving several full
+  collections, checking every binding at every depth resolves correctly
+  afterward - the C-level check that `YAS_GC_OBJ_ENV`'s `gc_scan_object()`
+  arm and the write barrier on env writes (see "Write barrier" above)
+  actually hold.
 - `suite.ys` ("GC rooting across nested eval") - Lisp-level: a `TRY`
   whose `FINALLY` clause calls `(gc)`, checking the try-block's result
   survives; a `CATCH` whose first body form recurses deeply enough to

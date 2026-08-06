@@ -227,8 +227,8 @@ holding `*name*`, `*env*` (a fresh top-level environment), and
 
 `yas_module_import()` supports `(only ...)`, `(except ...)`, `(prefix ... p)`,
 and `(rename ... (old new))`; otherwise it copies every export into the
-importing environment via `yas_env_define()`. **Imports are flat copies
-into an alist environment - there is no namespace object at runtime.**
+importing environment via `yas_env_define()`. **Imports are flat copies -
+there is no namespace object at runtime.**
 
 `yas_module_define_library()` handles `(export ...)` (with `(rename int
 ext)`), `(import ...)` into the library's own environment, `(begin ...)`
@@ -236,10 +236,20 @@ evaluated in that environment, and `(include "file")`.
 
 ## Environments
 
-`(parent . ((sym . val) (sym . val) ...))` - alists of alists. `yas_env_get()`
-is a linear scan of the current frame, then a recursive walk to the
-parent; `yas_env_define()` scans-and-mutates-or-conses. Every variable
-reference is O(frame depth x frame size); there is no slot resolution.
+An environment frame (`struct YasEnv`, `yas.h`) is a GC-managed heap
+object: a `parent` atom plus an open-addressed table mapping interned
+symbol pointers to values (`data.c`, same shape as `YasHash` - linear
+probing, grow-and-rehash at 70% load, no deletes so no tombstones).
+`yas_env_get()`/`yas_env_set()` probe the current frame in O(1)
+amortized, then walk `parent` on a miss; `yas_env_define()` probes and
+either overwrites or inserts. There is still no compile-time slot
+resolution - every reference is a runtime lookup by symbol identity -
+but each frame's own lookup is O(1) instead of O(frame size), and
+frame-to-frame remains a `parent`-chain walk. `yas_env_create()`,
+`yas_env_define()`, `yas_env_get()`, and `yas_env_set()` (`data.c`) are
+still the only way anything outside `data.c` touches an environment;
+`make_closure()` (`eval.c`) stores one as an opaque atom alongside a
+closure's args/body without looking inside it.
 
 ## Symbols
 

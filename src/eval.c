@@ -48,56 +48,11 @@ static int eval_do_exec(YasAtom *stack, YasAtom *expr, YasAtom *env);
 static int eval_do_bind(YasAtom *stack, YasAtom *expr, YasAtom *env);
 static int eval_do_apply(YasAtom *stack, YasAtom *expr, YasAtom *env, YasAtom *result);
 
-YasAtom yas_env_create(YasAtom parent)
-{
-	return yas_cons(parent, yas_nil);
-}
-
-int yas_env_define(YasAtom env, YasAtom symbol, YasAtom value)
-{
-	YasAtom bs = yas_cdr(env);
-
-	while (!yas_nilp(bs)) {
-		YasAtom b = yas_car(bs);
-		if (yas_car(b).value.symbol == symbol.value.symbol) {
-			yas_set_cdr(b, value);
-			return YAS_ERROR_OK;
-		}
-		bs = yas_cdr(bs);
-	}
-
-	/* Was a single nested expression - yas_cons(yas_cons(symbol, value),
-	 * yas_cdr(env)) - a Class-B hazard: the inner binding pair is an
-	 * unrooted C temporary until the outer yas_cons() call that links it
-	 * in returns, but that outer call's own gc_alloc() can step the GC
-	 * first and free it. Name it and root it. */
-	YasAtom binding = yas_cons(symbol, value);
-	yas_gc_push_root(&binding);
-	yas_set_cdr(env, yas_cons(binding, yas_cdr(env)));
-	yas_gc_pop_roots(1);
-
-	return YAS_ERROR_OK;
-}
-
-int yas_env_get(YasAtom env, YasAtom symbol, YasAtom *result)
-{
-	YasAtom parent = yas_car(env);
-	YasAtom bs = yas_cdr(env);
-
-	while (!yas_nilp(bs)) {
-		YasAtom b = yas_car(bs);
-		if (yas_car(b).value.symbol == symbol.value.symbol) {
-			*result = yas_cdr(b);
-			return YAS_ERROR_OK;
-		}
-		bs = yas_cdr(bs);
-	}
-
-	if (yas_nilp(parent))
-		return YAS_ERROR_UNBOUND;
-
-	return yas_env_get(parent, symbol, result);
-}
+/* yas_env_create()/yas_env_define()/yas_env_get()/yas_env_set() now live
+ * in data.c, alongside yas_make_hash()/gc_alloc()/gc_account_extra() -
+ * the hashed-frame representation (struct YasEnv, yas.h) needs those
+ * GC-internal statics, which aren't visible outside data.c. See
+ * docs/ARCHITECTURE.md's "Environments" section. */
 
 YasAtom yas_ctx_exception = { YAS_ATOM_TYPE_NIL };
 
@@ -229,26 +184,6 @@ int yas_eval_file(const char *path, YasAtom env, YasAtom *result, int case_insen
 	free(text);
 	free(resolved);
 	return err;
-}
-
-int yas_env_set(YasAtom env, YasAtom symbol, YasAtom value)
-{
-	YasAtom parent = yas_car(env);
-	YasAtom bs = yas_cdr(env);
-
-	while (!yas_nilp(bs)) {
-		YasAtom b = yas_car(bs);
-		if (yas_car(b).value.symbol == symbol.value.symbol) {
-			yas_set_cdr(b, value);
-			return YAS_ERROR_OK;
-		}
-		bs = yas_cdr(bs);
-	}
-
-	if (yas_nilp(parent))
-		return YAS_ERROR_UNBOUND;
-
-	return yas_env_set(parent, symbol, value);
 }
 
 static int make_closure(YasAtom env, YasAtom args, YasAtom body, YasAtom *result)

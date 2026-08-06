@@ -310,6 +310,8 @@ static struct YasGCHeader *atom_to_header(YasAtom a)
 		return a.value.vector ? &a.value.vector->gc : NULL;
 	case YAS_ATOM_TYPE_HASH:
 		return a.value.hash ? &a.value.hash->gc : NULL;
+	case YAS_ATOM_TYPE_ENV:
+		return a.value.env ? &a.value.env->gc : NULL;
 	case YAS_ATOM_TYPE_STRING: {
 		if (!a.value.string) return NULL;
 		struct YasStringAlloc *sa = (struct YasStringAlloc *)
@@ -516,6 +518,17 @@ static void gc_scan_object(struct YasGCHeader *obj)
 		}
 		break;
 	}
+	case YAS_GC_OBJ_ENV: {
+		struct YasEnv *e = (struct YasEnv *)obj;
+		yas_gc_mark(e->parent);
+		for (size_t i = 0; i < e->capacity; i++) {
+			if (yas_nilp(e->syms[i]))
+				continue;
+			yas_gc_mark(e->syms[i]);
+			yas_gc_mark(e->vals[i]);
+		}
+		break;
+	}
 	case YAS_GC_OBJ_STRING:
 	case YAS_GC_OBJ_PORT:
 	case YAS_GC_OBJ_BYTEVECTOR:
@@ -558,6 +571,12 @@ static void gc_free_object(struct YasGCHeader *obj, size_t *freed)
 		struct YasHash *h = (struct YasHash *)obj;
 		free(h->keys);
 		free(h->values);
+		break;
+	}
+	case YAS_GC_OBJ_ENV: {
+		struct YasEnv *e = (struct YasEnv *)obj;
+		free(e->syms);
+		free(e->vals);
 		break;
 	}
 	case YAS_GC_OBJ_STRING:
@@ -893,6 +912,155 @@ YasAtom yas_make_hash(void)
 
 	yas_gc_pop_roots(1);
 	return a;
+}
+
+/* ── Environments ─────────────────────────────────────────────────── */
+
+/* Symbols are interned (see yas_make_sym() above), so `sym.value.symbol`
+ * pointer identity is the key - a fast integer hash over the pointer
+ * bits, not a string hash. Mask, not modulo: `capacity` is always a
+ * power of two. */
+static size_t env_hash_ptr(const void *p)
+{
+	uintptr_t x = (uintptr_t)p;
+	x ^= x >> 13;
+	x *= (uintptr_t)0xff51afd7ed558ccdULL;
+	x ^= x >> 13;
+	return (size_t)x;
+}
+
+/* Probe env `e` for `sym`. Returns the occupied slot on a hit, or the
+ * first empty slot found on a miss (`e->syms[slot]` distinguishes the
+ * two - it is NIL only on a miss, since a symbol atom is never NIL).
+ * Open addressing, no deletes, so no tombstones to skip. */
+static size_t env_probe(struct YasEnv *e, YasAtom sym)
+{
+	size_t mask = e->capacity - 1;
+	size_t i = env_hash_ptr(sym.value.symbol) & mask;
+	while (!yas_nilp(e->syms[i])) {
+		if (e->syms[i].value.symbol == sym.value.symbol)
+			return i;
+		i = (i + 1) & mask;
+	}
+	return i;
+}
+
+/* Doubles capacity and rehashes every occupied slot. Mirrors
+ * yas_hash_set()'s capacity doubling / intern_grow() (above) - grow
+ * before crossing 70% load, not after, so env_probe() never has to
+ * search a full table. */
+static void env_grow(struct YasEnv *e)
+{
+	size_t old_capacity = e->capacity;
+	YasAtom *old_syms = e->syms;
+	YasAtom *old_vals = e->vals;
+
+	e->capacity = old_capacity * 2;
+	e->syms = malloc(sizeof(YasAtom) * e->capacity);
+	e->vals = malloc(sizeof(YasAtom) * e->capacity);
+	for (size_t i = 0; i < e->capacity; i++) {
+		e->syms[i] = yas_nil;
+		e->vals[i] = yas_nil;
+	}
+	gc_account_extra(&e->gc, sizeof(YasAtom) * (e->capacity - old_capacity) * 2);
+
+	for (size_t i = 0; i < old_capacity; i++) {
+		if (yas_nilp(old_syms[i]))
+			continue;
+		size_t slot = env_probe(e, old_syms[i]);
+		e->syms[slot] = old_syms[i];
+		e->vals[slot] = old_vals[i];
+	}
+	free(old_syms);
+	free(old_vals);
+}
+
+YasAtom yas_env_create(YasAtom parent)
+{
+	YasAtom a;
+	struct YasEnv *e = gc_alloc(sizeof(struct YasEnv), YAS_GC_OBJ_ENV);
+	a.type = YAS_ATOM_TYPE_ENV;
+	a.value.env = e;
+	/* Same rationale as yas_make_vector()/yas_make_hash() above: `e` is
+	 * BLACK if allocated mid-cycle (gc_alloc()'s allocate-black), and the
+	 * malloc()s/write barrier below can themselves step the GC before
+	 * this constructor returns. */
+	yas_gc_push_root(&a);
+
+	e->parent = yas_nil;
+	e->count = 0;
+	e->capacity = 8;
+	e->syms = malloc(sizeof(YasAtom) * e->capacity);
+	e->vals = malloc(sizeof(YasAtom) * e->capacity);
+	for (size_t i = 0; i < e->capacity; i++) {
+		e->syms[i] = yas_nil;
+		e->vals[i] = yas_nil;
+	}
+	gc_account_extra(&e->gc, sizeof(YasAtom) * e->capacity * 2);
+
+	e->parent = parent;
+	yas_gc_write_barrier(a, parent);
+
+	yas_gc_pop_roots(1);
+	return a;
+}
+
+int yas_env_define(YasAtom env, YasAtom symbol, YasAtom value)
+{
+	struct YasEnv *e = env.value.env;
+	size_t slot = env_probe(e, symbol);
+
+	if (!yas_nilp(e->syms[slot])) {
+		e->vals[slot] = value;
+		yas_gc_write_barrier(env, value);
+		return YAS_ERROR_OK;
+	}
+
+	if ((e->count + 1) * 10 >= e->capacity * 7) {
+		env_grow(e);
+		slot = env_probe(e, symbol);
+	}
+
+	e->syms[slot] = symbol;
+	e->vals[slot] = value;
+	e->count++;
+	yas_gc_write_barrier(env, symbol);
+	yas_gc_write_barrier(env, value);
+
+	return YAS_ERROR_OK;
+}
+
+int yas_env_get(YasAtom env, YasAtom symbol, YasAtom *result)
+{
+	struct YasEnv *e = env.value.env;
+	size_t slot = env_probe(e, symbol);
+
+	if (!yas_nilp(e->syms[slot])) {
+		*result = e->vals[slot];
+		return YAS_ERROR_OK;
+	}
+
+	if (yas_nilp(e->parent))
+		return YAS_ERROR_UNBOUND;
+
+	return yas_env_get(e->parent, symbol, result);
+}
+
+int yas_env_set(YasAtom env, YasAtom symbol, YasAtom value)
+{
+	struct YasEnv *e = env.value.env;
+	size_t slot = env_probe(e, symbol);
+
+	if (!yas_nilp(e->syms[slot])) {
+		e->vals[slot] = value;
+		yas_gc_write_barrier(env, value);
+		return YAS_ERROR_OK;
+	}
+
+	if (yas_nilp(e->parent))
+		return YAS_ERROR_UNBOUND;
+
+	return yas_env_set(e->parent, symbol, value);
 }
 
 /* Vector operations */

@@ -102,6 +102,7 @@ struct YasAtom {
 		YAS_ATOM_TYPE_VEC3,
 		YAS_ATOM_TYPE_VEC4,
 		YAS_ATOM_TYPE_MAT4,
+		YAS_ATOM_TYPE_ENV,  /* environment frame (see struct YasEnv below) */
 #ifdef YAS_FFI
 		YAS_ATOM_TYPE_FFI_LIBRARY,   /* dlopen handle */
 		YAS_ATOM_TYPE_FFI_POINTER,   /* Raw C pointer */
@@ -125,6 +126,7 @@ struct YasAtom {
 		const char *keyword;  /* Interned keyword name (without :) */
 		yas_vec4_t *vec;         /* Used for vec2, vec3, vec4 (SIMD aligned) */
 		yas_mat4_t *mat4;        /* 4x4 matrix */
+		struct YasEnv *env;      /* Environment frame */
 #ifdef YAS_FFI
 		void *ffi_library;           /* dlopen handle */
 		void *ffi_pointer;           /* raw C pointer */
@@ -155,6 +157,7 @@ typedef enum {
 	YAS_GC_OBJ_BYTEVECTOR,
 	YAS_GC_OBJ_VEC,
 	YAS_GC_OBJ_MAT4,
+	YAS_GC_OBJ_ENV,
 #ifdef YAS_FFI
 	YAS_GC_OBJ_FFI_FUNCTION,
 	YAS_GC_OBJ_FFI_STRUCT
@@ -191,6 +194,24 @@ struct YasHash {
 	size_t size;
 	size_t capacity;
 	struct YasHash *metatable;  /* Metatable for operator overloading */
+};
+
+/* An environment frame: `parent` (NIL at the root) plus an open-addressed
+ * table keyed on interned-symbol pointer identity - see yas_env_create()/
+ * yas_env_define()/yas_env_get()/yas_env_set() (eval.c). `syms[i].type ==
+ * YAS_ATOM_TYPE_NIL` marks an empty slot (a symbol atom is never NIL, so
+ * this is an unambiguous sentinel); no delete API exists, so no
+ * tombstones. Direct pointer, header first, same shape as
+ * YasVector/YasHash above - writes to `parent`/`syms`/`vals` must go
+ * through yas_gc_write_barrier() (see data.c), since they bypass
+ * yas_set_car/yas_set_cdr. */
+struct YasEnv {
+	struct YasGCHeader gc;
+	struct YasAtom parent;
+	struct YasAtom *syms;
+	struct YasAtom *vals;
+	size_t count;
+	size_t capacity;
 };
 
 struct YasPort {

@@ -289,6 +289,72 @@ static void test_allocation_during_active_cycle_terminates(void)
 	yas_gc_pop_roots(1);
 }
 
+/* 10. Environment frames (struct YasEnv, yas.h) are a GC heap type now -
+ * this is the C-level check that YAS_GC_OBJ_ENV's gc_scan_object() arm
+ * (data.c) actually marks `parent` and every occupied slot, and that the
+ * write barrier fired by yas_env_define()/yas_env_create() (also data.c)
+ * protects a frame's bindings once the container is BLACK mid-cycle.
+ * Without either, this drops bindings the moment a cycle runs while the
+ * chain is rooted only at its innermost frame - exactly the shape
+ * closures and nested lets produce, which suite.ys can't force a
+ * controlled collection in the middle of. Also exercises env_grow()
+ * (data.c): 50 bindings per frame crosses the 8-slot initial capacity's
+ * 70% rehash threshold several times over. */
+static void test_env_chain_survives_gc(void)
+{
+	const int depth = 200;
+	const int bindings_per_frame = 50;
+
+	YasAtom root_env = yas_env_create(yas_nil);
+	yas_gc_push_root(&root_env);
+
+	YasAtom env = root_env;
+	for (int d = 0; d < depth; d++) {
+		env = yas_env_create(env);
+		/* Re-root: env_create()'s own internal root only covers its own
+		 * call, and this loop's `env` is the sole reference to the chain
+		 * built so far - rooting just the innermost frame is enough,
+		 * since every ancestor is reachable by walking `parent`. */
+		yas_gc_pop_roots(1);
+		yas_gc_push_root(&env);
+
+		for (int b = 0; b < bindings_per_frame; b++) {
+			char name[32];
+			snprintf(name, sizeof(name), "V-%d-%d", d, b);
+			yas_env_define(env, yas_make_sym(name), yas_make_int(d * 1000 + b));
+		}
+	}
+
+	churn(50000);
+	yas_gc();
+	yas_gc();
+	yas_gc();
+
+	int ok = 1;
+	for (int d = 0; d < depth && ok; d++) {
+		for (int b = 0; b < bindings_per_frame && ok; b++) {
+			char name[32];
+			snprintf(name, sizeof(name), "V-%d-%d", d, b);
+			YasAtom result;
+			int err = yas_env_get(env, yas_make_sym(name), &result);
+			if (err != YAS_ERROR_OK
+			    || result.type != YAS_ATOM_TYPE_INTEGER
+			    || result.value.integer != d * 1000 + b) {
+				ok = 0;
+			}
+		}
+	}
+	CHECK(ok);
+
+	/* An unbound name at the root parent still reports UNBOUND, not a
+	 * stale/garbage hit - confirms the write barrier didn't over-protect
+	 * (i.e. isn't masking a broken parent chain). */
+	YasAtom unused;
+	CHECK(yas_env_get(env, yas_make_sym("NO-SUCH-BINDING"), &unused) == YAS_ERROR_UNBOUND);
+
+	yas_gc_pop_roots(1);
+}
+
 int main(void)
 {
 	test_root_protection();
@@ -300,6 +366,7 @@ int main(void)
 	test_gc_alloc_paces_itself();
 	test_pacing_keeps_up_with_allocation();
 	test_allocation_during_active_cycle_terminates();
+	test_env_chain_survives_gc();
 
 	if (failures) {
 		fprintf(stderr, "gc_test: %d FAILURE(S)\n", failures);

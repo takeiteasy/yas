@@ -463,4 +463,13 @@
     ;; the string atom's pointer
     (check (hash-ref h (string-append "str-" "key")) "string")))
 
+(test "current-time"
+  ;; Monotonic wall clock (docs/BENCHMARKING.md, aux/bench_*.ys) - only
+  ;; relative differences are meaningful, not the epoch. `>=` not `>`: two
+  ;; calls can land in the same tick.
+  (check (float? (current-time)) t)
+  (let ((a (current-time))
+        (b (current-time)))
+    (check (>= b a) t)))
+
 (run-tests)

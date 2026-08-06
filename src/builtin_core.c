@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
+#include <time.h>
 
 int yas_raise_error(const char *type, const char *msg)
 {
@@ -259,5 +260,27 @@ int yas_builtin_gc_stats(YasAtom args, YasAtom *result)
 	yas_hash_set(h, yas_make_keyword("ALLOCATED"), yas_make_int((long)yas_gc_allocated()));
 	yas_hash_set(h, yas_make_keyword("PHASE"), yas_make_int(yas_gc_phase()));
 	*result = h;
+	return YAS_ERROR_OK;
+}
+
+/* (current-time) -> float seconds, monotonic clock.
+ *
+ * For timing benchmarks (see docs/BENCHMARKING.md, aux/bench_*.ys) - the
+ * epoch is unspecified and not comparable across processes/machines, only
+ * differences between calls within one run are meaningful. Falls back to
+ * clock(3)/CLOCKS_PER_SEC (process CPU time, not wall clock) if
+ * CLOCK_MONOTONIC isn't available. */
+int yas_builtin_current_time(YasAtom args, YasAtom *result)
+{
+	if (!yas_nilp(args))
+		return yas_raise_error("args-error", "current-time: expected 0 arguments");
+#if defined(CLOCK_MONOTONIC)
+	struct timespec ts;
+	if (clock_gettime(CLOCK_MONOTONIC, &ts) == 0) {
+		*result = yas_make_float((double)ts.tv_sec + (double)ts.tv_nsec / 1e9);
+		return YAS_ERROR_OK;
+	}
+#endif
+	*result = yas_make_float((double)clock() / (double)CLOCKS_PER_SEC);
 	return YAS_ERROR_OK;
 }

@@ -89,12 +89,30 @@ test-gc: $(libyas)
 	./build/gc_test
 
 # aux/ holds slow stress/benchmark/fuzz scripts (plus gc_test.c above)
-# that aren't part of the regular `make test` gate - run individually as
-# needed, e.g.:
+# that aren't part of the regular `make test` gate. Naming convention
+# (docs/BENCHMARKING.md, ticket #29): `*_stress.ys` here, `bench_*.ys` +
+# `bench/` for benchmarks (see `bench` target below), `fuzz_*.ys` reserved
+# for future fuzzing. Only `*_stress.ys` is filtered by this target (and
+# test-gc-stress's YAS_GC_STRESS=1 loop below) - deliberately, not just a
+# glob-tightening: a `bench_*.ys` timing script under YAS_GC_STRESS=1's
+# 1-byte step quantum would be meaningless, and stress-test's job is
+# regression coverage, not timing. Run individually as needed, e.g.:
 #   ./yas aux/gc_continuation_stress.ys
 .PHONY: stress-test
 stress-test: yas
-	@for f in aux/*.ys; do \
+	@for f in aux/*_stress.ys; do \
+		echo "=== $$f ==="; \
+		./yas $$f || exit 1; \
+	done
+
+# Cross-language + self-timed benchmarks (docs/BENCHMARKING.md) - not part
+# of `make check`, results are informational, not a pass/fail regression
+# gate (aux/bench/bench.py only fails on a *present* runtime producing
+# wrong output, never on being slow).
+.PHONY: bench
+bench: yas
+	@python3 aux/bench/bench.py
+	@for f in aux/bench_*.ys; do \
 		echo "=== $$f ==="; \
 		./yas $$f || exit 1; \
 	done
@@ -105,15 +123,17 @@ stress-test: yas
 # gc_min_threshold_get()/gc_debt_quantum_get()), so a collection cycle
 # starts and advances on essentially every allocation instead of only
 # once ~256KB has accumulated - turning a one-in-a-million unrooted-
-# local race into something suite.ys/aux/*.ys/gc_alloc_stress.ys hit
+# local race into something suite.ys/aux/*_stress.ys/gc_alloc_stress.ys hit
 # every run. Pair with `make test-gc-stress YAS_ASAN=1` so a surviving
 # bug reports a stack trace naming the exact function instead of an
-# opaque crash.
+# opaque crash. Only *_stress.ys, not bench_*.ys - a 1-byte step quantum
+# would make a timing script's numbers meaningless (see `stress-test`'s
+# comment above for the naming convention this depends on).
 .PHONY: test-gc-stress
 test-gc-stress: yas $(libyas)
 	@echo "=== suite.ys (YAS_GC_STRESS=1) ==="
 	@YAS_GC_STRESS=1 ./yas suite.ys || exit 1
-	@for f in aux/*.ys; do \
+	@for f in aux/*_stress.ys; do \
 		echo "=== $$f (YAS_GC_STRESS=1) ==="; \
 		YAS_GC_STRESS=1 ./yas $$f || exit 1; \
 	done

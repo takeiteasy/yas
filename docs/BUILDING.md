@@ -6,8 +6,9 @@
 make            # builds ./yas
 make test       # runs suite.ys, gates on its process exit code
 make test-gc    # C-level GC regression tests (aux/gc_test.c) - see GC.md
-make stress-test    # runs the slow stress/benchmark scripts in aux/
+make stress-test    # runs the slow stress/regression scripts in aux/*_stress.ys
 make test-gc-stress # allocation-triggered GC stepping audit gate - see GC.md
+make bench          # cross-language + self-timed benchmarks - see BENCHMARKING.md
 make clean
 ```
 
@@ -16,15 +17,18 @@ Requires a C99 compiler and `libreadline`. Sources are in `src/`;
 tracked in git.
 
 `aux/` holds slow interpreted stress/benchmark/fuzz scripts that aren't
-part of the `make test` gate (`suite.ys` should stay fast) - run
-individually with `./yas aux/<script>.ys` or all together with `make
-stress-test` - plus the C-level GC regression tests (`aux/gc_test.c`,
-`make test-gc`).
+part of the `make test` gate (`suite.ys` should stay fast), plus the
+C-level GC regression tests (`aux/gc_test.c`, `make test-gc`). Naming
+convention (see [BENCHMARKING.md](BENCHMARKING.md) for the full picture):
+`aux/*_stress.ys` for stress/regression scripts (`make stress-test`),
+`aux/bench_*.ys` + `aux/bench/` for benchmarks (`make bench`), and
+`aux/fuzz_*.ys` reserved for future fuzzing - nothing under that name
+exists yet. Run any script individually with `./yas aux/<script>.ys`.
 
 ### GC stress testing
 
 ```sh
-make test-gc-stress               # suite.ys + aux/*.ys + gc_test.c, YAS_GC_STRESS=1
+make test-gc-stress               # suite.ys + aux/*_stress.ys + gc_test.c, YAS_GC_STRESS=1
 make test-gc-stress YAS_ASAN=1    # same, built with AddressSanitizer
 ```
 
@@ -82,8 +86,10 @@ it - see [AOT.md](AOT.md#cccc-issues-found-along-the-way), point 9.
 src/            interpreter + AOT compiler sources
 std/yas/*.ys    stdlib, embedded into src/stdlib.h at build time
 aot/            AOT pass: aot.c (cccc comptime side), examples/, tests/
-aux/            slow stress/benchmark/fuzz scripts (make stress-test),
-                plus the C-level GC regression tests (gc_test.c, make test-gc)
+aux/            slow stress/benchmark/fuzz scripts - *_stress.ys (make
+                stress-test), bench_*.ys + bench/ (make bench), fuzz_*.ys
+                (reserved) - plus the C-level GC regression tests
+                (gc_test.c, make test-gc); see BENCHMARKING.md
 docs/           this directory
 suite.ys        interpreter test suite (make test)
 ```

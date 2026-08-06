@@ -464,9 +464,11 @@ explicitly managed via `ffi-close`/`ffi-free`.
   `YAS_GC_DEBT_QUANTUM`), instead of the ~256KB/4KB defaults - so cycles
   start and advance on essentially every allocation, using the exact same
   pacing code path production does. `make test-gc-stress` runs
-  `suite.ys` + every `aux/*.ys` script + `aux/gc_test.c` at `n=1`; add
-  `YAS_ASAN=1` so a surviving bug reports a stack trace naming the exact
-  function.
+  `suite.ys` + every `aux/*_stress.ys` script + `aux/gc_test.c` at `n=1`
+  (not `bench_*.ys` - see docs/BENCHMARKING.md's naming convention: a
+  1-byte step quantum would make a timing script's numbers meaningless);
+  add `YAS_ASAN=1` so a surviving bug reports a stack trace naming the
+  exact function.
 
   Two other designs were tried first and rejected - worth knowing if
   revisiting this: running a *full* `yas_gc()` to completion on every

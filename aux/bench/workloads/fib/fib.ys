@@ -1,0 +1,17 @@
+;; Naive recursive fibonacci - call/arith-heavy workload for aux/bench/bench.py
+;; (docs/BENCHMARKING.md). Deliberately exponential, so timing differences
+;; aren't noise. No explicit (import (yas base)) - but main.c imports it into
+;; every top-level env unconditionally (interpreter/REPL only; the AOT front
+;; end in aot/plan.c is separate and does NOT do this - see CLAUDE.md), so
+;; `+ - * <` here are still (yas base)'s variadic foldl closures over the C
+;; primitives, not the primitives directly. That's the representative case:
+;; ordinary `./yas` usage always has base loaded. A separate file from
+;; aot/examples/fib.ys: that one is define-only for the AOT pipeline (its
+;; top-level call lives in aot/fib_main.c) - this one needs the top-level
+;; (print ...) itself, and a smaller n=24 (n=30 interpreted takes ~50s, too
+;; slow to run repeatedly across languages).
+(define (fib n)
+  (if (< n 2)
+      n
+      (+ (fib (- n 1)) (fib (- n 2)))))
+(print (fib 24))

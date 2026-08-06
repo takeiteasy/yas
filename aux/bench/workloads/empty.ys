@@ -1,0 +1,2 @@
+;; Empty program - used by aux/bench/bench.py to measure interpreter
+;; startup cost in isolation from any workload (docs/BENCHMARKING.md).

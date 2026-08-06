@@ -137,6 +137,9 @@ void yas_load_base_library(void) {
 	reg_builtin(env, exports, "GC-START", yas_builtin_gc_start);
 	reg_builtin(env, exports, "GC-STATS", yas_builtin_gc_stats);
 
+	/* Monotonic wall clock, for benchmarking - see docs/BENCHMARKING.md */
+	reg_builtin(env, exports, "CURRENT-TIME", yas_builtin_current_time);
+
 	/* Global features list */
 	reg_sym(env, exports, "*FEATURES*", yas_global_features);
 	

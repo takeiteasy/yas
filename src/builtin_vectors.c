@@ -423,12 +423,25 @@ int yas_builtin_less(YasAtom args, YasAtom *result)
 	a = yas_car(args);
 	b = yas_car(yas_cdr(args));
 
-	if (a.type != YAS_ATOM_TYPE_INTEGER || b.type != YAS_ATOM_TYPE_INTEGER)
-		return yas_raise_error("type-error", "<: operands must be integers");
+	/* Integer < Integer */
+	if (a.type == YAS_ATOM_TYPE_INTEGER && b.type == YAS_ATOM_TYPE_INTEGER) {
+		*result = (a.value.integer < b.value.integer) ? yas_make_sym("T") : yas_nil;
+		return YAS_ERROR_OK;
+	}
 
-	*result = (a.value.integer < b.value.integer) ? yas_make_sym("T") : yas_nil;
+	/* Float comparison (if either is float or integer) - matches
+	 * yas_builtin_numeq's mixed int/float handling above. Pre-existing gap
+	 * found while adding (current-time): `<` (and `<=`/`>`/`>=`, which
+	 * base.ys derives from it) rejected floats even though `+ - * / =` all
+	 * accept them. */
+	if (is_numeric(a.type) && is_numeric(b.type)) {
+		double av = (a.type == YAS_ATOM_TYPE_INTEGER) ? (double)a.value.integer : a.value.floatval;
+		double bv = (b.type == YAS_ATOM_TYPE_INTEGER) ? (double)b.value.integer : b.value.floatval;
+		*result = (av < bv) ? yas_make_sym("T") : yas_nil;
+		return YAS_ERROR_OK;
+	}
 
-	return YAS_ERROR_OK;
+	return yas_raise_error("type-error", "<: operands must be numbers");
 }
 
 /* Type predicates */

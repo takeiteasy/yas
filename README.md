@@ -24,6 +24,7 @@ make && make test    # build the interpreter, run the test suite
   GC, module system
 - [GC](docs/GC.md) - the incremental tricolor collector and root API
 - [Building](docs/BUILDING.md) - build targets, FFI, AOT
+- [Benchmarking](docs/BENCHMARKING.md) - the `aux/` bench/stress/fuzz convention
 - [Embedding](docs/EMBEDDING.md) - the C API for host programs
 - [AOT compilation](docs/AOT.md) - lowering yas to C at compile time
 

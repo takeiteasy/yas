@@ -126,6 +126,17 @@ process exit code.
 `gc-stats`'s `:PHASE` is `0` (idle), `1` (marking), or `2` (sweeping) - see
 [GC.md](GC.md) for the collector's design.
 
+## Timing
+
+```scheme
+(current-time)  ; => float seconds, monotonic clock
+```
+
+Only differences between calls within one run are meaningful - the epoch
+is unspecified and not comparable across processes or machines. Intended
+for benchmarking (see [BENCHMARKING.md](BENCHMARKING.md),
+`aux/bench_*.ys`).
+
 ## call/cc
 
 ```scheme

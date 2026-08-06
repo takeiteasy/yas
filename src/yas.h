@@ -598,6 +598,7 @@ int yas_builtin_procedure_doc(YasAtom args, YasAtom *result);
 int yas_builtin_gc(YasAtom args, YasAtom *result);
 int yas_builtin_gc_start(YasAtom args, YasAtom *result);
 int yas_builtin_gc_stats(YasAtom args, YasAtom *result);
+int yas_builtin_current_time(YasAtom args, YasAtom *result);
 
 /* Decode a single UTF-8 character, return bytes consumed (0 on end/error) */
 int yas_utf8_decode(const char *s, int32_t *cp);

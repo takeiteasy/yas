@@ -1,0 +1,26 @@
+;; Self-timed in-language micro-benchmark (docs/BENCHMARKING.md,
+;; aux/bench/ for the cross-language harness) - establishes the
+;; `bench_*.ys` half of the aux/ naming convention (ticket #29) and gives
+;; (current-time) a real user beyond suite.ys's smoke test.
+;;
+;; Builds and sums a 200000-element list (heavier than aux/bench/'s
+;; alloc workload - there it needs to run across five languages in one
+;; invocation, here it only needs to run once) and reports wall-clock
+;; time via (current-time), not process exit time - so this can be re-run
+;; standalone (./yas aux/bench_alloc.ys) without a driver script.
+;;
+;; No explicit (import (yas base)) needed for the same reason as
+;; aux/bench/workloads/*/*.ys: main.c imports it into every top-level env
+;; unconditionally.
+
+(define (build n acc)
+  (if (= n 0) acc (build (- n 1) (cons n acc))))
+(define (suml lst acc)
+  (if (pair? lst) (suml (cdr lst) (+ acc (car lst))) acc))
+
+(define start (current-time))
+(define total (suml (build 200000 nil) 0))
+(define elapsed (- (current-time) start))
+
+(print total)
+(print elapsed)

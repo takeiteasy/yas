@@ -8,8 +8,9 @@
 ;; ordinary `./yas` usage always has base loaded. A separate file from
 ;; aot/examples/fib.ys: that one is define-only for the AOT pipeline (its
 ;; top-level call lives in aot/fib_main.c) - this one needs the top-level
-;; (print ...) itself, and a smaller n=24 (n=30 interpreted takes ~50s, too
-;; slow to run repeatedly across languages).
+;; (print ...) itself, and a smaller n=24 (n=30 interpreted takes ~21s at
+;; the default -O2 build, ~50s at -O0 - too slow either way to run
+;; repeatedly across languages).
 (define (fib n)
   (if (< n 2)
       n

@@ -49,6 +49,12 @@ interpreter startup cost in isolation - printed as its own column, never
 subtracted from a workload's total (subtracting two noisy wall-clock
 measurements would invent precision, not add it).
 
+**The `yas` under test is the default optimized build** (`-O2 -g`, see
+[BUILDING.md](BUILDING.md) - ticket #38 found this ~2.2x faster than the
+old `-O0` default for `fib(24)`, for no source change). To compare
+optimization levels, rebuild between runs: `make clean && make OPT=<level>
+&& make bench` - there's no opt-level sweep inside `bench.py` itself.
+
 **The yas numbers include `(yas base)`.** `main.c` imports `(yas base)`
 into every top-level environment unconditionally (interpreter and REPL,
 not the separate AOT front end - see `CLAUDE.md`), so even though the

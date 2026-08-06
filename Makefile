@@ -5,7 +5,21 @@
 # explicitly.
 sources=$(wildcard src/*.c) aot/plan.c
 
-CFLAGS=-Wall -O0 -g --std=c99 -D_GNU_SOURCE -iquote src
+# Default to an optimized build (-O2): the interpreter is ~2.2x faster
+# than at -O0 for no source change - see docs/BENCHMARKING.md. -g is kept
+# so a release build still produces usable stack traces. `make
+# YAS_DEBUG=1` gives the old unoptimized build
+# back for stepping through a crash; `make OPT=-O3` (or any other level)
+# overrides directly. Recursive `CFLAGS =` (not `CFLAGS=...`) so `make
+# OPT=...` composes instead of needing a full CFLAGS override. Changing
+# OPT/YAS_DEBUG/YAS_ASAN/YAS_FFI between builds needs `make clean` first -
+# $(objects) only depends on headers, not on these flags, so stale .o
+# files get silently relinked otherwise.
+OPT ?= -O2
+ifdef YAS_DEBUG
+OPT = -O0
+endif
+CFLAGS = -Wall $(OPT) -g --std=c99 -D_GNU_SOURCE -iquote src
 LDFLAGS=-lreadline
 
 # Optional FFI support: make YAS_FFI=1

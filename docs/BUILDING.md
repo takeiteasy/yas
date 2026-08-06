@@ -3,7 +3,9 @@
 ## Interpreter
 
 ```sh
-make            # builds ./yas
+make            # builds ./yas, optimized (-O2 -g) by default
+make OPT=-O3    # build at a different optimization level
+make YAS_DEBUG=1 # build unoptimized (-O0 -g) for stepping through a crash
 make test       # runs suite.ys, gates on its process exit code
 make test-gc    # C-level GC regression tests (aux/gc_test.c) - see GC.md
 make stress-test    # runs the slow stress/regression scripts in aux/*_stress.ys
@@ -15,6 +17,19 @@ make clean
 Requires a C99 compiler and `libreadline`. Sources are in `src/`;
 `src/stdlib.h` is generated from `std/yas/*.ys` by `embed.py` and is not
 tracked in git.
+
+The default build is optimized (`OPT ?= -O2` in the Makefile, `-g` kept
+for usable stack traces) - `fib(24)` interpreted runs about 2.2x faster
+at `-O2` than at `-O0`, for no source change (see
+[BENCHMARKING.md](BENCHMARKING.md)). `-O3` was A/B'd against `-O2` and
+showed no further improvement on this benchmark, so `-O2` is the default;
+override with `make OPT=-O3` (or any other level) to try it yourself.
+`make YAS_DEBUG=1` forces `-O0 -g` back, for contributors who want
+unoptimized stack traces while debugging a crash. **Run `make clean`
+whenever `OPT`, `YAS_DEBUG`, `YAS_ASAN`, or `YAS_FFI` changes between
+builds** - the object files only depend on headers, not on these flags,
+so a build with a flag flipped but no `make clean` first will silently
+relink stale `.o` files instead of rebuilding with the new flags.
 
 `aux/` holds slow interpreted stress/benchmark/fuzz scripts that aren't
 part of the `make test` gate (`suite.ys` should stay fast), plus the

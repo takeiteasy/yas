@@ -47,7 +47,7 @@ inside the conditional: `#+(or macos linux) ...`.
 
 These are recognized directly by the evaluator (not macros - see
 [ARCHITECTURE.md](ARCHITECTURE.md#evaluator) for why that distinction
-matters, e.g. for the AOT pass):
+matters):
 
 | Form | |
 |---|---|

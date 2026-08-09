@@ -8,7 +8,7 @@ make               # builds ./yas
 ./yas script.ys     # run a file
 ```
 
-See [BUILDING.md](BUILDING.md) for test/FFI/AOT build targets.
+See [BUILDING.md](BUILDING.md) for test/FFI build targets.
 
 ## The REPL
 
@@ -142,5 +142,4 @@ comparison rules.
 
 - [Language reference](LANGUAGE_REFERENCE.md) - full syntax and stdlib
 - [Embedding](EMBEDDING.md) - using yas as a C library
-- [AOT compilation](AOT.md) - compiling a numeric subset to native C
 - [Architecture](ARCHITECTURE.md) - how the interpreter works internally

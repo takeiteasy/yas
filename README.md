@@ -1,9 +1,7 @@
 # yas
 
 **Y**as **A**in't **S**cheme, or **Y**et **A**nother **S**cheme, is a small
-embeddable Scheme-like interpreter geared towards game development. It also
-compiles a restricted numeric subset of itself to native C at compile time,
-via [cccc](https://github.com)'s comptime pass and reflection API.
+embeddable Scheme-like interpreter geared towards game development.
 
 ```sh
 make && make test    # build the interpreter, run the test suite
@@ -23,10 +21,9 @@ make && make test    # build the interpreter, run the test suite
 - [Architecture](docs/ARCHITECTURE.md) - value representation, evaluator,
   GC, module system
 - [GC](docs/GC.md) - the incremental tricolor collector and root API
-- [Building](docs/BUILDING.md) - build targets, FFI, AOT
+- [Building](docs/BUILDING.md) - build targets, FFI
 - [Benchmarking](docs/BENCHMARKING.md) - the `aux/` bench/stress/fuzz convention
 - [Embedding](docs/EMBEDDING.md) - the C API for host programs
-- [AOT compilation](docs/AOT.md) - lowering yas to C at compile time
 
 ## License
 

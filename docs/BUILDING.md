@@ -67,40 +67,11 @@ make YAS_FFI=1
 Links `libffi` (on macOS, auto-detected via `brew --prefix libffi`).
 Off by default.
 
-## AOT compilation
-
-See [AOT.md](AOT.md) for the design. Requires
-[cccc](https://github.com) on `$PATH`; override with `CCCC=/path/to/cccc`
-if it isn't.
-
-```sh
-make libyas               # shared lib: reader + plan compiler, dlopen'd by cccc
-make aot                   # builds aot/examples/fib.ys -> build/fib
-./build/fib                 # fib(30) = 832040
-make aot-gen                # dump the expanded C to build/fib.expanded.c
-make test-aot                # plan_test.c (plain C, no cccc) + build/fib's output
-make check                   # test + test-gc + test-aot (test-gc-stress is separate, slower)
-```
-
-To compile a different `.ys` file, override `AOT_OUT` too so the result
-doesn't land on `build/fib` (which `test-aot` always rebuilds and checks
-against the default `fib` example, regardless of these overrides):
-
-```sh
-make aot AOT_SRC=aot/examples/misc.ys AOT_MAIN=path/to/your_main.c AOT_OUT=misc
-```
-
-`AOT_MAIN` is a plain C file providing `main()`; whatever functions the
-`.ys` file defines are available to it under their mangled names (see
-[AOT.md](AOT.md#name-mangling)). Avoid a runtime `#include <stdio.h>` in
-it - see [AOT.md](AOT.md#cccc-issues-found-along-the-way), point 9.
-
 ## Directory layout
 
 ```
-src/            interpreter + AOT compiler sources
+src/            interpreter sources
 std/yas/*.ys    stdlib, embedded into src/stdlib.h at build time
-aot/            AOT pass: aot.c (cccc comptime side), examples/, tests/
 aux/            slow stress/benchmark/fuzz scripts - *_stress.ys (make
                 stress-test), bench_*.ys + bench/ (make bench), fuzz_*.ys
                 (reserved) - plus the C-level GC regression tests

@@ -324,7 +324,7 @@ static const NativeModule native_modules[] = {
 /* Public API for embedders: eagerly registers every native module up
  * front (rather than lazily, on first `import`). Not called internally -
  * yas's own import path populates library_registry lazily as libraries
- * are requested, so this branch never runs for the interpreter/AOT paths. */
+ * are requested, so this branch never runs for the interpreter path. */
 void yas_load_all_modules(void)
 {
 	if (yas_nilp(yas_library_registry)) yas_library_registry = yas_make_hash();

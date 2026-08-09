@@ -24,15 +24,13 @@ output (a bug, not a timing regression).
 make bench                                          # everything
 python3 aux/bench/bench.py                          # same, directly
 python3 aux/bench/bench.py --workload fib --runs 5  # one workload, best-of-5
-python3 aux/bench/bench.py --no-aot                 # skip the AOT row
 ```
 
 Each workload (`aux/bench/workloads/<name>/<name>.<ext>`) is implemented
 once per language with identical parameters and a stdout the driver
 (`bench.py`) knows in advance - a broken variant can't post a fake fast
-time by silently computing the wrong answer, the same idea as `make
-test-aot` checking `build/fib`'s exact output. A runtime that isn't
-installed (`ruby`, `lua`, `cccc`, ...) is reported `skipped` and does not
+time by silently computing the wrong answer. A runtime that isn't
+installed (`ruby`, `lua`, ...) is reported `skipped` and does not
 fail the run; only a *present* runtime producing the wrong output does.
 
 Seven workloads today:
@@ -88,23 +86,12 @@ rebuild between runs: `make clean && make OPT=<level> && make bench` -
 there's no opt-level sweep inside `bench.py` itself.
 
 **The yas numbers include `(yas base)`.** `main.c` imports `(yas base)`
-into every top-level environment unconditionally (interpreter and REPL,
-not the separate AOT front end - see `CLAUDE.md`), so even though the
-workload `.ys` files have no explicit `(import ...)`, `+ - * /` there are
-still `(yas base)`'s variadic closures over the C primitives, not the
-primitives directly. That's deliberate: ordinary `./yas` usage always has
-base loaded, so this is the representative number, not a raw-VM one.
-
-### AOT row (placeholder)
-
-The `fib (n=30, AOT)` row is a stopgap, not a finished comparison: the AOT
-pipeline only handles the subset of yas in `aot/examples/fib.ys`
-(`fib(30)`, no imports), and this repo's `make aot` is hardwired to that
-example. The row shells out to the existing `make aot` and times its
-output against a native-C `fib(30)` - a different input from the `fib`
-workload's `fib(24)` above, so the two are not comparable to each other,
-only "yas AOT" vs "native C" at n=30 is. A follow-up ticket tracks
-replacing this once the AOT pipeline covers more of the language.
+into every top-level environment unconditionally (see `CLAUDE.md`), so
+even though the workload `.ys` files have no explicit `(import ...)`,
+`+ - * /` there are still `(yas base)`'s variadic closures over the C
+primitives, not the primitives directly. That's deliberate: ordinary
+`./yas` usage always has base loaded, so this is the representative
+number, not a raw-VM one.
 
 ## Results
 
@@ -132,9 +119,6 @@ other interpreted languages; `alloc` and `fib` are the narrowest.
 | `closure` (n=40000) | 2.365s | 0.019s | 0.055s | 0.006s | 0.002s |
 | `array` (n=3000) | 3.585s | 0.013s | 0.060s | 0.004s | 0.002s |
 | `startup` | 0.004s | 0.011s | 0.052s | 0.003s | - |
-
-`fib (n=30, AOT)`: `yas-aot` 0.012s vs native `c` 0.005s - see the
-placeholder note above; not comparable to the `fib` row (different n).
 
 ## Self-timed scripts (`aux/bench_*.ys`)
 

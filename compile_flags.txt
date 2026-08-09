@@ -2,4 +2,3 @@
 -D_GNU_SOURCE
 -Wall
 -Isrc
--Iaot

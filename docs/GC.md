@@ -298,8 +298,8 @@ push/pop balance is always achievable.
 Slot-based, not value-copy: a root is the *address* of a `YasAtom`
 variable, not a snapshot of its value, so it keeps protecting whatever
 that variable currently holds even if the caller reassigns it. Use this
-whenever a native builtin, an embedder, or (in the future) AOT-generated
-code holds a `YasAtom` local across any call that might allocate.
+whenever a native builtin or an embedder holds a `YasAtom` local across
+any call that might allocate.
 
 ```c
 YasAtom slot = yas_make_string("...");

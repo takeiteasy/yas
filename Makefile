@@ -1,9 +1,4 @@
-# aot/plan.c is the AOT compiler proper (see aot/plan.h and docs/AOT.md) -
-# ordinary plain C, built into `yas`/libyas alongside everything in src/,
-# just kept out of src/ since it's conceptually part of the AOT pass, not
-# the interpreter. Not picked up by the src/*.c wildcard, so listed
-# explicitly.
-sources=$(wildcard src/*.c) aot/plan.c
+sources=$(wildcard src/*.c)
 
 # Default to an optimized build (-O2): the interpreter is ~2.2x faster
 # than at -O0 for no source change - see docs/BENCHMARKING.md. -g is kept
@@ -49,7 +44,7 @@ objects=$(sources:.c=.o)
 yas: $(objects)
 	$(CC) $(CFLAGS) -o $@ $^ $(LDFLAGS)
 
-$(objects): $(wildcard src/*.h) aot/plan.h
+$(objects): $(wildcard src/*.h)
 
 src/stdlib.h: embed.py $(wildcard std/yas/*.ys)
 	python3 embed.py $@ $(wildcard std/yas/*.ys)
@@ -57,9 +52,9 @@ src/stdlib.h: embed.py $(wildcard std/yas/*.ys)
 src/module.o: src/stdlib.h
 src/module.pic.o: src/stdlib.h
 
-# libyas: the AOT plan compiler (aot/plan.c) exposed as a shared library,
-# so cccc's comptime pass can dlopen it. Everything except main.c - a
-# library has no business with the REPL/CLI entry point.
+# libyas: the interpreter core (everything except main.c) exposed as a
+# shared library - used by the C-level GC tests (aux/gc_test.c) that need
+# the plain-C API but no REPL/CLI entry point.
 lib_sources=$(filter-out src/main.c,$(sources))
 lib_objects=$(lib_sources:.c=.pic.o)
 
@@ -72,9 +67,6 @@ LIBFLAGS=-shared
 endif
 
 src/%.pic.o: src/%.c
-	$(CC) $(CFLAGS) -fPIC -c -o $@ $<
-
-aot/%.pic.o: aot/%.c
 	$(CC) $(CFLAGS) -fPIC -c -o $@ $<
 
 $(libyas): $(lib_objects)
@@ -157,78 +149,8 @@ test-gc-stress: yas $(libyas)
 	@YAS_GC_STRESS=1 ./build/gc_test || exit 1
 	@echo "make test-gc-stress: PASSED"
 
-# ============================================================
-# AOT: lowers a .ys file to C at compile time via cccc's comptime pass +
-# reflection API. See docs/AOT.md for the design and aot/aot.c for the
-# implementation notes (several cccc quirks/bugs worked around there).
-#
-# Requires cccc (https://github.com) on $PATH; override with
-# `make aot CCCC=/path/to/cccc` if it isn't. cccc is run directly from
-# this repo's own root (ordinary relative paths below) -- it used to need
-# `cd` into cccc's own checkout because its bundled headers only resolved
-# relative to its own CWD, fixed upstream in cccc #891 (headers now
-# resolve from any CWD with no flags).
-# ============================================================
-CCCC ?= cccc
-
-AOT_SRC ?= aot/examples/fib.ys
-AOT_MAIN ?= aot/fib_main.c
-# Output basename under build/ - defaults to the fib example. Override
-# alongside AOT_SRC/AOT_MAIN when building a different .ys file, so it
-# doesn't collide with build/fib (which `test-aot` below always checks
-# against the *default* fib example, regardless of these overrides).
-AOT_OUT ?= fib
-
-# aot/fib_main.c and aot/aot.c are passed to cccc as two positional source
-# files, not concatenated or #include'd: cccc #890 fixed a comptime function
-# losing sight of file-scope statics declared alongside it across an
-# #include boundary, but -c=native has a separate, narrower gap (cccc #896)
-# where its temp-file re-emission chokes on a #include'd file that itself
-# uses #include @comptime syntax - passing both files as separate positional
-# arguments avoids that entirely, since cccc merges and preprocesses them
-# itself before any native serialization happens. $(AOT_MAIN) must come
-# first so its #include <stdio.h> is the one cccc captures and re-emits for
-# the native compiler. YAS_LIBYAS_PATH and YAS_AOT_SOURCE_PATH arrive via
-# `-D`, not a source #define: cccc's comptime pass deliberately doesn't
-# forward source-file #defines into comptime function bodies (see cccc's
-# docs/MACROS.md, "Pre-parse macro declaration context"), but a
-# command-line `-D` value is the documented exception, so it's the correct
-# escape hatch for a build-machine-specific path like this one.
-#
-# Relative, not absolute: aot_bind()'s dlopen() runs at cccc's own compile
-# time (it's [[cccc::comptime]]), with cccc's CWD being wherever `make aot`
-# invokes it from -- this repo's root, below -- so "./$(libyas)" resolves
-# correctly without needing an absolute path.
-.PHONY: aot
-aot: aot/aot.c $(AOT_SRC) $(AOT_MAIN) $(libyas)
-	@mkdir -p build
-	$(CCCC) -c=native -DYAS_LIBYAS_PATH='"./$(libyas)"' -DYAS_AOT_SOURCE_PATH='"$(AOT_SRC)"' -o build/$(AOT_OUT) $(AOT_MAIN) aot/aot.c
-
-.PHONY: aot-gen
-aot-gen: aot/aot.c $(AOT_SRC) $(AOT_MAIN) $(libyas)
-	@mkdir -p build
-	$(CCCC) -G -DYAS_LIBYAS_PATH='"./$(libyas)"' -DYAS_AOT_SOURCE_PATH='"$(AOT_SRC)"' -o build/$(AOT_OUT).expanded.c $(AOT_MAIN) aot/aot.c
-	@echo "generated C: build/$(AOT_OUT).expanded.c"
-
-.PHONY: test-aot
-# Pinned to the default fib example regardless of ambient AOT_SRC/AOT_MAIN/
-# AOT_OUT overrides in the environment - this is a fixed regression check,
-# not a generic "test whatever `make aot` was last pointed at" target.
-test-aot: libyas
-	$(MAKE) aot AOT_SRC=aot/examples/fib.ys AOT_MAIN=aot/fib_main.c AOT_OUT=fib
-	$(CC) -std=c99 -Wall -D_GNU_SOURCE -iquote src -iquote aot -o build/plan_test aot/tests/plan_test.c -L. -lyas -Wl,-rpath,.
-	./build/plan_test
-	@out=$$(./build/fib); \
-	rc=$$?; \
-	if [ "$$rc" != "0" ] || [ "$$out" != "fib(30) = 832040" ]; then \
-		echo "make test-aot: FAILED (build/fib exit $$rc, output '$$out', want exit 0 and 'fib(30) = 832040')"; \
-		exit 1; \
-	fi; \
-	echo "PASS $$out"; \
-	echo "make test-aot: PASSED"
-
 .PHONY: check
-check: test test-gc test-aot
+check: test test-gc
 
 .PHONY: clean
 clean:

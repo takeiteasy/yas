@@ -36,6 +36,7 @@ struct YasVector;
 struct YasHash;
 struct YasPort;
 struct YasBytevector;
+struct YasFrame;
 
 /* Platform detection */
 #if defined(__wasm__) && defined(__wasm_simd128__)
@@ -103,6 +104,7 @@ struct YasAtom {
 		YAS_ATOM_TYPE_VEC4,
 		YAS_ATOM_TYPE_MAT4,
 		YAS_ATOM_TYPE_ENV,  /* environment frame (see struct YasEnv below) */
+		YAS_ATOM_TYPE_FRAME,  /* eval.c control-stack frame (see struct YasFrame below) */
 #ifdef YAS_FFI
 		YAS_ATOM_TYPE_FFI_LIBRARY,   /* dlopen handle */
 		YAS_ATOM_TYPE_FFI_POINTER,   /* Raw C pointer */
@@ -127,6 +129,9 @@ struct YasAtom {
 		yas_vec4_t *vec;         /* Used for vec2, vec3, vec4 (SIMD aligned) */
 		yas_mat4_t *mat4;        /* 4x4 matrix */
 		struct YasEnv *env;      /* Environment frame */
+		struct YasFrame *frame;  /* eval.c control-stack frame; also used for
+		                          * YAS_ATOM_TYPE_CONTINUATION (a captured
+		                          * frame chain retagged - see struct YasFrame) */
 #ifdef YAS_FFI
 		void *ffi_library;           /* dlopen handle */
 		void *ffi_pointer;           /* raw C pointer */
@@ -158,10 +163,13 @@ typedef enum {
 	YAS_GC_OBJ_VEC,
 	YAS_GC_OBJ_MAT4,
 	YAS_GC_OBJ_ENV,
+	YAS_GC_OBJ_FRAME,
 #ifdef YAS_FFI
 	YAS_GC_OBJ_FFI_FUNCTION,
-	YAS_GC_OBJ_FFI_STRUCT
+	YAS_GC_OBJ_FFI_STRUCT,
 #endif
+	YAS_GC_OBJ_COUNT  /* sentinel - not a real type, sizes the pool arrays
+	                   * (data.c) in both YAS_FFI build configurations */
 } YasGCObjType;
 
 struct YasGCHeader {
@@ -220,6 +228,26 @@ struct YasEnv {
 	struct YasAtom *vals;
 	size_t count;
 	size_t capacity;
+};
+
+/* eval.c's explicit control-stack frame (see docs/ARCHITECTURE.md
+ * "Evaluator"): one per push, replacing the former 6-cons-cell linked list
+ * (ticket #40). `parent` chains to the frame below (NIL at the bottom of the
+ * stack), `tail`/`args`/`body` hold ordinary cons lists (or, for `args`, a
+ * bare symbol in the DEFINE/SET! case - see eval.c). Direct pointer, header
+ * first, same shape as YasEnv above - writes through eval.c's frame_set()
+ * helper go through yas_gc_write_barrier() (data.c), since they bypass
+ * yas_set_car/yas_set_cdr. YAS_ATOM_TYPE_CONTINUATION reuses this struct
+ * unchanged: a continuation *is* a captured frame chain, just retagged (see
+ * eval.c's CALL/CC capture/restore). */
+struct YasFrame {
+	struct YasGCHeader gc;
+	struct YasAtom parent;
+	struct YasAtom env;
+	struct YasAtom op;
+	struct YasAtom tail;
+	struct YasAtom args;
+	struct YasAtom body;
 };
 
 struct YasPort {
@@ -303,6 +331,7 @@ int yas_eval_expr(YasAtom expr, YasAtom env, YasAtom *result);
 /* DATA */
 
 YasAtom yas_cons(YasAtom car_val, YasAtom cdr_val);
+YasAtom yas_make_frame(YasAtom parent, YasAtom env, YasAtom tail);
 YasAtom yas_make_int(long x);
 YasAtom yas_make_float(double x);
 YasAtom yas_make_char(int32_t codepoint);

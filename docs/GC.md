@@ -7,8 +7,8 @@ root API.
 
 ## One header, one list
 
-Every heap-allocated object type (Pair, Vector, Hash, Env, String, Port,
-Bytevector, Vec2/3/4, Mat4, and - under `YAS_FFI` - `YasFFIFunction`/
+Every heap-allocated object type (Pair, Vector, Hash, Env, Frame, String,
+Port, Bytevector, Vec2/3/4, Mat4, and - under `YAS_FFI` - `YasFFIFunction`/
 `YasFFIStructInstance`) embeds a `struct YasGCHeader`:
 
 ```c
@@ -28,14 +28,18 @@ sweep loops (one per type). `gc_alloc()`/`gc_scan_object()`/
 **Header recovery differs by type**, because the `YasAtom` union doesn't
 always point at the allocation's start:
 
-- Vector, Hash, Env, Port, Bytevector, and the two FFI types: the atom's
-  pointer *is* the allocation's address, so `gc` is the struct's first
-  member and a plain cast recovers it.
-- Pair (and Closure/Macro/Continuation, which share the same underlying
-  allocation - see [ARCHITECTURE.md](ARCHITECTURE.md#value-representation)),
-  String, Vec2/3/4, and Mat4: the atom points *into* the allocation (at
-  the embedded `YasPair`, or at a trailing/embedded data field), so
-  recovery uses `offsetof` against a small wrapper struct (`Allocation`,
+- Vector, Hash, Env, Frame, Port, Bytevector, and the two FFI types: the
+  atom's pointer *is* the allocation's address, so `gc` is the struct's
+  first member and a plain cast recovers it. `Continuation` shares this
+  path: a captured continuation *is* a `struct YasFrame` allocation, just
+  retagged (see [ARCHITECTURE.md](ARCHITECTURE.md#callcc)), so it's
+  grouped with `Frame` in `atom_to_header()`'s switch, not with Pair.
+- Pair (and Closure/Macro, which share the same underlying `struct
+  Allocation` - see
+  [ARCHITECTURE.md](ARCHITECTURE.md#value-representation)), String,
+  Vec2/3/4, and Mat4: the atom points *into* the allocation (at the
+  embedded `YasPair`, or at a trailing/embedded data field), so recovery
+  uses `offsetof` against a small wrapper struct (`Allocation`,
   `YasStringAlloc`, `YasVecAlloc`, `YasMat4Alloc`), the same trick the
   original per-type `mark`/`next` headers already used.
 

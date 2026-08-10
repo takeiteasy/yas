@@ -79,10 +79,24 @@
                                (list 'missing key)))
     (check (h 'unknown) '(missing (unknown)))))
 
+;; Regression (ticket #40): call/cc invoked as the *entire* top-level form,
+;; with nothing pushed on the control stack below it, used to segfault -
+;; capture popped to an empty stack, storing a NULL frame pointer, and
+;; restore's `yas_nilp(*stack)` guard could never observe that (see
+;; eval.c's CALL/CC capture/restore and docs/ARCHITECTURE.md#callcc).
+;; This can only be exercised from a bare top-level form: wrapping it in
+;; `test`/`check` (which expand through `begin` into a lambda application)
+;; or in `define`/`if` pushes a frame *before* call/cc runs, so the
+;; captured stack is never actually empty from inside them.
+(define *callcc-empty-stack-result* nil)
+(call/cc (lambda (k) (set! *callcc-empty-stack-result* 'reached) (k 1)))
+
 (test "call/cc"
   (check (call/cc (lambda (k) (k 42))) 42)
   (check (+ 1 (call/cc (lambda (k) (+ 2 (k 3))))) 4)
-  
+
+  (check *callcc-empty-stack-result* 'reached)
+
   (let ((saved-k nil))
      (call/cc (lambda (k) (set! saved-k k)))
      (if saved-k
@@ -90,7 +104,38 @@
            (set! saved-k nil)
            (k 100))
          nil)
-     (check t t)) )
+     (check t t))
+
+  ;; Multi-shot: yas continuations are re-entrant, not one-shot (see
+  ;; docs/ARCHITECTURE.md#callcc) - invoking the same captured
+  ;; continuation a second time must not crash. Frames are mutable,
+  ;; shared structures, not persistent/immutable ones (struct YasFrame,
+  ;; yas.h, is mutated in place by frame_set() the same way the old
+  ;; cons-list frames were mutated in place by yas_list_set()) - so a
+  ;; resumed invocation observes whatever body position the *original*
+  ;; execution path has since advanced a shared ancestor frame to, not a
+  ;; snapshot of the state at capture time. That's a pre-existing
+  ;; property of this implementation (unrelated to ticket #40's frame
+  ;; representation change - the same sharing held for the old cons-list
+  ;; frames), which is why this test and the saved-k one above only
+  ;; check liveness, not a specific resumed return value.
+  (let ((k2 nil) (invocations 0))
+    (call/cc (lambda (k) (set! k2 k)))
+    (set! invocations (+ invocations 1))
+    (if (= invocations 1) (k2 'again) nil)
+    (check t t))
+
+  ;; A continuation captured inside a closure body, invoked once more
+  ;; after the closure has already returned normally - exercises a
+  ;; captured frame chain that outlives the call that created it (the
+  ;; pattern aux/gc_continuation_stress.ys exercises under GC pressure).
+  ;; Liveness/crash check only, for the same reason as above.
+  (define *escaped-k* nil)
+  (define (capture-inside-closure)
+    (+ 1 (call/cc (lambda (k) (set! *escaped-k* k) 0))))
+  (check (capture-inside-closure) 1)
+  (*escaped-k* 41)
+  (check t t))
 
 (test "Exceptions"
   (check (try

@@ -305,8 +305,7 @@ static struct YasGCHeader *atom_to_header(YasAtom a)
 	switch (a.type) {
 	case YAS_ATOM_TYPE_PAIR:
 	case YAS_ATOM_TYPE_CLOSURE:
-	case YAS_ATOM_TYPE_MACRO:
-	case YAS_ATOM_TYPE_CONTINUATION: {
+	case YAS_ATOM_TYPE_MACRO: {
 		if (!a.value.pair) return NULL;
 		struct Allocation *alloc = (struct Allocation *)
 			((char *)a.value.pair - offsetof(struct Allocation, pair));
@@ -318,6 +317,11 @@ static struct YasGCHeader *atom_to_header(YasAtom a)
 		return a.value.hash ? &a.value.hash->gc : NULL;
 	case YAS_ATOM_TYPE_ENV:
 		return a.value.env ? &a.value.env->gc : NULL;
+	/* A continuation is a captured control-stack frame chain, retagged - see
+	 * struct YasFrame (yas.h) and eval.c's CALL/CC capture/restore. */
+	case YAS_ATOM_TYPE_FRAME:
+	case YAS_ATOM_TYPE_CONTINUATION:
+		return a.value.frame ? &a.value.frame->gc : NULL;
 	case YAS_ATOM_TYPE_STRING: {
 		if (!a.value.string) return NULL;
 		struct YasStringAlloc *sa = (struct YasStringAlloc *)
@@ -535,6 +539,16 @@ static void gc_scan_object(struct YasGCHeader *obj)
 		}
 		break;
 	}
+	case YAS_GC_OBJ_FRAME: {
+		struct YasFrame *f = (struct YasFrame *)obj;
+		yas_gc_mark(f->parent);
+		yas_gc_mark(f->env);
+		yas_gc_mark(f->op);
+		yas_gc_mark(f->tail);
+		yas_gc_mark(f->args);
+		yas_gc_mark(f->body);
+		break;
+	}
 	case YAS_GC_OBJ_STRING:
 	case YAS_GC_OBJ_PORT:
 	case YAS_GC_OBJ_BYTEVECTOR:
@@ -545,6 +559,11 @@ static void gc_scan_object(struct YasGCHeader *obj)
 	case YAS_GC_OBJ_FFI_STRUCT:
 #endif
 		/* Leaves: no YasAtom children. */
+		break;
+	case YAS_GC_OBJ_COUNT:
+		/* Sentinel, not a real object type - never stored in obj_type.
+		 * Named explicitly (rather than a `default:`) so -Wswitch keeps
+		 * catching a genuinely unhandled type added above this line. */
 		break;
 	}
 	obj->color = YAS_GC_BLACK;
@@ -586,6 +605,10 @@ static void gc_free_object(struct YasGCHeader *obj, size_t *freed)
 		free(e->vals);
 		break;
 	}
+	case YAS_GC_OBJ_FRAME:
+		/* All six fields are YasAtoms, not owned pointers - nothing extra
+		 * to free (mirrors YAS_GC_OBJ_PAIR above). */
+		break;
 	case YAS_GC_OBJ_STRING:
 		/* Single allocation (header + trailing data) - nothing extra. */
 		break;
@@ -623,6 +646,10 @@ static void gc_free_object(struct YasGCHeader *obj, size_t *freed)
 		break;
 	}
 #endif
+	case YAS_GC_OBJ_COUNT:
+		/* Sentinel, not a real object type - never stored in obj_type.
+		 * See gc_scan_object()'s matching arm. */
+		break;
 	}
 	*freed += obj->backing_size;
 	free(obj);
@@ -789,6 +816,33 @@ YasAtom yas_cons(YasAtom car_val, YasAtom cdr_val)
 	yas_set_cdr(p, cdr_val);
 
 	return p;
+}
+
+/* eval.c's control-stack frame constructor (ticket #40) - one gc_alloc()
+ * instead of make_frame()'s former six yas_cons() calls. `op`/`args`/`body`
+ * start NIL: gc_alloc() calloc()s (or, once pooled, memset()s - see
+ * gc_alloc()) the backing storage, and YAS_ATOM_TYPE_NIL is 0, so a
+ * zero-initialized YasAtom is already a valid nil atom - no explicit init
+ * needed. No yas_gc_push_root() here: unlike yas_make_vector()/yas_env_create()
+ * this constructor never malloc()s an external buffer or otherwise calls
+ * anything that can itself trigger a gc_alloc() between this allocation and
+ * the barriered stores below, so `f` can't be swept out from under us. */
+YasAtom yas_make_frame(YasAtom parent, YasAtom env, YasAtom tail)
+{
+	struct YasFrame *f = gc_alloc(sizeof(struct YasFrame), YAS_GC_OBJ_FRAME);
+	YasAtom a;
+
+	a.type = YAS_ATOM_TYPE_FRAME;
+	a.value.frame = f;
+
+	f->parent = parent;
+	yas_gc_write_barrier(a, parent);
+	f->env = env;
+	yas_gc_write_barrier(a, env);
+	f->tail = tail;
+	yas_gc_write_barrier(a, tail);
+
+	return a;
 }
 
 YasAtom yas_make_int(long x)

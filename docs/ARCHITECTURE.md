@@ -104,8 +104,12 @@ the file, whichever entry point loaded it.
 ## Evaluator
 
 `yas_eval_expr()` (`eval.c`) pushes an `EvalRoot` and calls `eval_vm()`, a
-`do {} while` loop over an explicit heap-allocated stack of 6-element
-frames (`parent`, `env`, `op`, `pending-args`, `evaluated-args`, `body`).
+`do {} while` loop over an explicit heap-allocated stack of frames: each
+push is one `struct YasFrame` (`yas.h`) - a GC-scanned object with named
+fields (`parent`, `env`, `op`, `tail`/pending-args, `args`/evaluated-args,
+`body`), rather than a chain of cons cells. `eval.c`'s `frame_get()`/
+`frame_set()` are the only accessors; `frame_set()` always goes through
+`yas_gc_write_barrier()`, mirroring `struct YasEnv`'s contract below.
 
 **Special forms** are matched by `strcmp` on the operator symbol inside
 `eval_vm()` and are therefore unshadowable by any binding: `QUOTE`,
@@ -135,11 +139,25 @@ taken as a docstring.
 
 ### call/cc
 
-Continuations snapshot the evaluator's stack (a heap-allocated pair
-chain); invoking one just swaps the live stack pointer to the saved chain.
-Because the "stack" is an ordinary heap list rather than an actual call
-stack, continuations are **re-entrant, not one-shot** - unlike many Scheme
-implementations, a captured continuation can be invoked more than once.
+Continuations snapshot the evaluator's stack (a chain of `struct
+YasFrame`s, captured by reference - `YAS_ATOM_TYPE_CONTINUATION` reuses
+the frame's own GC object, just retagged); invoking one just swaps the
+live stack pointer to the saved chain. Because the "stack" is heap data
+rather than an actual call stack, continuations are **re-entrant, not
+one-shot** - unlike many Scheme implementations, a captured continuation
+can be invoked more than once.
+
+Frames are **mutable, shared structures**, not persistent/immutable ones:
+invoking a captured continuation resumes with whatever position an
+ancestor frame's `body`/`tail` fields currently hold, not a snapshot of
+their state at capture time - if the *original* (non-continuation)
+execution path has continued running past the capture point before the
+continuation is invoked, the resumed computation observes that later
+position instead. This is a property of the shared-frame representation
+(true of the pre-#40 cons-list frames too, which were mutated in place the
+same way), not something a caller can opt out of - see the "call/cc" test
+block in `suite.ys` for worked examples of what is and isn't safe to
+assert about a resumed continuation's return value.
 
 ### Metamethod dispatch
 
@@ -183,15 +201,18 @@ that holds `YasAtom`s across allocation points:
   unreachable could invalidate a still-live `YasFFIFunction` extracted
   from it (it doesn't hold a reference back to its library). Both stay
   explicitly managed via `ffi-close`/`ffi-free`.
-- `yas_gc_mark()` traces `YAS_ATOM_TYPE_CONTINUATION` the same way as
-  `YasPair`/`Closure`/`Macro` (it shares the same underlying
-  allocation), so a continuation reachable only through application
-  state is protected from collection like any other live value.
-  `aux/gc_continuation_stress.ys` regression-tests this: it captures a
-  continuation, lets its `call/cc` unwind normally so the continuation is
-  reachable only via a binding (not the live evaluator stack), forces
-  `(gc)` cycles, then invokes it from a later top-level form - on
-  unfixed code this segfaults.
+- `yas_gc_mark()` traces `YAS_ATOM_TYPE_CONTINUATION` the same way as a
+  control-stack frame (`YAS_GC_OBJ_FRAME` - it shares the same underlying
+  `struct YasFrame` allocation, just retagged), so a continuation
+  reachable only through application state is protected from collection
+  like any other live value. `aux/gc_continuation_stress.ys`
+  regression-tests this: it captures a continuation, lets its `call/cc`
+  unwind normally so the continuation is reachable only via a binding
+  (not the live evaluator stack), forces `(gc)` cycles, then invokes it
+  from a later top-level form - on unfixed code this segfaults. It also
+  churns many short-lived continuations across forced cycles, exercising
+  `gc_scan_object()`'s `YAS_GC_OBJ_FRAME` arm on many distinct frame
+  chains, not just the two long-lived ones.
 
 ## Module system
 

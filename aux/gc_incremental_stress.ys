@@ -1,13 +1,16 @@
 ;; Stress test for the incremental collector (src/data.c, docs/GC.md):
-;; allocation churn across many evaluator safe points (yas_gc_step() runs
-;; once per eval_vm loop iteration) while several bindings are held live
-;; throughout, asserting their contents survive every collection.
+;; allocation churn (gc_alloc() paces yas_gc_step() itself, in bounded
+;; slices, driven by a live-byte debt counter - see docs/GC.md's
+;; "Allocation-triggered stepping" - not a per eval_vm-iteration call)
+;; while several bindings are held live throughout, asserting their
+;; contents survive every collection.
 ;;
-;; This is the .ys-level counterpart to tests/gc_test.c's C-level write-
+;; This is the .ys-level counterpart to aux/gc_test.c's C-level write-
 ;; barrier/allocate-during-sweep cases - here the goal is broader
 ;; coverage of ordinary interpreted code (closures, strings, vectors,
 ;; hashes, lists) surviving many real incremental cycles under normal
-;; safe-point stepping, not controlling a specific phase transition.
+;; allocation-triggered stepping, not controlling a specific phase
+;; transition.
 ;;
 ;; Not part of `make test` / suite.ys - allocates enough to run several
 ;; full GC cycles, so it's slower than the regular suite. Run directly:

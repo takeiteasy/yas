@@ -1,12 +1,13 @@
-;; Stress/regression test for the AtomType_Continuation GC-tracing fix.
+;; Stress/regression test for the YAS_ATOM_TYPE_CONTINUATION GC-tracing fix.
 ;;
-;; gc_mark() (src/data.c) must trace a continuation's captured stack the
-;; same way it traces Pair/Closure/Macro - they share the same underlying
-;; `Allocation`. Before the fix, gc_mark() returned immediately for
-;; AtomType_Continuation without marking that Allocation, so a
-;; continuation reachable ONLY through a binding - not through the live
-;; evaluator stack at the moment gc() runs - had its backing pairs swept
-;; and use-after-freed on the next invocation.
+;; yas_gc_mark() (src/data.c) must trace a continuation's captured stack -
+;; a chain of struct YasFrame objects since ticket #40 (previously a chain
+;; of ordinary cons pairs) - the same way it traces the other GC-tracked
+;; frame-family types. Before the original fix, gc_mark() returned
+;; immediately for a continuation without marking its backing allocation,
+;; so a continuation reachable ONLY through a binding - not through the
+;; live evaluator stack at the moment gc() runs - had its frames swept and
+;; use-after-freed on the next invocation.
 ;;
 ;; The key detail: capturing a continuation and invoking it again from
 ;; *within the same call/cc dynamic extent* does not exercise the bug,
@@ -23,7 +24,7 @@
 ;; forces full GC cycles via the `(gc)` builtin (see docs/GC.md) between
 ;; captures. Run it directly: ./yas aux/gc_continuation_stress.ys
 
-(import (yas base) (yas test))
+(import (yas base) (yas math) (yas test))
 
 (define *k1* nil)
 (define (capture-and-return-normally)
@@ -37,7 +38,7 @@
   (gc) (gc)   ; force a couple of full cycles while *k1* is off the live stack
   ;; Invoking *k1* here must not crash or read freed memory. Multi-shot
   ;; re-entry from an unrelated later form doesn't flow control back to
-  ;; this call site (see docs/LANGUAGE_REFERENCE.md#call-cc) so this is a
+  ;; this call site (see docs/LANGUAGE_REFERENCE.md#callcc) so this is a
   ;; liveness/crash check, not a return-value check.
   (*k1* 999)
   (check t t))
@@ -51,5 +52,25 @@
   (gc) (gc)
   (*k2* 5)
   (check t t))
+
+;; Churn loop (ticket #40): capture, drop, and re-invoke a fresh
+;; continuation many times across forced GC cycles, so
+;; YAS_GC_OBJ_FRAME's gc_scan_object() arm (data.c) - which must mark
+;; every captured frame's parent/env/op/tail/args/body field - gets
+;; exercised on many distinct frame chains, not just the two fixed ones
+;; above. Each iteration's continuation is captured, invoked once
+;; (dropping it), and immediately becomes garbage; a missed mark in the
+;; frame scan arm would show up here as a crash or a wrong sum under
+;; YAS_GC_STRESS=1, since every iteration's frames become collectible
+;; almost immediately.
+(define (churn-continuations n)
+  (let ((total 0))
+    (dotimes (i n)
+      (set! total (+ total (call/cc (lambda (k) (k i)))))
+      (if (= (modulo i 10) 0) (gc) nil))
+    total))
+
+(test "capturing and dropping many continuations across forced GC cycles"
+  (check (churn-continuations 200) 19900))  ; sum 0..199
 
 (run-tests)

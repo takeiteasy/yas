@@ -355,6 +355,73 @@ static void test_env_chain_survives_gc(void)
 	yas_gc_pop_roots(1);
 }
 
+/* 11. Control-stack frames (struct YasFrame, yas.h - ticket #40) are a GC
+ * heap type - this is the C-level check that YAS_GC_OBJ_FRAME's
+ * gc_scan_object() arm (data.c) actually marks a frame's fields, mirroring
+ * test_env_chain_survives_gc() above. yas_make_frame() (data.c) is the
+ * only field-setting API this file has access to (frame_get()/frame_set()
+ * are eval.c-internal static inlines, not part of the public yas.h
+ * surface), so this exercises `parent`/`env`/`tail` - the three fields it
+ * threads through the write barrier - by chaining frames and storing a
+ * distinct heap string in each frame's `env` slot and a distinct heap
+ * cons in each frame's `tail` slot, then forcing several full collections
+ * and confirming every frame's data is still intact. Without a
+ * YAS_GC_OBJ_FRAME arm in gc_scan_object(), this drops data the moment a
+ * cycle runs while the chain is rooted only at its innermost frame - the
+ * exact shape a captured continuation produces (see
+ * aux/gc_continuation_stress.ys for the .ys-level equivalent). */
+static void test_frame_chain_survives_gc(void)
+{
+	const int depth = 200;
+
+	YasAtom frame = yas_make_frame(yas_nil, yas_nil, yas_nil);
+	yas_gc_push_root(&frame);
+
+	for (int d = 1; d < depth; d++) {
+		char name[32];
+		snprintf(name, sizeof(name), "FRAME-ENV-%d", d);
+		YasAtom env_marker = yas_make_string(name);
+		YasAtom tail_marker = yas_cons(yas_make_int(d), yas_nil);
+
+		frame = yas_make_frame(frame, env_marker, tail_marker);
+		/* Re-root: same discipline as test_env_chain_survives_gc() -
+		 * this loop's `frame` is the sole reference to the chain built
+		 * so far, and every ancestor is reachable by walking `parent`. */
+		yas_gc_pop_roots(1);
+		yas_gc_push_root(&frame);
+	}
+
+	churn(50000);
+	yas_gc();
+	yas_gc();
+	yas_gc();
+
+	int ok = 1;
+	YasAtom f = frame;
+	for (int d = depth - 1; d >= 1 && ok; d--) {
+		if (f.type != YAS_ATOM_TYPE_FRAME || !f.value.frame) { ok = 0; break; }
+		YasAtom env_marker = f.value.frame->env;
+		YasAtom tail_marker = f.value.frame->tail;
+		char expected[32];
+		snprintf(expected, sizeof(expected), "FRAME-ENV-%d", d);
+		if (env_marker.type != YAS_ATOM_TYPE_STRING
+		    || strcmp(env_marker.value.string, expected) != 0)
+			ok = 0;
+		if (tail_marker.type != YAS_ATOM_TYPE_PAIR
+		    || yas_car(tail_marker).type != YAS_ATOM_TYPE_INTEGER
+		    || yas_car(tail_marker).value.integer != d)
+			ok = 0;
+		f = f.value.frame->parent;
+	}
+	/* Walked all the way back to the root frame (its own parent is nil). */
+	if (ok && (f.type != YAS_ATOM_TYPE_FRAME || !f.value.frame
+	           || !yas_nilp(f.value.frame->parent)))
+		ok = 0;
+	CHECK(ok);
+
+	yas_gc_pop_roots(1);
+}
+
 int main(void)
 {
 	test_root_protection();
@@ -367,6 +434,7 @@ int main(void)
 	test_pacing_keeps_up_with_allocation();
 	test_allocation_during_active_cycle_terminates();
 	test_env_chain_survives_gc();
+	test_frame_chain_survives_gc();
 
 	if (failures) {
 		fprintf(stderr, "gc_test: %d FAILURE(S)\n", failures);

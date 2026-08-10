@@ -236,28 +236,74 @@ static int make_closure(YasAtom env, YasAtom args, YasAtom body, YasAtom *result
 
 static YasAtom make_frame(YasAtom parent, YasAtom env, YasAtom tail)
 {
-	return yas_cons(parent,
-		yas_cons(env,
-		yas_cons(yas_nil, /* op */
-		yas_cons(tail,
-		yas_cons(yas_nil, /* args */
-		yas_cons(yas_nil, /* body */
-		yas_nil))))));
+	return yas_make_frame(parent, env, tail);
+}
+
+/* Control-frame field access (ticket #40 - see struct YasFrame, yas.h).
+ * Named slots replace make_frame()'s former cons-list indices 0-5, so the
+ * diff at every call site below is a mechanical rename:
+ * yas_list_get(*stack, k) -> frame_get(*stack, FRAME_*),
+ * yas_list_set(*stack, k, v) -> frame_set(*stack, FRAME_*, v). Slot 0
+ * (parent) is only ever popped via yas_car(*stack) in the old code, never
+ * read through yas_list_get, so it gets no FRAME_PARENT get-site rename -
+ * only the pop sites change, to frame_get(*stack, FRAME_PARENT).
+ *
+ * frame_set() always goes through yas_gc_write_barrier() - a direct field
+ * store (`f.value.frame->op = v;`) would silently bypass it, since only
+ * yas_set_car/yas_set_cdr and the *_write_barrier() calls implement that
+ * contract (see yas.h's comment on yas_set_car/yas_set_cdr and
+ * docs/GC.md's "Write barrier"). Both functions take a compile-time
+ * constant `slot` at every call site, so the switch folds to a direct
+ * field access once inlined - no runtime dispatch cost. */
+enum {
+	FRAME_PARENT = 0,
+	FRAME_ENV    = 1,
+	FRAME_OP     = 2,
+	FRAME_TAIL   = 3,
+	FRAME_ARGS   = 4,
+	FRAME_BODY   = 5
+};
+
+static inline YasAtom frame_get(YasAtom f, int slot)
+{
+	struct YasFrame *fr = f.value.frame;
+	switch (slot) {
+	case FRAME_PARENT: return fr->parent;
+	case FRAME_ENV:    return fr->env;
+	case FRAME_OP:     return fr->op;
+	case FRAME_TAIL:   return fr->tail;
+	case FRAME_ARGS:   return fr->args;
+	default:           return fr->body;
+	}
+}
+
+static inline void frame_set(YasAtom f, int slot, YasAtom v)
+{
+	struct YasFrame *fr = f.value.frame;
+	switch (slot) {
+	case FRAME_PARENT: fr->parent = v; break;
+	case FRAME_ENV:    fr->env    = v; break;
+	case FRAME_OP:     fr->op     = v; break;
+	case FRAME_TAIL:   fr->tail   = v; break;
+	case FRAME_ARGS:   fr->args   = v; break;
+	default:           fr->body   = v; break;
+	}
+	yas_gc_write_barrier(f, v);
 }
 
 int eval_do_exec(YasAtom *stack, YasAtom *expr, YasAtom *env)
 {
 	YasAtom body;
 
-	*env = yas_list_get(*stack, 1);
-	body = yas_list_get(*stack, 5);
+	*env = frame_get(*stack, FRAME_ENV);
+	body = frame_get(*stack, FRAME_BODY);
 	*expr = yas_car(body);
 	body = yas_cdr(body);
 	if (yas_nilp(body)) {
 		/* Finished function; pop the stack */
-		*stack = yas_car(*stack);
+		*stack = frame_get(*stack, FRAME_PARENT);
 	} else {
-		yas_list_set(*stack, 5, body);
+		frame_set(*stack, FRAME_BODY, body);
 	}
 
 	return YAS_ERROR_OK;
@@ -267,19 +313,19 @@ int eval_do_bind(YasAtom *stack, YasAtom *expr, YasAtom *env)
 {
 	YasAtom op, args, arg_names, body;
 
-	body = yas_list_get(*stack, 5);
+	body = frame_get(*stack, FRAME_BODY);
 	if (!yas_nilp(body))
 		return eval_do_exec(stack, expr, env);
 
-	op = yas_list_get(*stack, 2);
-	args = yas_list_get(*stack, 4);
+	op = frame_get(*stack, FRAME_OP);
+	args = frame_get(*stack, FRAME_ARGS);
 
 	*env = yas_env_create(yas_car(op));
 	arg_names = yas_car(yas_cdr(op));
 	/* Structure: (env (args docstring . body)) - skip docstring */
 	body = yas_cdr(yas_cdr(yas_cdr(op)));
-	yas_list_set(*stack, 1, *env);
-	yas_list_set(*stack, 5, body);
+	frame_set(*stack, FRAME_ENV, *env);
+	frame_set(*stack, FRAME_BODY, body);
 
 	/* Bind the arguments
 	 * Supports:
@@ -394,7 +440,7 @@ int eval_do_bind(YasAtom *stack, YasAtom *expr, YasAtom *env)
 		if (!yas_nilp(args)) args = yas_cdr(args); /* Skip value too */
 	}
 
-	yas_list_set(*stack, 4, yas_nil);
+	frame_set(*stack, FRAME_ARGS, yas_nil);
 
 	return eval_do_exec(stack, expr, env);
 }
@@ -403,26 +449,26 @@ int eval_do_apply(YasAtom *stack, YasAtom *expr, YasAtom *env, YasAtom *result)
 {
 	YasAtom op, args;
 
-	op = yas_list_get(*stack, 2);
-	args = yas_list_get(*stack, 4);
+	op = frame_get(*stack, FRAME_OP);
+	args = frame_get(*stack, FRAME_ARGS);
 
 	if (!yas_nilp(args)) {
 		yas_list_reverse(&args);
-		yas_list_set(*stack, 4, args);
+		frame_set(*stack, FRAME_ARGS, args);
 	}
 
 	if (op.type == YAS_ATOM_TYPE_SYMBOL) {
 		if (strcmp(op.value.symbol, "APPLY") == 0) {
 			/* Replace the current frame */
-			*stack = yas_car(*stack);
+			*stack = frame_get(*stack, FRAME_PARENT);
 			*stack = make_frame(*stack, *env, yas_nil);
 			op = yas_car(args);
 			args = yas_car(yas_cdr(args));
 			if (!yas_listp(args))
 				return YAS_ERROR_SYNTAX;
 
-			yas_list_set(*stack, 2, op);
-			yas_list_set(*stack, 4, args);
+			frame_set(*stack, FRAME_OP, op);
+			frame_set(*stack, FRAME_ARGS, args);
 		}
 	}
 
@@ -458,11 +504,11 @@ int eval_do_apply(YasAtom *stack, YasAtom *expr, YasAtom *env, YasAtom *result)
 					/* Redirect to metamethod: (metamethod self other) */
 					YasAtom mm_fn = yas_get_metamethod(hash_arg, mm_name);
 					args = yas_list_create(2, hash_arg, other_arg);
-					yas_list_set(*stack, 2, mm_fn);
-					yas_list_set(*stack, 4, args);
-					
+					frame_set(*stack, FRAME_OP, mm_fn);
+					frame_set(*stack, FRAME_ARGS, args);
+
 					if (mm_fn.type == YAS_ATOM_TYPE_BUILTIN) {
-						*stack = yas_car(*stack);
+						*stack = frame_get(*stack, FRAME_PARENT);
 						*expr = yas_cons(mm_fn, args);
 						return YAS_ERROR_OK;
 					} else if (mm_fn.type == YAS_ATOM_TYPE_CLOSURE) {
@@ -484,20 +530,20 @@ int eval_do_apply(YasAtom *stack, YasAtom *expr, YasAtom *env, YasAtom *result)
 				if (yas_nilp(existing)) {
 					YasAtom mm_fn = yas_get_metamethod(hash, "get");
 					args = yas_list_create(2, hash, key);
-					yas_list_set(*stack, 2, mm_fn);
-					yas_list_set(*stack, 4, args);
-					
+					frame_set(*stack, FRAME_OP, mm_fn);
+					frame_set(*stack, FRAME_ARGS, args);
+
 					if (mm_fn.type == YAS_ATOM_TYPE_CLOSURE) {
 						return eval_do_bind(stack, expr, env);
 					} else if (mm_fn.type == YAS_ATOM_TYPE_BUILTIN) {
-						*stack = yas_car(*stack);
+						*stack = frame_get(*stack, FRAME_PARENT);
 						*expr = yas_cons(mm_fn, args);
 						return YAS_ERROR_OK;
 					}
 				}
 			}
 		}
-		
+
 		if (op.value.builtin == yas_builtin_hash_set && !yas_nilp(args)) {
 			YasAtom hash = yas_car(args);
 			if (hash.type == YAS_ATOM_TYPE_HASH && yas_has_metamethod(hash, "set")) {
@@ -505,32 +551,47 @@ int eval_do_apply(YasAtom *stack, YasAtom *expr, YasAtom *env, YasAtom *result)
 				YasAtom val = !yas_nilp(yas_cdr(yas_cdr(args))) ? yas_car(yas_cdr(yas_cdr(args))) : yas_nil;
 				YasAtom mm_fn = yas_get_metamethod(hash, "set");
 				args = yas_list_create(3, hash, key, val);
-				yas_list_set(*stack, 2, mm_fn);
-				yas_list_set(*stack, 4, args);
-				
+				frame_set(*stack, FRAME_OP, mm_fn);
+				frame_set(*stack, FRAME_ARGS, args);
+
 				if (mm_fn.type == YAS_ATOM_TYPE_CLOSURE) {
 					return eval_do_bind(stack, expr, env);
 				} else if (mm_fn.type == YAS_ATOM_TYPE_BUILTIN) {
-					*stack = yas_car(*stack);
+					*stack = frame_get(*stack, FRAME_PARENT);
 					*expr = yas_cons(mm_fn, args);
 					return YAS_ERROR_OK;
 				}
 			}
 		}
-		
-		*stack = yas_car(*stack);
+
+		*stack = frame_get(*stack, FRAME_PARENT);
 		*expr = yas_cons(op, args);
 		return YAS_ERROR_OK;
 	} else if (op.type == YAS_ATOM_TYPE_CONTINUATION) {
 		/* Invoke continuation: replace stack, return value */
 		if (yas_nilp(args) || !yas_nilp(yas_cdr(args)))
 			return YAS_ERROR_ARGS;
-		
-		/* Restore the captured stack */
-		stack->type = YAS_ATOM_TYPE_PAIR;
-		stack->value.pair = op.value.pair;
+
+		/* Restore the captured stack. A captured continuation's frame
+		 * pointer is NULL when call/cc was invoked with nothing left on
+		 * the stack below it (e.g. `(call/cc (lambda (k) (k 1)))` as a
+		 * whole top-level form) - representable now that FRAME_PARENT is a
+		 * real pointer instead of a cons cell that's always non-NULL even
+		 * at nil. Restoring to an explicit yas_nil in that case (instead
+		 * of a FRAME-tagged atom wrapping NULL) is what makes the
+		 * yas_nilp(*stack) check below actually fire - on the old
+		 * pair-tagged representation it could not, since
+		 * stack->type = YAS_ATOM_TYPE_PAIR unconditionally made yas_nilp()
+		 * false even when value.pair was NULL, and eval_do_return() below
+		 * would then dereference that NULL. */
+		if (!op.value.frame) {
+			*stack = yas_nil;
+		} else {
+			stack->type = YAS_ATOM_TYPE_FRAME;
+			stack->value.frame = op.value.frame;
+		}
 		*result = yas_car(args);
-		
+
 		if (yas_nilp(*stack))
 			return YAS_ERROR_OK;  /* Will exit main loop */
 		return eval_do_return(stack, expr, env, result);
@@ -538,12 +599,12 @@ int eval_do_apply(YasAtom *stack, YasAtom *expr, YasAtom *env, YasAtom *result)
 		/* Hash has ~call metamethod - invoke it with (self . args) */
 		YasAtom call_fn = yas_get_metamethod(op, "call");
 		args = yas_cons(op, args);  /* Prepend hash as first arg (self) */
-		yas_list_set(*stack, 2, call_fn);
-		yas_list_set(*stack, 4, args);
-		
+		frame_set(*stack, FRAME_OP, call_fn);
+		frame_set(*stack, FRAME_ARGS, args);
+
 		/* Handle based on metamethod type */
 		if (call_fn.type == YAS_ATOM_TYPE_BUILTIN) {
-			*stack = yas_car(*stack);
+			*stack = frame_get(*stack, FRAME_PARENT);
 			*expr = yas_cons(call_fn, args);
 			return YAS_ERROR_OK;
 		} else if (call_fn.type == YAS_ATOM_TYPE_CLOSURE) {
@@ -553,16 +614,16 @@ int eval_do_apply(YasAtom *stack, YasAtom *expr, YasAtom *env, YasAtom *result)
 		}
 	} else if (op.type == YAS_ATOM_TYPE_HASH && yas_has_metamethod(op, "missing")) {
 		/* Hash has ~missing metamethod - for Ruby-style method dispatch */
-		/* args = (method-name arg1 arg2 ...) 
-		   Call: (~missing self args)  
+		/* args = (method-name arg1 arg2 ...)
+		   Call: (~missing self args)
 		   which is (~missing self (method-name arg1 arg2 ...)) */
 		YasAtom missing_fn = yas_get_metamethod(op, "missing");
 		YasAtom new_args = yas_list_create(2, op, args);
-		yas_list_set(*stack, 2, missing_fn);
-		yas_list_set(*stack, 4, new_args);
-		
+		frame_set(*stack, FRAME_OP, missing_fn);
+		frame_set(*stack, FRAME_ARGS, new_args);
+
 		if (missing_fn.type == YAS_ATOM_TYPE_BUILTIN) {
-			*stack = yas_car(*stack);
+			*stack = frame_get(*stack, FRAME_PARENT);
 			*expr = yas_cons(missing_fn, new_args);
 			return YAS_ERROR_OK;
 		} else if (missing_fn.type == YAS_ATOM_TYPE_CLOSURE) {
@@ -581,9 +642,9 @@ int eval_do_return(YasAtom *stack, YasAtom *expr, YasAtom *env, YasAtom *result)
 {
 	YasAtom op, args, body;
 
-	*env = yas_list_get(*stack, 1);
-	op = yas_list_get(*stack, 2);
-	body = yas_list_get(*stack, 5);
+	*env = frame_get(*stack, FRAME_ENV);
+	op = frame_get(*stack, FRAME_OP);
+	body = frame_get(*stack, FRAME_BODY);
 
 	if (!yas_nilp(body)) {
 		/* Still running a procedure; ignore the result */
@@ -593,41 +654,41 @@ int eval_do_return(YasAtom *stack, YasAtom *expr, YasAtom *env, YasAtom *result)
 	if (yas_nilp(op)) {
 		/* Finished evaluating operator */
 		op = *result;
-		yas_list_set(*stack, 2, op);
+		frame_set(*stack, FRAME_OP, op);
 
 		if (op.type == YAS_ATOM_TYPE_MACRO) {
 			/* Don't evaluate macro arguments */
-			args = yas_list_get(*stack, 3);
+			args = frame_get(*stack, FRAME_TAIL);
 			*stack = make_frame(*stack, *env, yas_nil);
 			op.type = YAS_ATOM_TYPE_CLOSURE;
-			yas_list_set(*stack, 2, op);
-			yas_list_set(*stack, 4, args);
+			frame_set(*stack, FRAME_OP, op);
+			frame_set(*stack, FRAME_ARGS, args);
 			return eval_do_bind(stack, expr, env);
 		}
 	} else if (op.type == YAS_ATOM_TYPE_SYMBOL) {
 		/* Finished working on special form */
 		if (strcmp(op.value.symbol, "DEFINE") == 0) {
-			YasAtom sym = yas_list_get(*stack, 4);
+			YasAtom sym = frame_get(*stack, FRAME_ARGS);
 			(void) yas_env_define(*env, sym, *result);
-			*stack = yas_car(*stack);
+			*stack = frame_get(*stack, FRAME_PARENT);
 			*expr = yas_cons(yas_make_sym("QUOTE"), yas_cons(sym, yas_nil));
 			return YAS_ERROR_OK;
 		} else if (strcmp(op.value.symbol, "SET!") == 0) {
-			YasAtom sym = yas_list_get(*stack, 4);
-			*stack = yas_car(*stack);
+			YasAtom sym = frame_get(*stack, FRAME_ARGS);
+			*stack = frame_get(*stack, FRAME_PARENT);
 			*expr = yas_cons(yas_make_sym("QUOTE"), yas_cons(sym, yas_nil));
 			return yas_env_set(*env, sym, *result);
 		} else if (strcmp(op.value.symbol, "IF") == 0) {
-			args = yas_list_get(*stack, 3);
+			args = frame_get(*stack, FRAME_TAIL);
 			*expr = yas_nilp(*result) ? yas_car(yas_cdr(args)) : yas_car(args);
-			*stack = yas_car(*stack);
+			*stack = frame_get(*stack, FRAME_PARENT);
 			return YAS_ERROR_OK;
 		} else if (strcmp(op.value.symbol, "MACROEXPAND-1") == 0) {
 			/* result contains the evaluated form */
 			YasAtom form = *result;
-			YasAtom original_env = yas_list_get(*stack, 1);
-			*stack = yas_car(*stack);
-			
+			YasAtom original_env = frame_get(*stack, FRAME_ENV);
+			*stack = frame_get(*stack, FRAME_PARENT);
+
 			/* If form is (sym ...) where sym is bound to a macro, expand */
 			if (form.type == YAS_ATOM_TYPE_PAIR && yas_car(form).type == YAS_ATOM_TYPE_SYMBOL) {
 				YasAtom macro_op;
@@ -636,8 +697,8 @@ int eval_do_return(YasAtom *stack, YasAtom *expr, YasAtom *env, YasAtom *result)
 					/* Apply macro: bind args, eval body */
 					*stack = make_frame(*stack, original_env, yas_nil);
 					macro_op.type = YAS_ATOM_TYPE_CLOSURE;
-					yas_list_set(*stack, 2, macro_op);
-					yas_list_set(*stack, 4, yas_cdr(form));
+					frame_set(*stack, FRAME_OP, macro_op);
+					frame_set(*stack, FRAME_ARGS, yas_cdr(form));
 					return eval_do_bind(stack, expr, env);
 				}
 			}
@@ -648,16 +709,20 @@ int eval_do_return(YasAtom *stack, YasAtom *expr, YasAtom *env, YasAtom *result)
 			/* result is the function to call with continuation */
 			YasAtom fn = *result;
 			YasAtom cont;
-			
-			/* Pop CALL/CC frame and capture remaining stack as continuation */
-			*stack = yas_car(*stack);
+
+			/* Pop CALL/CC frame and capture remaining stack as
+			 * continuation. cont.value.frame aliases *stack's frame
+			 * pointer directly - NULL when nothing is left on the stack
+			 * (see the CONTINUATION-apply case in eval_do_apply() for
+			 * how that's handled on invoke). */
+			*stack = frame_get(*stack, FRAME_PARENT);
 			cont.type = YAS_ATOM_TYPE_CONTINUATION;
-			cont.value.pair = (*stack).value.pair;
-			
+			cont.value.frame = (*stack).value.frame;
+
 			/* Apply fn to the continuation */
 			*stack = make_frame(*stack, *env, yas_nil);
-			yas_list_set(*stack, 2, fn);
-			yas_list_set(*stack, 4, yas_cons(cont, yas_nil));
+			frame_set(*stack, FRAME_OP, fn);
+			frame_set(*stack, FRAME_ARGS, yas_cons(cont, yas_nil));
 			return eval_do_bind(stack, expr, env);
 		} else {
 			goto store_arg;
@@ -665,16 +730,16 @@ int eval_do_return(YasAtom *stack, YasAtom *expr, YasAtom *env, YasAtom *result)
 	} else if (op.type == YAS_ATOM_TYPE_MACRO) {
 		/* Finished evaluating macro */
 		*expr = *result;
-		*stack = yas_car(*stack);
+		*stack = frame_get(*stack, FRAME_PARENT);
 		return YAS_ERROR_OK;
 	} else {
 	store_arg:
 		/* Store evaluated argument */
-		args = yas_list_get(*stack, 4);
-		yas_list_set(*stack, 4, yas_cons(*result, args));
+		args = frame_get(*stack, FRAME_ARGS);
+		frame_set(*stack, FRAME_ARGS, yas_cons(*result, args));
 	}
 
-	args = yas_list_get(*stack, 3);
+	args = frame_get(*stack, FRAME_TAIL);
 	if (yas_nilp(args)) {
 		/* No more arguments left to evaluate */
 		return eval_do_apply(stack, expr, env, result);
@@ -682,7 +747,7 @@ int eval_do_return(YasAtom *stack, YasAtom *expr, YasAtom *env, YasAtom *result)
 
 	/* Evaluate next argument */
 	*expr = yas_car(args);
-	yas_list_set(*stack, 3, yas_cdr(args));
+	frame_set(*stack, FRAME_TAIL, yas_cdr(args));
 	return YAS_ERROR_OK;
 }
 
@@ -778,8 +843,8 @@ static int eval_vm(YasAtom expr, YasAtom env, YasAtom *result, struct EvalRoot *
 						if (!yas_nilp(yas_cdr(yas_cdr(args))))
 							return YAS_ERROR_ARGS;
 						stack = make_frame(stack, env, yas_nil);
-						yas_list_set(stack, 2, op);
-						yas_list_set(stack, 4, sym);
+						frame_set(stack, FRAME_OP, op);
+						frame_set(stack, FRAME_ARGS, sym);
 						expr = yas_car(yas_cdr(args));
 						continue;
 					} else {
@@ -796,7 +861,7 @@ static int eval_vm(YasAtom expr, YasAtom env, YasAtom *result, struct EvalRoot *
 						return YAS_ERROR_ARGS;
 
 					stack = make_frame(stack, env, yas_cdr(args));
-					yas_list_set(stack, 2, op);
+					frame_set(stack, FRAME_OP, op);
 					expr = yas_car(args);
 					continue;
 				} else if (strcmp(op.value.symbol, "TRY") == 0) {
@@ -975,7 +1040,7 @@ static int eval_vm(YasAtom expr, YasAtom env, YasAtom *result, struct EvalRoot *
 						return YAS_ERROR_ARGS;
 
 					stack = make_frame(stack, env, yas_cdr(args));
-					yas_list_set(stack, 2, op);
+					frame_set(stack, FRAME_OP, op);
 					expr = yas_car(args);
 					continue;
 				} else if (strcmp(op.value.symbol, "SET!") == 0) {
@@ -984,8 +1049,8 @@ static int eval_vm(YasAtom expr, YasAtom env, YasAtom *result, struct EvalRoot *
 					if (yas_car(args).type != YAS_ATOM_TYPE_SYMBOL)
 						return YAS_ERROR_TYPE;
 					stack = make_frame(stack, env, yas_nil);
-					yas_list_set(stack, 2, op);
-					yas_list_set(stack, 4, yas_car(args));
+					frame_set(stack, FRAME_OP, op);
+					frame_set(stack, FRAME_ARGS, yas_car(args));
 					expr = yas_car(yas_cdr(args));
 					continue;
 				} else if (strcmp(op.value.symbol, "MACROEXPAND-1") == 0) {
@@ -993,7 +1058,7 @@ static int eval_vm(YasAtom expr, YasAtom env, YasAtom *result, struct EvalRoot *
 						return YAS_ERROR_ARGS;
 					/* Evaluate the argument to get the form */
 					stack = make_frame(stack, env, yas_nil);
-					yas_list_set(stack, 2, op);
+					frame_set(stack, FRAME_OP, op);
 					expr = yas_car(args);
 					continue;
 				} else if (strcmp(op.value.symbol, "CALL/CC") == 0) {
@@ -1001,7 +1066,7 @@ static int eval_vm(YasAtom expr, YasAtom env, YasAtom *result, struct EvalRoot *
 						return YAS_ERROR_ARGS;
 					/* Evaluate the function argument */
 					stack = make_frame(stack, env, yas_nil);
-					yas_list_set(stack, 2, op);
+					frame_set(stack, FRAME_OP, op);
 					expr = yas_car(args);
 					continue;
 				} else if (strcmp(op.value.symbol, "INCLUDE") == 0 ||

@@ -1,19 +1,21 @@
 ;; Dedicated audit target for allocation-triggered GC stepping (docs/GC.md,
-;; "Allocation-triggered stepping"). Run with YAS_GC_STRESS=1 (every single
-;; allocation runs a full yas_gc() instead of the normal debt-paced step) so
-;; that any C-level builtin holding an unrooted local across a further
-;; allocation turns into a deterministic crash instead of a one-in-a-million
-;; race - ideally under ASan too, so the report names the exact function:
+;; "Allocation-triggered stepping"). Run with YAS_GC_STRESS=1 (shrinks the
+;; cycle-start threshold and step quantum to 1 byte, so a collection cycle
+;; starts and advances via the ordinary debt-paced gc_pace() path on
+;; essentially every allocation, instead of only once ~256KB has
+;; accumulated) so that any C-level builtin holding an unrooted local
+;; across a further allocation turns into a deterministic crash instead of
+;; a one-in-a-million race - ideally under ASan too, so the report names
+;; the exact function:
 ;;
 ;;   YAS_GC_STRESS=1 make yas YAS_ASAN=1 && YAS_GC_STRESS=1 ./yas aux/gc_alloc_stress.ys
 ;;
 ;; (or just `make test-gc-stress YAS_ASAN=1`, which drives this file).
 ;;
-;; Deliberately small: YAS_GC_STRESS=1 makes every allocation pay for a full
-;; yas_gc_start() O(heap) colour-clear, so this is O(n^2) in the amount of
-;; work below - suite.ys-sized input is not feasible at n=1. This file is
-;; the n=1 counterpart; suite.ys itself is exercised separately at a much
-;; larger n (see `test-gc-stress` in the Makefile).
+;; Deliberately small: this file is exercised at n=1 broad-but-shallow
+;; coverage; suite.ys itself is exercised separately at a much larger n
+;; (see `test-gc-stress` in the Makefile) - keeping suite.ys's normal-sized
+;; input out of the 1-byte-threshold path this file is dedicated to.
 ;;
 ;; Deliberately broad: touches as many allocating builtins as practical in a
 ;; small amount of code - list/string/hash/vector/bytevector construction,

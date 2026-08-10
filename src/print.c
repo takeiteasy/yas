@@ -48,6 +48,9 @@ void yas_print_expr(YasAtom atom)
 	case YAS_ATOM_TYPE_ENV:
 		printf("#<ENVIRONMENT:%p>", (void *)atom.value.env);
 		break;
+	case YAS_ATOM_TYPE_FRAME:
+		printf("#<FRAME:%p>", (void *)atom.value.frame);
+		break;
 	case YAS_ATOM_TYPE_FLOAT:
 		printf("%g", atom.value.floatval);
 		break;
@@ -251,6 +254,7 @@ static size_t sprint_expr_len(YasAtom atom)
 	case YAS_ATOM_TYPE_MACRO:
 	case YAS_ATOM_TYPE_CONTINUATION:
 	case YAS_ATOM_TYPE_ENV:
+	case YAS_ATOM_TYPE_FRAME:
 		return 20;  /* estimate for #<...> forms */
 	case YAS_ATOM_TYPE_PORT:
 		return 40;
@@ -351,6 +355,10 @@ static size_t sprint_expr_to(YasAtom atom, char *buf, size_t pos)
 		return pos + n;
 	case YAS_ATOM_TYPE_ENV:
 		n = snprintf(tmp, sizeof(tmp), "#<ENVIRONMENT>");
+		memcpy(buf + pos, tmp, n);
+		return pos + n;
+	case YAS_ATOM_TYPE_FRAME:
+		n = snprintf(tmp, sizeof(tmp), "#<FRAME>");
 		memcpy(buf + pos, tmp, n);
 		return pos + n;
 	case YAS_ATOM_TYPE_PORT:

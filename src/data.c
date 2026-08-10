@@ -357,6 +357,78 @@ static struct YasGCHeader *atom_to_header(YasAtom a)
 	}
 }
 
+/* ── Free-list pool (ticket #44) ─────────────────────────────────────
+ * gc_alloc() calls calloc()/gc_free_object() calls free() per object -
+ * general-purpose malloc bookkeeping/locking overhead that's wasted on
+ * fixed-size, high-frequency allocations like cons cells and frames. A
+ * size-class free list, bucketed by obj_type (most types have a single
+ * fixed sizeof), removes most of that per-call cost: gc_sweep_step()
+ * pushes a freed WHITE object's header back onto its bucket instead of
+ * free()ing it, and gc_alloc() pops from the bucket before falling back
+ * to calloc(). Exact-size reuse means no rounding and no change to
+ * backing_size accounting - a recycled block is the same size it always
+ * was.
+ *
+ * Excluded: STRING (struct YasStringAlloc has a trailing flexible array
+ * member, so its allocation size varies with string length - a pooled
+ * block sized for one string is generally wrong for the next) and the
+ * two FFI types (rare enough not to be worth a bucket).
+ *
+ * YAS_NO_GC_POOL (set by `make YAS_ASAN=1` - see the Makefile) disables
+ * this file-wide: a pooled block is freed and reused without ever
+ * calling free() on the same address twice from ASan's point of view,
+ * which suppresses genuine use-after-free detection on every recycled
+ * object - exactly the audit this build exists to run. */
+#ifndef YAS_NO_GC_POOL
+#define YAS_GC_POOL_CAP 1024              /* per-bucket cap; sweep bare free()s past it */
+#define YAS_GC_POOL_TRIM_HIGH_WATER 128   /* only trim a bucket comfortably above normal churn */
+#define YAS_GC_POOL_TRIM_MAX YAS_GC_STEP_LIMIT /* bound trim work to one step's worth, per cycle end */
+
+static struct YasGCHeader *gc_pool[YAS_GC_OBJ_COUNT];
+static int gc_pool_count[YAS_GC_OBJ_COUNT];
+
+static int gc_obj_type_poolable(YasGCObjType type)
+{
+	switch (type) {
+	case YAS_GC_OBJ_PAIR:
+	case YAS_GC_OBJ_VECTOR:
+	case YAS_GC_OBJ_HASH:
+	case YAS_GC_OBJ_PORT:
+	case YAS_GC_OBJ_BYTEVECTOR:
+	case YAS_GC_OBJ_VEC:
+	case YAS_GC_OBJ_MAT4:
+	case YAS_GC_OBJ_ENV:
+	case YAS_GC_OBJ_FRAME:
+		return 1;
+	default:
+		return 0;  /* STRING (variable size), the FFI types, COUNT */
+	}
+}
+
+/* Cycle-end trim: the cap alone bounds a single allocation burst, but an
+ * allocate-then-stop workload would otherwise hold every pooled block
+ * forever. Bounded to YAS_GC_POOL_TRIM_MAX frees total so this can't turn
+ * a step-limited sweep into a free() storm - gc_sweep_step()'s cycle-end
+ * branch that calls this runs on essentially every allocation under
+ * YAS_GC_STRESS=1's shrunk threshold. Only ever bare free()s a block:
+ * gc_free_object() already released its external buffers (v->data,
+ * h->keys, ...) before pushing it onto the pool, so calling
+ * gc_free_object() again here would double-free them. */
+static void gc_pool_trim(void)
+{
+	int budget = YAS_GC_POOL_TRIM_MAX;
+	for (int t = 0; t < YAS_GC_OBJ_COUNT && budget > 0; t++) {
+		while (gc_pool_count[t] > YAS_GC_POOL_TRIM_HIGH_WATER && budget > 0) {
+			struct YasGCHeader *obj = gc_pool[t];
+			gc_pool[t] = obj->next;
+			gc_pool_count[t]--;
+			free(obj);
+			budget--;
+		}
+	}
+}
+#endif
+
 /* ── Allocation ───────────────────────────────────────────────────── */
 
 static void *gc_alloc(size_t size, YasGCObjType type)
@@ -377,9 +449,29 @@ static void *gc_alloc(size_t size, YasGCObjType type)
 	 * target, not a bug in this function. */
 	gc_pace(size);
 
-	struct YasGCHeader *obj = calloc(1, size);
-	if (!obj)
-		return NULL;
+	struct YasGCHeader *obj = NULL;
+#ifndef YAS_NO_GC_POOL
+	/* Pop a recycled block before calloc()ing a fresh one. gc_pace()
+	 * above already ran, so a reused block counts toward the debt
+	 * counter the same as a fresh allocation would - it's the same
+	 * live-byte pressure either way. memset() first, before any header
+	 * field below is written, since the tempting reordering (init header,
+	 * then memset the payload) would zero the header this function is
+	 * about to populate; recycling loses calloc()'s zero-init, and
+	 * several constructors rely on their fields starting NIL/0 (see
+	 * yas_make_frame()'s comment on this same point). */
+	if (gc_obj_type_poolable(type) && gc_pool[type]) {
+		obj = gc_pool[type];
+		gc_pool[type] = obj->next;
+		gc_pool_count[type]--;
+		memset(obj, 0, size);
+	}
+#endif
+	if (!obj) {
+		obj = calloc(1, size);
+		if (!obj)
+			return NULL;
+	}
 	obj->obj_type = (unsigned char)type;
 	/* New objects during an active cycle are BLACK so a caller who
 	 * hasn't rooted them yet doesn't lose them to the current sweep -
@@ -590,6 +682,7 @@ static void gc_free_object(struct YasGCHeader *obj, size_t *freed)
 	case YAS_GC_OBJ_VECTOR: {
 		struct YasVector *v = (struct YasVector *)obj;
 		free(v->data);
+		v->data = NULL;  /* pool invariant: no dangling buffer pointer while pooled */
 		break;
 	}
 	case YAS_GC_OBJ_HASH: {
@@ -597,12 +690,17 @@ static void gc_free_object(struct YasGCHeader *obj, size_t *freed)
 		free(h->keys);
 		free(h->values);
 		free(h->index);
+		h->keys = NULL;
+		h->values = NULL;
+		h->index = NULL;
 		break;
 	}
 	case YAS_GC_OBJ_ENV: {
 		struct YasEnv *e = (struct YasEnv *)obj;
 		free(e->syms);
 		free(e->vals);
+		e->syms = NULL;
+		e->vals = NULL;
 		break;
 	}
 	case YAS_GC_OBJ_FRAME:
@@ -621,11 +719,13 @@ static void gc_free_object(struct YasGCHeader *obj, size_t *freed)
 			yas_port_close(tmp);
 		}
 		free(p->path);
+		p->path = NULL;
 		break;
 	}
 	case YAS_GC_OBJ_BYTEVECTOR: {
 		struct YasBytevector *bv = (struct YasBytevector *)obj;
 		free(bv->data);
+		bv->data = NULL;
 		break;
 	}
 	case YAS_GC_OBJ_VEC:
@@ -652,6 +752,15 @@ static void gc_free_object(struct YasGCHeader *obj, size_t *freed)
 		break;
 	}
 	*freed += obj->backing_size;
+#ifndef YAS_NO_GC_POOL
+	if (gc_obj_type_poolable((YasGCObjType)obj->obj_type)
+	    && gc_pool_count[obj->obj_type] < YAS_GC_POOL_CAP) {
+		obj->next = gc_pool[obj->obj_type];
+		gc_pool[obj->obj_type] = obj;
+		gc_pool_count[obj->obj_type]++;
+		return;
+	}
+#endif
 	free(obj);
 }
 
@@ -710,6 +819,12 @@ static void gc_sweep_step(int limit)
 			gc_threshold = gc_min_threshold_get();
 #ifndef NDEBUG
 		gc_check_idle_invariant();
+#endif
+#ifndef YAS_NO_GC_POOL
+		/* Drain surplus pooled blocks now that a cycle has actually
+		 * finished, not on every step - see gc_pool_trim()'s comment for
+		 * why this is bounded rather than a full drain. */
+		gc_pool_trim();
 #endif
 	}
 }

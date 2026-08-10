@@ -172,11 +172,16 @@ bypasses this.**
 ## GC
 
 Unified incremental tricolor mark-sweep - one `struct YasGCHeader`
-(color/next/type) embedded in every heap type, one intrusive list, one
-generic mark/sweep, instead of ten near-identical per-type copies.
-`gc_alloc()` paces steps itself in bounded slices, driven by a live-byte
-debt counter rather than a cons counter - allocation is what advances the
-collector, not `eval_vm()`'s loop. `gc_mark_roots()` walks `eval_roots`,
+(color/next/type) embedded in every heap type (Pair, Vector, Hash, Env,
+Frame, String, Port, Bytevector, Vec2/3/4, Mat4, and - under `YAS_FFI` -
+the two FFI types), one intrusive list, one generic mark/sweep, instead
+of ten near-identical per-type copies. `gc_alloc()` paces steps itself in
+bounded slices, driven by a live-byte debt counter rather than a cons
+counter - allocation is what advances the collector, not `eval_vm()`'s
+loop; a size-class free list bucketed by object type (`gc_alloc()`/
+`gc_sweep_step()`) recycles most fixed-size objects' backing memory
+instead of round-tripping through `calloc()`/`free()` per object (see
+[GC.md](GC.md#free-list-pool)). `gc_mark_roots()` walks `eval_roots`,
 `yas_ctx_exception`, `yas_library_registry`, `yas_global_search_paths`,
 `yas_global_features`, and the root-registration shadow stack below. The
 symbol/keyword intern tables (`data.c`) are plain `malloc`, not

@@ -422,6 +422,34 @@ static void test_frame_chain_survives_gc(void)
 	yas_gc_pop_roots(1);
 }
 
+/* 12. Pool allocator (ticket #44): recycling a swept object through the
+ * free list must not inflate the live-byte counter gc_alloc()/
+ * gc_free_object() maintain (gc_allocated, exposed via
+ * yas_gc_allocated()) - a pooled block is unlinked from gc_all and
+ * untracked exactly like a genuinely free()d one; it's just not returned
+ * to the OS immediately (see gc_pool_trim()'s comment, data.c, for when
+ * it eventually is). Churns many throwaway conses - which populate and
+ * then drain through the PAIR bucket every cycle - across several full
+ * collections and confirms the live-byte count returns to its pre-churn
+ * baseline every time, not just the first (a growing baseline would mean
+ * something in the pooling path is leaking or double-counting). Built
+ * under a plain (non-YAS_ASAN) `make test-gc` - a YAS_ASAN=1 build
+ * defines YAS_NO_GC_POOL and takes the calloc()/free() path instead (see
+ * the Makefile), where this same invariant holds for the ordinary
+ * reason: nothing here is a pool-specific assertion beyond "the pool
+ * doesn't change gc_allocated's meaning". */
+static void test_pool_does_not_inflate_live_bytes(void)
+{
+	yas_gc();
+	size_t baseline = yas_gc_allocated();
+
+	for (int cycle = 0; cycle < 5; cycle++) {
+		churn(20000);
+		yas_gc();
+		CHECK(yas_gc_allocated() == baseline);
+	}
+}
+
 int main(void)
 {
 	test_root_protection();
@@ -435,6 +463,7 @@ int main(void)
 	test_allocation_during_active_cycle_terminates();
 	test_env_chain_survives_gc();
 	test_frame_chain_survives_gc();
+	test_pool_does_not_inflate_live_bytes();
 
 	if (failures) {
 		fprintf(stderr, "gc_test: %d FAILURE(S)\n", failures);

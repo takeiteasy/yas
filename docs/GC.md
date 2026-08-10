@@ -180,6 +180,71 @@ introduced.
 any call depth - true before this change and still true now, just no
 longer the only way a collection can start mid-builtin.
 
+### Free-list pool
+
+`gc_alloc()` calling `calloc()` and `gc_free_object()` calling `free()`
+per object pays general-purpose malloc bookkeeping/locking overhead on
+every allocation - wasted cost on fixed-size, high-frequency objects like
+cons cells and control-stack frames (ticket #44). `data.c` adds a
+size-class free list bucketed by `obj_type` (`gc_pool`/`gc_pool_count`,
+one bucket per `YasGCObjType`):
+
+- `gc_sweep_step()` pushes a swept WHITE object's header onto its
+  bucket instead of calling `free()` on it directly, once
+  `gc_free_object()` has released any external buffers the object owns
+  (`v->data`, `h->keys`/`values`/`index`, `e->syms`/`vals`, ...) - those
+  pointer fields are explicitly nulled at that point too, so nothing
+  sitting in the pool holds a dangling buffer pointer.
+- `gc_alloc()` pops from the bucket before falling back to `calloc()`. A
+  popped block is `memset()` to zero *before* any of `gc_alloc()`'s own
+  header fields are written into it - reusing a block loses `calloc()`'s
+  zero-init, and several constructors rely on their fields starting
+  NIL/0 (`YAS_ATOM_TYPE_NIL` is 0, so a zeroed `YasAtom` is already a
+  valid nil atom - see `yas_make_frame()`'s comment). `gc_pace()` still
+  runs before the pop either way: a recycled block is exactly as much
+  live-byte pressure as a fresh `calloc()` would have been.
+
+**Bucketed by `obj_type`, not a general size class**: `Pair`, `Vector`,
+`Hash`, `Env`, `Frame`, `Port`, `Bytevector`, `Vec`, and `Mat4` each have
+a single fixed `sizeof`, so a bucket's blocks are always exactly the
+right size - no rounding, and no change to `backing_size`/`gc_allocated`
+accounting (a recycled block is the same size it always was). `String`
+is excluded: `struct YasStringAlloc`'s trailing flexible array member
+means its allocation size varies with string length, so a block sized
+for one string is generally wrong for the next. The two `YAS_FFI` types
+are excluded too - rare enough not to be worth a bucket.
+
+**Memory isn't held forever**: each bucket is capped
+(`YAS_GC_POOL_CAP`, 1024 blocks) - `gc_free_object()` falls back to a
+bare `free()` once a bucket is full, bounding a single allocation burst.
+Separately, at the end of every sweep (`gc_sweep_step()`'s cycle-end
+branch, when `gc_phase` returns to `YAS_GC_IDLE`), `gc_pool_trim()` frees
+blocks from any bucket sitting comfortably above ordinary per-cycle churn
+(`YAS_GC_POOL_TRIM_HIGH_WATER`), so an allocate-then-stop workload drains
+its pooled memory back to the OS instead of holding the cap's residue
+forever. That trim is itself bounded to `YAS_GC_POOL_TRIM_MAX`
+(`YAS_GC_STEP_LIMIT`'s worth) frees per cycle end, so it can't turn a
+step-limited sweep into a `free()` storm - `YAS_GC_STRESS=1` shrinks the
+cycle-start threshold to where this branch runs on essentially every
+allocation, and an unbounded trim there would be exactly the kind of
+per-allocation O(heap) cost the design in "Allocation-triggered stepping"
+above exists to avoid. Trim only ever bare `free()`s a block, never calls
+`gc_free_object()` again - that function already released the block's
+external buffers before it was pooled, so a second call would
+double-free them.
+
+**`YAS_NO_GC_POOL`** disables the pool file-wide at compile time (the
+whole thing is wrapped in `#ifndef YAS_NO_GC_POOL`, falling straight
+through to the original `calloc()`/`free()` path). `make YAS_ASAN=1`
+(Makefile) defines it automatically: a pooled block is freed and reused
+without ever calling `free()` on the same address twice from ASan's point
+of view, which would suppress genuine use-after-free detection on every
+recycled object - exactly what `make test-gc-stress YAS_ASAN=1` exists to
+catch (see "Testing" below). No other GC semantics change: pooled blocks
+are unlinked from `gc_all` and untracked the moment they're pooled, the
+same as a genuinely freed object, so tricolor marking, the write barrier,
+and root registration are all unaffected.
+
 ## Survivor colors and the allocate-during-sweep hazard
 
 An early version of this collector reset each surviving (non-WHITE)
@@ -436,7 +501,14 @@ explicitly managed via `ffi-close`/`ffi-free`.
   collections, checking every binding at every depth resolves correctly
   afterward - the C-level check that `YAS_GC_OBJ_ENV`'s `gc_scan_object()`
   arm and the write barrier on env writes (see "Write barrier" above)
-  actually hold.
+  actually hold. The same shape repeats for `YAS_GC_OBJ_FRAME` (a 200-deep
+  `yas_make_frame()` chain, each frame's `env`/`tail` fields holding a
+  distinct heap string/cons, surviving several full collections) and,
+  separately, a free-list pool check (ticket #44): several thousand
+  throwaway conses churned across repeated full collections, confirming
+  `yas_gc_allocated()` returns to the same pre-churn baseline every time -
+  a pooled block must not inflate the live-byte counter, only change
+  where its backing bytes come from.
 - `suite.ys` ("GC rooting across nested eval") - Lisp-level: a `TRY`
   whose `FINALLY` clause calls `(gc)`, checking the try-block's result
   survives; a `CATCH` whose first body form recurses deeply enough to
@@ -472,7 +544,12 @@ explicitly managed via `ffi-close`/`ffi-free`.
   (not `bench_*.ys` - see docs/BENCHMARKING.md's naming convention: a
   1-byte step quantum would make a timing script's numbers meaningless);
   add `YAS_ASAN=1` so a surviving bug reports a stack trace naming the
-  exact function.
+  exact function. `YAS_ASAN=1` also defines `YAS_NO_GC_POOL` (Makefile),
+  routing every allocation through plain `calloc()`/`free()` instead of
+  the free-list pool ("Free-list pool" above) - the pool's whole point is
+  reusing an address ASan would otherwise still be watching, which is
+  exactly the kind of bug this build exists to catch, so bypassing it
+  entirely under ASan is not a gap in coverage.
 
   Two other designs were tried first and rejected - worth knowing if
   revisiting this: running a *full* `yas_gc()` to completion on every

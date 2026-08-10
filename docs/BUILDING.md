@@ -58,6 +58,15 @@ is needed. See [GC.md](GC.md#testing) for what this is auditing and why
 it's built this way (a cheaper, unsound "run a full collection every
 allocation" design was tried and rejected first).
 
+`make YAS_ASAN=1` also defines `YAS_NO_GC_POOL`, which disables the
+free-list pool `gc_alloc()`/`gc_sweep_step()` recycle fixed-size objects
+through (cons cells, environments, control-stack frames, ...; see
+[GC.md](GC.md#free-list-pool)) - a pooled block reuses an address without
+ever calling `free()` on it, which would suppress the use-after-free
+detection `YAS_ASAN=1` exists to provide. `YAS_NO_GC_POOL=1` can be set
+standalone too, without `YAS_ASAN`, to isolate whether a bug is
+pool-related.
+
 ### FFI support
 
 ```sh

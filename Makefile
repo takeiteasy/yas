@@ -34,8 +34,12 @@ endif
 # Optional AddressSanitizer build: make YAS_ASAN=1. Paired with
 # YAS_GC_STRESS (see data.c) as the audit tool for allocation-triggered
 # GC stepping - see docs/GC.md "Testing" and `test-gc-stress` below.
+# Also disables the GC free-list pool (YAS_NO_GC_POOL, data.c) - a pooled
+# block is freed and reused without ever calling free() on the same
+# address twice from ASan's point of view, which would suppress the very
+# use-after-free detection this build exists to run.
 ifdef YAS_ASAN
-CFLAGS += -fsanitize=address -fno-omit-frame-pointer
+CFLAGS += -fsanitize=address -fno-omit-frame-pointer -DYAS_NO_GC_POOL
 LDFLAGS += -fsanitize=address
 endif
 

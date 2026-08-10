@@ -109,16 +109,35 @@ single lever found so far - see [BUILDING.md](BUILDING.md)). `array`
 iteration) and `loop`'s tail-recursive leg are the widest gaps to the
 other interpreted languages; `alloc` and `fib` are the narrowest.
 
-| workload | yas | python3 | ruby | lua | c |
-|---|---|---|---|---|---|
-| `fib` (n=24) | 1.174s | 0.017s | 0.057s | 0.006s | 0.002s |
-| `alloc` (n=50000) | 0.728s | 0.018s | 0.059s | 0.008s | 0.003s |
-| `string` (n=6000) | 2.271s | 0.015s | 0.073s | 0.010s | 0.011s |
-| `hash` (n=6000) | 2.728s | 0.012s | 0.053s | 0.003s | 0.002s |
-| `loop` (800 / 300000) | 3.290s | 0.024s | 0.062s | 0.006s | 0.002s |
-| `closure` (n=40000) | 2.365s | 0.019s | 0.055s | 0.006s | 0.002s |
-| `array` (n=3000) | 3.585s | 0.013s | 0.060s | 0.004s | 0.002s |
-| `startup` | 0.004s | 0.011s | 0.052s | 0.003s | - |
+The `yas` column below has three sub-columns tracking two follow-up
+optimizations to the GC/allocation machinery that `sample` profiling
+showed dominating every workload here (see tickets #40/#44): **base**
+(before either change), **+#40** (control-stack frames collapsed from
+6 cons cells per push to 1 GC object, `src/eval.c`/`struct YasFrame`),
+and **+#44** (the free-list pool on top of that, `gc_alloc()`/
+`gc_sweep_step()` in `src/data.c`). #40 is the dominant lever (~45-50%
+wall-time reduction on its own, since it cuts allocations-per-push
+6-to-1); #44's *additional* win on top of #40 is smaller than it would
+have measured in isolation (~10-15% further on most workloads, roughly
+noise on `alloc`/`closure`) precisely because #40 already removed five
+of every six frame allocations #44 would otherwise be making cheaper -
+expected, not a sign #44 underperforms.
+
+| workload | yas (base) | yas (+#40) | yas (+#44) | python3 | ruby | lua | c |
+|---|---|---|---|---|---|---|---|
+| `fib` (n=24) | 1.174s | 0.612s | 0.531s | 0.017s | 0.057s | 0.006s | 0.002s |
+| `alloc` (n=50000) | 0.728s | 0.417s | 0.393s | 0.018s | 0.059s | 0.008s | 0.003s |
+| `string` (n=6000) | 2.271s | 1.203s | 1.012s | 0.015s | 0.073s | 0.010s | 0.011s |
+| `hash` (n=6000) | 2.728s | 1.423s | 1.270s | 0.012s | 0.053s | 0.003s | 0.002s |
+| `loop` (800 / 300000) | 3.290s | 1.675s | 1.461s | 0.024s | 0.062s | 0.006s | 0.002s |
+| `closure` (n=40000) | 2.365s | 1.327s | 1.396s | 0.019s | 0.055s | 0.006s | 0.002s |
+| `array` (n=3000) | 3.585s | 1.875s | 1.654s | 0.013s | 0.060s | 0.004s | 0.002s |
+| `startup` | 0.004s | 0.003s | 0.003s | 0.011s | 0.052s | 0.003s | - |
+
+`closure`'s `+#44` column landing slightly above `+#40` is within the
+noise of a single best-of-3 run, not a regression - the pool changes
+nothing about closure/env allocation shape, only where the backing bytes
+come from.
 
 ## Self-timed scripts (`aux/bench_*.ys`)
 

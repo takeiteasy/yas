@@ -437,7 +437,18 @@ static void test_frame_chain_survives_gc(void)
  * defines YAS_NO_GC_POOL and takes the calloc()/free() path instead (see
  * the Makefile), where this same invariant holds for the ordinary
  * reason: nothing here is a pool-specific assertion beyond "the pool
- * doesn't change gc_allocated's meaning". */
+ * doesn't change gc_allocated's meaning".
+ *
+ * Asserts `<=`, not `==`: yas_gc_allocated() is a process-global counter,
+ * and this test runs after several others that allocate. Exact equality
+ * only happens to hold today because churn()'s conses are the only thing
+ * this test adds, and every one of them is fully collectible - nothing
+ * it allocates interns a symbol/keyword (a separate, non-GC-managed
+ * table) or grows an external buffer that outlives the loop. A later
+ * change to churn() that added either would make `==` flake without the
+ * pool being at fault; `<=` still catches the actual regression this
+ * test exists for (the baseline growing cycle over cycle) without
+ * depending on that precondition. */
 static void test_pool_does_not_inflate_live_bytes(void)
 {
 	yas_gc();
@@ -446,7 +457,7 @@ static void test_pool_does_not_inflate_live_bytes(void)
 	for (int cycle = 0; cycle < 5; cycle++) {
 		churn(20000);
 		yas_gc();
-		CHECK(yas_gc_allocated() == baseline);
+		CHECK(yas_gc_allocated() <= baseline);
 	}
 }
 

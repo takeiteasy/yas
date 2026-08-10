@@ -218,15 +218,25 @@ are excluded too - rare enough not to be worth a bucket.
 (`YAS_GC_POOL_CAP`, 1024 blocks) - `gc_free_object()` falls back to a
 bare `free()` once a bucket is full, bounding a single allocation burst.
 Separately, at the end of every sweep (`gc_sweep_step()`'s cycle-end
-branch, when `gc_phase` returns to `YAS_GC_IDLE`), `gc_pool_trim()` frees
-blocks from any bucket sitting comfortably above ordinary per-cycle churn
-(`YAS_GC_POOL_TRIM_HIGH_WATER`), so an allocate-then-stop workload drains
-its pooled memory back to the OS instead of holding the cap's residue
-forever. That trim is itself bounded to `YAS_GC_POOL_TRIM_MAX`
-(`YAS_GC_STEP_LIMIT`'s worth) frees per cycle end, so it can't turn a
-step-limited sweep into a `free()` storm - `YAS_GC_STRESS=1` shrinks the
-cycle-start threshold to where this branch runs on essentially every
-allocation, and an unbounded trim there would be exactly the kind of
+branch, when `gc_phase` returns to `YAS_GC_IDLE`), `gc_pool_trim()`
+drains buckets. A bucket is a LIFO stack (`gc_free_object()` pushes the
+head, `gc_alloc()` pops the head), so simply capping every trim at
+`YAS_GC_POOL_TRIM_HIGH_WATER` would only ever remove the *newest*
+arrivals and settle at exactly that many blocks forever, never touching
+the older ones sitting at the tail - not actually draining anything.
+`gc_pool_puts_since_trim[]` (per bucket, incremented on every push,
+zeroed at the end of each trim) tells `gc_pool_trim()` whether a type has
+gone idle since the last trim: a bucket with zero puts is drained
+completely; a bucket still under active churn is left capped at
+`YAS_GC_POOL_TRIM_HIGH_WATER`, since freeing it now would just be
+immediately reallocated. That's what makes an allocate-then-stop workload
+actually give its pooled memory back to the OS, rather than holding a
+fixed residue indefinitely. The trim is itself bounded to
+`YAS_GC_POOL_TRIM_MAX` (`YAS_GC_STEP_LIMIT`'s worth) frees per cycle end,
+so it can't turn a step-limited sweep into a `free()` storm -
+`YAS_GC_STRESS=1` shrinks the cycle-start threshold to where this branch
+runs on essentially every allocation, and an unbounded trim there would
+be exactly the kind of
 per-allocation O(heap) cost the design in "Allocation-triggered stepping"
 above exists to avoid. Trim only ever bare `free()`s a block, never calls
 `gc_free_object()` again - that function already released the block's

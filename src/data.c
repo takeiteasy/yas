@@ -386,6 +386,10 @@ static struct YasGCHeader *atom_to_header(YasAtom a)
 
 static struct YasGCHeader *gc_pool[YAS_GC_OBJ_COUNT];
 static int gc_pool_count[YAS_GC_OBJ_COUNT];
+/* Blocks pushed onto each bucket since the last gc_pool_trim() call - see
+ * gc_pool_trim()'s comment for how this drives actual draining instead of
+ * just capping at the high-water mark. */
+static int gc_pool_puts_since_trim[YAS_GC_OBJ_COUNT];
 
 static int gc_obj_type_poolable(YasGCObjType type)
 {
@@ -405,26 +409,42 @@ static int gc_obj_type_poolable(YasGCObjType type)
 	}
 }
 
-/* Cycle-end trim: the cap alone bounds a single allocation burst, but an
- * allocate-then-stop workload would otherwise hold every pooled block
- * forever. Bounded to YAS_GC_POOL_TRIM_MAX frees total so this can't turn
- * a step-limited sweep into a free() storm - gc_sweep_step()'s cycle-end
- * branch that calls this runs on essentially every allocation under
- * YAS_GC_STRESS=1's shrunk threshold. Only ever bare free()s a block:
- * gc_free_object() already released its external buffers (v->data,
- * h->keys, ...) before pushing it onto the pool, so calling
- * gc_free_object() again here would double-free them. */
+/* Cycle-end trim: the cap alone only bounds a single allocation burst, not
+ * long-term idle memory - a bucket that merely stays *capped* at the
+ * high-water mark forever (rather than draining) would not actually solve
+ * the allocate-then-stop case the ticket asks for, since gc_pool_count[]
+ * is a LIFO stack (gc_free_object() pushes the head, gc_alloc() pops the
+ * head) and repeatedly trimming from that same head only ever removes the
+ * *newest* arrivals, never touching the oldest ones sitting at the tail -
+ * a bucket above the high-water mark would settle at exactly
+ * YAS_GC_POOL_TRIM_HIGH_WATER blocks and stay there indefinitely,
+ * draining nothing further.
+ *
+ * gc_pool_puts_since_trim[] fixes that: a bucket that received zero pushes
+ * since the *previous* trim call means nothing of that type has been
+ * freed since - i.e. that type has gone idle - so this drains it
+ * completely instead of only capping it. A bucket still under active
+ * churn (puts > 0) is left at the cap, since freeing it now would just be
+ * immediately reallocated. Bounded to YAS_GC_POOL_TRIM_MAX frees total so
+ * this can't turn a step-limited sweep into a free() storm -
+ * gc_sweep_step()'s cycle-end branch that calls this runs on essentially
+ * every allocation under YAS_GC_STRESS=1's shrunk threshold. Only ever
+ * bare free()s a block: gc_free_object() already released its external
+ * buffers (v->data, h->keys, ...) before pushing it onto the pool, so
+ * calling gc_free_object() again here would double-free them. */
 static void gc_pool_trim(void)
 {
 	int budget = YAS_GC_POOL_TRIM_MAX;
 	for (int t = 0; t < YAS_GC_OBJ_COUNT && budget > 0; t++) {
-		while (gc_pool_count[t] > YAS_GC_POOL_TRIM_HIGH_WATER && budget > 0) {
+		int target = gc_pool_puts_since_trim[t] > 0 ? YAS_GC_POOL_TRIM_HIGH_WATER : 0;
+		while (gc_pool_count[t] > target && budget > 0) {
 			struct YasGCHeader *obj = gc_pool[t];
 			gc_pool[t] = obj->next;
 			gc_pool_count[t]--;
 			free(obj);
 			budget--;
 		}
+		gc_pool_puts_since_trim[t] = 0;
 	}
 }
 #endif
@@ -758,6 +778,7 @@ static void gc_free_object(struct YasGCHeader *obj, size_t *freed)
 		obj->next = gc_pool[obj->obj_type];
 		gc_pool[obj->obj_type] = obj;
 		gc_pool_count[obj->obj_type]++;
+		gc_pool_puts_since_trim[obj->obj_type]++;
 		return;
 	}
 #endif

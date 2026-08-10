@@ -24,23 +24,19 @@
  * atom_to_header below). `gc` is still first at the C level; the offset
  * is nonzero only because `pair` isn't. */
 struct Allocation {
-	struct YasGCHeader gc;
-	struct YasPair pair;
+    struct YasGCHeader gc;
+    struct YasPair pair;
 };
 
-typedef enum {
-	YAS_GC_IDLE,
-	YAS_GC_MARKING,
-	YAS_GC_SWEEPING
-} GCPhase;
+typedef enum { YAS_GC_IDLE, YAS_GC_MARKING, YAS_GC_SWEEPING } GCPhase;
 
-#define YAS_GC_INIT_THRESHOLD (256 * 1024)  /* bytes */
-#define YAS_GC_STEP_LIMIT 512               /* objects per bounded step */
+#define YAS_GC_INIT_THRESHOLD (256 * 1024) /* bytes */
+#define YAS_GC_STEP_LIMIT 512              /* objects per bounded step */
 
 static struct YasGCHeader *gc_all = NULL;
 static GCPhase gc_phase = YAS_GC_IDLE;
 static size_t gc_allocated = 0;
-static size_t gc_threshold = 0;   /* 0 = "not yet initialized", see gc_min_threshold_get() */
+static size_t gc_threshold = 0; /* 0 = "not yet initialized", see gc_min_threshold_get() */
 
 static struct YasGCHeader **gc_gray = NULL;
 static int gc_gray_count = 0;
@@ -65,10 +61,10 @@ static struct YasGCHeader *gc_sweep_prev = NULL;
  * (512 objects marked per step) is ~7x that - comfortably enough for
  * marking to outpace allocation. Revisit this comment if either
  * constant changes. */
-#define YAS_GC_DEBT_QUANTUM_DEFAULT (4 * 1024)  /* bytes allocated per step */
+#define YAS_GC_DEBT_QUANTUM_DEFAULT (4 * 1024) /* bytes allocated per step */
 static size_t gc_debt = 0;
-static size_t gc_debt_quantum = 0;   /* 0 = "not yet read from env" */
-static int    gc_stepping = 0;       /* re-entrancy guard, see gc_alloc() */
+static size_t gc_debt_quantum = 0; /* 0 = "not yet read from env" */
+static int gc_stepping = 0;        /* re-entrancy guard, see gc_alloc() */
 
 /* GC_STRESS mode (make test-gc-stress / YAS_GC_STRESS=1) is built on
  * top of the *ordinary* debt-paced yas_gc_step() call below, not a
@@ -96,47 +92,47 @@ static int    gc_stepping = 0;       /* re-entrancy guard, see gc_alloc() */
  * YAS_GC_STRESS=<n> is a one-var convenience that sets both the min
  * threshold and the debt quantum to `n` bytes unless either is
  * overridden explicitly via YAS_GC_MIN_THRESHOLD/YAS_GC_DEBT_QUANTUM. */
-static size_t gc_min_threshold = 0;  /* 0 = "not yet read from env" */
-static long   gc_stress_bytes = -1;  /* -1 = "not yet read from env"; 0 = unset */
+static size_t gc_min_threshold = 0; /* 0 = "not yet read from env" */
+static long gc_stress_bytes = -1;   /* -1 = "not yet read from env"; 0 = unset */
 
 static long gc_stress_get(void)
 {
-	if (gc_stress_bytes < 0) {
-		const char *env = getenv("YAS_GC_STRESS");
-		long v = env ? atol(env) : 0;
-		gc_stress_bytes = (v > 0) ? v : 0;
-	}
-	return gc_stress_bytes;
+    if (gc_stress_bytes < 0) {
+        const char *env = getenv("YAS_GC_STRESS");
+        long v = env ? atol(env) : 0;
+        gc_stress_bytes = (v > 0) ? v : 0;
+    }
+    return gc_stress_bytes;
 }
 
 static size_t gc_min_threshold_get(void)
 {
-	if (gc_min_threshold == 0) {
-		const char *env = getenv("YAS_GC_MIN_THRESHOLD");
-		long v = env ? atol(env) : 0;
-		if (v > 0) {
-			gc_min_threshold = (size_t)v;
-		} else {
-			long stress = gc_stress_get();
-			gc_min_threshold = (stress > 0) ? (size_t)stress : YAS_GC_INIT_THRESHOLD;
-		}
-	}
-	return gc_min_threshold;
+    if (gc_min_threshold == 0) {
+        const char *env = getenv("YAS_GC_MIN_THRESHOLD");
+        long v = env ? atol(env) : 0;
+        if (v > 0) {
+            gc_min_threshold = (size_t)v;
+        } else {
+            long stress = gc_stress_get();
+            gc_min_threshold = (stress > 0) ? (size_t)stress : YAS_GC_INIT_THRESHOLD;
+        }
+    }
+    return gc_min_threshold;
 }
 
 static size_t gc_debt_quantum_get(void)
 {
-	if (gc_debt_quantum == 0) {
-		const char *env = getenv("YAS_GC_DEBT_QUANTUM");
-		long v = env ? atol(env) : 0;
-		if (v > 0) {
-			gc_debt_quantum = (size_t)v;
-		} else {
-			long stress = gc_stress_get();
-			gc_debt_quantum = (stress > 0) ? (size_t)stress : YAS_GC_DEBT_QUANTUM_DEFAULT;
-		}
-	}
-	return gc_debt_quantum;
+    if (gc_debt_quantum == 0) {
+        const char *env = getenv("YAS_GC_DEBT_QUANTUM");
+        long v = env ? atol(env) : 0;
+        if (v > 0) {
+            gc_debt_quantum = (size_t)v;
+        } else {
+            long stress = gc_stress_get();
+            gc_debt_quantum = (stress > 0) ? (size_t)stress : YAS_GC_DEBT_QUANTUM_DEFAULT;
+        }
+    }
+    return gc_debt_quantum;
 }
 
 /* Shared by gc_alloc() and gc_account_extra(): advance the debt counter
@@ -147,16 +143,16 @@ static size_t gc_debt_quantum_get(void)
  * change, not a live fix. */
 static void gc_pace(size_t size)
 {
-	if (gc_stepping)
-		return;
+    if (gc_stepping)
+        return;
 
-	gc_debt += size;
-	if (gc_debt >= gc_debt_quantum_get()) {
-		gc_debt = 0;
-		gc_stepping = 1;
-		yas_gc_step();
-		gc_stepping = 0;
-	}
+    gc_debt += size;
+    if (gc_debt >= gc_debt_quantum_get()) {
+        gc_debt = 0;
+        gc_stepping = 1;
+        yas_gc_step();
+        gc_stepping = 0;
+    }
 }
 
 /* ── Symbol/keyword interning ────────────────────────────────────────
@@ -168,13 +164,13 @@ static void gc_pace(size_t size)
  * gc_mark_roots() below, which used to mark a cons-list version of
  * these tables). */
 struct YasInternTable {
-	char **slots;    /* NULL = empty slot */
-	size_t capacity; /* always a power of two */
-	size_t count;
+    char **slots;    /* NULL = empty slot */
+    size_t capacity; /* always a power of two */
+    size_t count;
 };
 
-static struct YasInternTable sym_intern = { NULL, 0, 0 };
-static struct YasInternTable kw_intern = { NULL, 0, 0 };
+static struct YasInternTable sym_intern = {NULL, 0, 0};
+static struct YasInternTable kw_intern = {NULL, 0, 0};
 
 /* Empty-slot sentinel for YasHash's open-addressed index (yas.h) -
  * forward-declared here since yas_make_hash() (needs it to initialize a
@@ -184,12 +180,12 @@ static struct YasInternTable kw_intern = { NULL, 0, 0 };
 
 static size_t fnv1a_hash(const char *s)
 {
-	size_t h = 2166136261u;
-	while (*s) {
-		h ^= (unsigned char)*s++;
-		h *= 16777619u;
-	}
-	return h;
+    size_t h = 2166136261u;
+    while (*s) {
+        h ^= (unsigned char)*s++;
+        h *= 16777619u;
+    }
+    return h;
 }
 
 /* Insert `s` (already known absent) into `t` without taking ownership -
@@ -197,27 +193,27 @@ static size_t fnv1a_hash(const char *s)
  * relocated by intern_grow()). */
 static void intern_insert(struct YasInternTable *t, char *s)
 {
-	size_t mask = t->capacity - 1;
-	size_t i = fnv1a_hash(s) & mask;
-	while (t->slots[i])
-		i = (i + 1) & mask;
-	t->slots[i] = s;
-	t->count++;
+    size_t mask = t->capacity - 1;
+    size_t i = fnv1a_hash(s) & mask;
+    while (t->slots[i])
+        i = (i + 1) & mask;
+    t->slots[i] = s;
+    t->count++;
 }
 
 static void intern_grow(struct YasInternTable *t)
 {
-	size_t old_capacity = t->capacity;
-	char **old_slots = t->slots;
+    size_t old_capacity = t->capacity;
+    char **old_slots = t->slots;
 
-	t->capacity = old_capacity ? old_capacity * 2 : 256;
-	t->slots = calloc(t->capacity, sizeof(char *));
-	t->count = 0;
+    t->capacity = old_capacity ? old_capacity * 2 : 256;
+    t->slots = calloc(t->capacity, sizeof(char *));
+    t->count = 0;
 
-	for (size_t i = 0; i < old_capacity; i++)
-		if (old_slots[i])
-			intern_insert(t, old_slots[i]);
-	free(old_slots);
+    for (size_t i = 0; i < old_capacity; i++)
+        if (old_slots[i])
+            intern_insert(t, old_slots[i]);
+    free(old_slots);
 }
 
 /* Probe `t` for `s`; return the interned pointer on a hit, NULL on a
@@ -226,29 +222,29 @@ static void intern_grow(struct YasInternTable *t)
  * tombstones to worry about. */
 static char *intern_find_or_insert(struct YasInternTable *t, const char *s)
 {
-	if (t->capacity == 0)
-		intern_grow(t);
+    if (t->capacity == 0)
+        intern_grow(t);
 
-	size_t mask = t->capacity - 1;
-	size_t i = fnv1a_hash(s) & mask;
-	while (t->slots[i]) {
-		if (strcmp(t->slots[i], s) == 0)
-			return t->slots[i];
-		i = (i + 1) & mask;
-	}
+    size_t mask = t->capacity - 1;
+    size_t i = fnv1a_hash(s) & mask;
+    while (t->slots[i]) {
+        if (strcmp(t->slots[i], s) == 0)
+            return t->slots[i];
+        i = (i + 1) & mask;
+    }
 
-	if ((t->count + 1) * 10 >= t->capacity * 7) {
-		intern_grow(t);
-		/* Table moved/rehashed - re-probe from scratch. */
-		mask = t->capacity - 1;
-		i = fnv1a_hash(s) & mask;
-		while (t->slots[i])
-			i = (i + 1) & mask;
-	}
+    if ((t->count + 1) * 10 >= t->capacity * 7) {
+        intern_grow(t);
+        /* Table moved/rehashed - re-probe from scratch. */
+        mask = t->capacity - 1;
+        i = fnv1a_hash(s) & mask;
+        while (t->slots[i])
+            i = (i + 1) & mask;
+    }
 
-	char *owned = strdup(s);
-	intern_insert(t, owned);
-	return owned;
+    char *owned = strdup(s);
+    intern_insert(t, owned);
+    return owned;
 }
 
 /* Root-registration API (see yas.h and docs/GC.md). A stack of pointers
@@ -259,37 +255,39 @@ static int gc_root_cap = 0;
 
 void yas_gc_push_root(YasAtom *slot)
 {
-	if (!slot) return;
-	if (gc_root_count >= gc_root_cap) {
-		int new_cap = gc_root_cap ? gc_root_cap * 2 : 16;
-		YasAtom **tmp = realloc(gc_roots, (size_t)new_cap * sizeof(YasAtom *));
-		if (!tmp) return; /* OOM: drop the root; caller must keep it reachable another way */
-		gc_roots = tmp;
-		gc_root_cap = new_cap;
-	}
-	gc_roots[gc_root_count++] = slot;
+    if (!slot)
+        return;
+    if (gc_root_count >= gc_root_cap) {
+        int new_cap = gc_root_cap ? gc_root_cap * 2 : 16;
+        YasAtom **tmp = realloc(gc_roots, (size_t)new_cap * sizeof(YasAtom *));
+        if (!tmp)
+            return; /* OOM: drop the root; caller must keep it reachable another way */
+        gc_roots = tmp;
+        gc_root_cap = new_cap;
+    }
+    gc_roots[gc_root_count++] = slot;
 }
 
 void yas_gc_pop_roots(int n)
 {
-	gc_root_count -= n;
-	if (gc_root_count < 0)
-		gc_root_count = 0;
+    gc_root_count -= n;
+    if (gc_root_count < 0)
+        gc_root_count = 0;
 }
 
 int yas_gc_root_count(void)
 {
-	return gc_root_count;
+    return gc_root_count;
 }
 
 int yas_gc_phase(void)
 {
-	return (int)gc_phase;
+    return (int)gc_phase;
 }
 
 size_t yas_gc_allocated(void)
 {
-	return gc_allocated;
+    return gc_allocated;
 }
 
 /* eval.c walks its own EvalRoot chain (the live evaluator's C-stack
@@ -302,59 +300,60 @@ void yas_eval_mark_roots(void);
 
 static struct YasGCHeader *atom_to_header(YasAtom a)
 {
-	switch (a.type) {
-	case YAS_ATOM_TYPE_PAIR:
-	case YAS_ATOM_TYPE_CLOSURE:
-	case YAS_ATOM_TYPE_MACRO: {
-		if (!a.value.pair) return NULL;
-		struct Allocation *alloc = (struct Allocation *)
-			((char *)a.value.pair - offsetof(struct Allocation, pair));
-		return &alloc->gc;
-	}
-	case YAS_ATOM_TYPE_VECTOR:
-		return a.value.vector ? &a.value.vector->gc : NULL;
-	case YAS_ATOM_TYPE_HASH:
-		return a.value.hash ? &a.value.hash->gc : NULL;
-	case YAS_ATOM_TYPE_ENV:
-		return a.value.env ? &a.value.env->gc : NULL;
-	/* A continuation is a captured control-stack frame chain, retagged - see
-	 * struct YasFrame (yas.h) and eval.c's CALL/CC capture/restore. */
-	case YAS_ATOM_TYPE_FRAME:
-	case YAS_ATOM_TYPE_CONTINUATION:
-		return a.value.frame ? &a.value.frame->gc : NULL;
-	case YAS_ATOM_TYPE_STRING: {
-		if (!a.value.string) return NULL;
-		struct YasStringAlloc *sa = (struct YasStringAlloc *)
-			((char *)a.value.string - offsetof(struct YasStringAlloc, data));
-		return &sa->gc;
-	}
-	case YAS_ATOM_TYPE_PORT:
-		return a.value.port ? &a.value.port->gc : NULL;
-	case YAS_ATOM_TYPE_BYTEVECTOR:
-		return a.value.bytevector ? &a.value.bytevector->gc : NULL;
-	case YAS_ATOM_TYPE_VEC2:
-	case YAS_ATOM_TYPE_VEC3:
-	case YAS_ATOM_TYPE_VEC4: {
-		if (!a.value.vec) return NULL;
-		struct YasVecAlloc *va = (struct YasVecAlloc *)
-			((char *)a.value.vec - offsetof(struct YasVecAlloc, v));
-		return &va->gc;
-	}
-	case YAS_ATOM_TYPE_MAT4: {
-		if (!a.value.mat4) return NULL;
-		struct YasMat4Alloc *ma = (struct YasMat4Alloc *)
-			((char *)a.value.mat4 - offsetof(struct YasMat4Alloc, m));
-		return &ma->gc;
-	}
+    switch (a.type) {
+        case YAS_ATOM_TYPE_PAIR:
+        case YAS_ATOM_TYPE_CLOSURE:
+        case YAS_ATOM_TYPE_MACRO: {
+            if (!a.value.pair)
+                return NULL;
+            struct Allocation *alloc = (struct Allocation *)((char *)a.value.pair - offsetof(struct Allocation, pair));
+            return &alloc->gc;
+        }
+        case YAS_ATOM_TYPE_VECTOR:
+            return a.value.vector ? &a.value.vector->gc : NULL;
+        case YAS_ATOM_TYPE_HASH:
+            return a.value.hash ? &a.value.hash->gc : NULL;
+        case YAS_ATOM_TYPE_ENV:
+            return a.value.env ? &a.value.env->gc : NULL;
+        /* A continuation is a captured control-stack frame chain, retagged - see
+         * struct YasFrame (yas.h) and eval.c's CALL/CC capture/restore. */
+        case YAS_ATOM_TYPE_FRAME:
+        case YAS_ATOM_TYPE_CONTINUATION:
+            return a.value.frame ? &a.value.frame->gc : NULL;
+        case YAS_ATOM_TYPE_STRING: {
+            if (!a.value.string)
+                return NULL;
+            struct YasStringAlloc *sa =
+                (struct YasStringAlloc *)((char *)a.value.string - offsetof(struct YasStringAlloc, data));
+            return &sa->gc;
+        }
+        case YAS_ATOM_TYPE_PORT:
+            return a.value.port ? &a.value.port->gc : NULL;
+        case YAS_ATOM_TYPE_BYTEVECTOR:
+            return a.value.bytevector ? &a.value.bytevector->gc : NULL;
+        case YAS_ATOM_TYPE_VEC2:
+        case YAS_ATOM_TYPE_VEC3:
+        case YAS_ATOM_TYPE_VEC4: {
+            if (!a.value.vec)
+                return NULL;
+            struct YasVecAlloc *va = (struct YasVecAlloc *)((char *)a.value.vec - offsetof(struct YasVecAlloc, v));
+            return &va->gc;
+        }
+        case YAS_ATOM_TYPE_MAT4: {
+            if (!a.value.mat4)
+                return NULL;
+            struct YasMat4Alloc *ma = (struct YasMat4Alloc *)((char *)a.value.mat4 - offsetof(struct YasMat4Alloc, m));
+            return &ma->gc;
+        }
 #ifdef YAS_FFI
-	case YAS_ATOM_TYPE_FFI_FUNCTION:
-		return a.value.ffi_fn ? &a.value.ffi_fn->gc : NULL;
-	case YAS_ATOM_TYPE_FFI_STRUCT:
-		return a.value.ffi_struct ? &a.value.ffi_struct->gc : NULL;
+        case YAS_ATOM_TYPE_FFI_FUNCTION:
+            return a.value.ffi_fn ? &a.value.ffi_fn->gc : NULL;
+        case YAS_ATOM_TYPE_FFI_STRUCT:
+            return a.value.ffi_struct ? &a.value.ffi_struct->gc : NULL;
 #endif
-	default:
-		return NULL; /* nil, symbol, integer, float, char, keyword, builtin: not heap-tracked */
-	}
+        default:
+            return NULL; /* nil, symbol, integer, float, char, keyword, builtin: not heap-tracked */
+    }
 }
 
 /* ── Free-list pool (ticket #44) ─────────────────────────────────────
@@ -380,8 +379,8 @@ static struct YasGCHeader *atom_to_header(YasAtom a)
  * which suppresses genuine use-after-free detection on every recycled
  * object - exactly the audit this build exists to run. */
 #ifndef YAS_NO_GC_POOL
-#define YAS_GC_POOL_CAP 1024              /* per-bucket cap; sweep bare free()s past it */
-#define YAS_GC_POOL_TRIM_HIGH_WATER 128   /* only trim a bucket comfortably above normal churn */
+#define YAS_GC_POOL_CAP 1024                   /* per-bucket cap; sweep bare free()s past it */
+#define YAS_GC_POOL_TRIM_HIGH_WATER 128        /* only trim a bucket comfortably above normal churn */
 #define YAS_GC_POOL_TRIM_MAX YAS_GC_STEP_LIMIT /* bound trim work to one step's worth, per cycle end */
 
 static struct YasGCHeader *gc_pool[YAS_GC_OBJ_COUNT];
@@ -393,20 +392,20 @@ static int gc_pool_puts_since_trim[YAS_GC_OBJ_COUNT];
 
 static int gc_obj_type_poolable(YasGCObjType type)
 {
-	switch (type) {
-	case YAS_GC_OBJ_PAIR:
-	case YAS_GC_OBJ_VECTOR:
-	case YAS_GC_OBJ_HASH:
-	case YAS_GC_OBJ_PORT:
-	case YAS_GC_OBJ_BYTEVECTOR:
-	case YAS_GC_OBJ_VEC:
-	case YAS_GC_OBJ_MAT4:
-	case YAS_GC_OBJ_ENV:
-	case YAS_GC_OBJ_FRAME:
-		return 1;
-	default:
-		return 0;  /* STRING (variable size), the FFI types, COUNT */
-	}
+    switch (type) {
+        case YAS_GC_OBJ_PAIR:
+        case YAS_GC_OBJ_VECTOR:
+        case YAS_GC_OBJ_HASH:
+        case YAS_GC_OBJ_PORT:
+        case YAS_GC_OBJ_BYTEVECTOR:
+        case YAS_GC_OBJ_VEC:
+        case YAS_GC_OBJ_MAT4:
+        case YAS_GC_OBJ_ENV:
+        case YAS_GC_OBJ_FRAME:
+            return 1;
+        default:
+            return 0; /* STRING (variable size), the FFI types, COUNT */
+    }
 }
 
 /* Cycle-end trim: the cap alone only bounds a single allocation burst, not
@@ -434,18 +433,18 @@ static int gc_obj_type_poolable(YasGCObjType type)
  * calling gc_free_object() again here would double-free them. */
 static void gc_pool_trim(void)
 {
-	int budget = YAS_GC_POOL_TRIM_MAX;
-	for (int t = 0; t < YAS_GC_OBJ_COUNT && budget > 0; t++) {
-		int target = gc_pool_puts_since_trim[t] > 0 ? YAS_GC_POOL_TRIM_HIGH_WATER : 0;
-		while (gc_pool_count[t] > target && budget > 0) {
-			struct YasGCHeader *obj = gc_pool[t];
-			gc_pool[t] = obj->next;
-			gc_pool_count[t]--;
-			free(obj);
-			budget--;
-		}
-		gc_pool_puts_since_trim[t] = 0;
-	}
+    int budget = YAS_GC_POOL_TRIM_MAX;
+    for (int t = 0; t < YAS_GC_OBJ_COUNT && budget > 0; t++) {
+        int target = gc_pool_puts_since_trim[t] > 0 ? YAS_GC_POOL_TRIM_HIGH_WATER : 0;
+        while (gc_pool_count[t] > target && budget > 0) {
+            struct YasGCHeader *obj = gc_pool[t];
+            gc_pool[t] = obj->next;
+            gc_pool_count[t]--;
+            free(obj);
+            budget--;
+        }
+        gc_pool_puts_since_trim[t] = 0;
+    }
 }
 #endif
 
@@ -453,62 +452,62 @@ static void gc_pool_trim(void)
 
 static void *gc_alloc(size_t size, YasGCObjType type)
 {
-	/* Pace *before* allocating, not after: `obj` doesn't exist yet at
-	 * this point, so a step - even a full YAS_GC_STRESS collection -
-	 * cannot possibly free the object this very call is about to create.
-	 * (Pacing after linking+coloring was tried and reverted - it does
-	 * NOT help: under YAS_GC_STRESS, the collector always ends a cycle
-	 * back at IDLE, so a freshly-linked object is colored WHITE just
-	 * like any other IDLE-time allocation, and a pace call immediately
-	 * afterward can sweep *this* object before its car/cdr/fields are
-	 * ever populated - an immediate use-after-free on the object under
-	 * construction, worse than the hazard this ordering is meant to
-	 * avoid.) The hazard this leaves is exactly the one docs/GC.md
-	 * documents: *other*, already-returned, still-unrooted objects a
-	 * caller is holding across this call. That's the intended audit
-	 * target, not a bug in this function. */
-	gc_pace(size);
+    /* Pace *before* allocating, not after: `obj` doesn't exist yet at
+     * this point, so a step - even a full YAS_GC_STRESS collection -
+     * cannot possibly free the object this very call is about to create.
+     * (Pacing after linking+coloring was tried and reverted - it does
+     * NOT help: under YAS_GC_STRESS, the collector always ends a cycle
+     * back at IDLE, so a freshly-linked object is colored WHITE just
+     * like any other IDLE-time allocation, and a pace call immediately
+     * afterward can sweep *this* object before its car/cdr/fields are
+     * ever populated - an immediate use-after-free on the object under
+     * construction, worse than the hazard this ordering is meant to
+     * avoid.) The hazard this leaves is exactly the one docs/GC.md
+     * documents: *other*, already-returned, still-unrooted objects a
+     * caller is holding across this call. That's the intended audit
+     * target, not a bug in this function. */
+    gc_pace(size);
 
-	struct YasGCHeader *obj = NULL;
+    struct YasGCHeader *obj = NULL;
 #ifndef YAS_NO_GC_POOL
-	/* Pop a recycled block before calloc()ing a fresh one. gc_pace()
-	 * above already ran, so a reused block counts toward the debt
-	 * counter the same as a fresh allocation would - it's the same
-	 * live-byte pressure either way. memset() first, before any header
-	 * field below is written, since the tempting reordering (init header,
-	 * then memset the payload) would zero the header this function is
-	 * about to populate; recycling loses calloc()'s zero-init, and
-	 * several constructors rely on their fields starting NIL/0 (see
-	 * yas_make_frame()'s comment on this same point). */
-	if (gc_obj_type_poolable(type) && gc_pool[type]) {
-		obj = gc_pool[type];
-		gc_pool[type] = obj->next;
-		gc_pool_count[type]--;
-		memset(obj, 0, size);
-	}
+    /* Pop a recycled block before calloc()ing a fresh one. gc_pace()
+     * above already ran, so a reused block counts toward the debt
+     * counter the same as a fresh allocation would - it's the same
+     * live-byte pressure either way. memset() first, before any header
+     * field below is written, since the tempting reordering (init header,
+     * then memset the payload) would zero the header this function is
+     * about to populate; recycling loses calloc()'s zero-init, and
+     * several constructors rely on their fields starting NIL/0 (see
+     * yas_make_frame()'s comment on this same point). */
+    if (gc_obj_type_poolable(type) && gc_pool[type]) {
+        obj = gc_pool[type];
+        gc_pool[type] = obj->next;
+        gc_pool_count[type]--;
+        memset(obj, 0, size);
+    }
 #endif
-	if (!obj) {
-		obj = calloc(1, size);
-		if (!obj)
-			return NULL;
-	}
-	obj->obj_type = (unsigned char)type;
-	/* New objects during an active cycle are BLACK so a caller who
-	 * hasn't rooted them yet doesn't lose them to the current sweep -
-	 * constructors write-barrier every reference they store into a
-	 * fresh object for exactly this reason (see yas_cons() etc. below).
-	 * Always inserting at the head is safe regardless of sweep progress:
-	 * whether or not this cycle's sweep cursor ever reaches this object,
-	 * yas_gc_start() bulk-clears every object in gc_all back to WHITE at
-	 * the *next* cycle's start (see there), so a BLACK object never gets
-	 * "stuck" unscannable the way it would if survivors' colors were
-	 * reset incrementally during sweep instead. */
-	obj->color = (gc_phase != YAS_GC_IDLE) ? YAS_GC_BLACK : YAS_GC_WHITE;
-	obj->next = gc_all;
-	gc_all = obj;
-	obj->backing_size = size;
-	gc_allocated += size;
-	return obj;
+    if (!obj) {
+        obj = calloc(1, size);
+        if (!obj)
+            return NULL;
+    }
+    obj->obj_type = (unsigned char)type;
+    /* New objects during an active cycle are BLACK so a caller who
+     * hasn't rooted them yet doesn't lose them to the current sweep -
+     * constructors write-barrier every reference they store into a
+     * fresh object for exactly this reason (see yas_cons() etc. below).
+     * Always inserting at the head is safe regardless of sweep progress:
+     * whether or not this cycle's sweep cursor ever reaches this object,
+     * yas_gc_start() bulk-clears every object in gc_all back to WHITE at
+     * the *next* cycle's start (see there), so a BLACK object never gets
+     * "stuck" unscannable the way it would if survivors' colors were
+     * reset incrementally during sweep instead. */
+    obj->color = (gc_phase != YAS_GC_IDLE) ? YAS_GC_BLACK : YAS_GC_WHITE;
+    obj->next = gc_all;
+    gc_all = obj;
+    obj->backing_size = size;
+    gc_allocated += size;
+    return obj;
 }
 
 /* Account an external buffer (vector/hash/bytevector data, etc.) owned by
@@ -520,33 +519,34 @@ static void *gc_alloc(size_t size, YasGCObjType type)
  * cycle, not an exact accounting ledger. */
 static void gc_account_extra(struct YasGCHeader *obj, size_t delta)
 {
-	obj->backing_size += delta;
-	gc_allocated += delta;
-	/* Feeds the same pacing counter gc_alloc() does - vector/hash/
-	 * bytevector growth can be the dominant source of allocated bytes
-	 * without a single gc_alloc() call to hang a step off of, so
-	 * without this a program churning large buffers would starve
-	 * marking mid-cycle. */
-	gc_pace(delta);
+    obj->backing_size += delta;
+    gc_allocated += delta;
+    /* Feeds the same pacing counter gc_alloc() does - vector/hash/
+     * bytevector growth can be the dominant source of allocated bytes
+     * without a single gc_alloc() call to hang a step off of, so
+     * without this a program churning large buffers would starve
+     * marking mid-cycle. */
+    gc_pace(delta);
 }
 
 /* ── Write barrier ────────────────────────────────────────────────── */
 
 static void gc_write_barrier_headers(struct YasGCHeader *container, struct YasGCHeader *child)
 {
-	if (!container || !child)
-		return;
-	if (container->color == YAS_GC_BLACK && child->color == YAS_GC_WHITE) {
-		container->color = YAS_GC_GRAY;
-		if (gc_gray_count >= gc_gray_cap) {
-			int new_cap = gc_gray_cap ? gc_gray_cap * 2 : 64;
-			struct YasGCHeader **tmp = realloc(gc_gray, (size_t)new_cap * sizeof(struct YasGCHeader *));
-			if (!tmp) return; /* OOM: drop the re-gray; container may be swept early */
-			gc_gray = tmp;
-			gc_gray_cap = new_cap;
-		}
-		gc_gray[gc_gray_count++] = container;
-	}
+    if (!container || !child)
+        return;
+    if (container->color == YAS_GC_BLACK && child->color == YAS_GC_WHITE) {
+        container->color = YAS_GC_GRAY;
+        if (gc_gray_count >= gc_gray_cap) {
+            int new_cap = gc_gray_cap ? gc_gray_cap * 2 : 64;
+            struct YasGCHeader **tmp = realloc(gc_gray, (size_t)new_cap * sizeof(struct YasGCHeader *));
+            if (!tmp)
+                return; /* OOM: drop the re-gray; container may be swept early */
+            gc_gray = tmp;
+            gc_gray_cap = new_cap;
+        }
+        gc_gray[gc_gray_count++] = container;
+    }
 }
 
 /* container/child are the atoms holding the reference being stored, e.g.
@@ -555,234 +555,237 @@ static void gc_write_barrier_headers(struct YasGCHeader *container, struct YasGC
  * rather than going through yas_set_car/yas_set_cdr. */
 void yas_gc_write_barrier(YasAtom container, YasAtom child)
 {
-	gc_write_barrier_headers(atom_to_header(container), atom_to_header(child));
+    gc_write_barrier_headers(atom_to_header(container), atom_to_header(child));
 }
 
 void yas_set_car(YasAtom p, YasAtom v)
 {
-	yas_car(p) = v;
-	yas_gc_write_barrier(p, v);
+    yas_car(p) = v;
+    yas_gc_write_barrier(p, v);
 }
 
 void yas_set_cdr(YasAtom p, YasAtom v)
 {
-	yas_cdr(p) = v;
-	yas_gc_write_barrier(p, v);
+    yas_cdr(p) = v;
+    yas_gc_write_barrier(p, v);
 }
 
 /* ── Marking ──────────────────────────────────────────────────────── */
 
 static void gc_push_gray(struct YasGCHeader *obj)
 {
-	if (gc_gray_count >= gc_gray_cap) {
-		int new_cap = gc_gray_cap ? gc_gray_cap * 2 : 64;
-		struct YasGCHeader **tmp = realloc(gc_gray, (size_t)new_cap * sizeof(struct YasGCHeader *));
-		if (!tmp) return; /* OOM: drop the push; object may be swept, but better than crash */
-		gc_gray = tmp;
-		gc_gray_cap = new_cap;
-	}
-	gc_gray[gc_gray_count++] = obj;
+    if (gc_gray_count >= gc_gray_cap) {
+        int new_cap = gc_gray_cap ? gc_gray_cap * 2 : 64;
+        struct YasGCHeader **tmp = realloc(gc_gray, (size_t)new_cap * sizeof(struct YasGCHeader *));
+        if (!tmp)
+            return; /* OOM: drop the push; object may be swept, but better than crash */
+        gc_gray = tmp;
+        gc_gray_cap = new_cap;
+    }
+    gc_gray[gc_gray_count++] = obj;
 }
 
 /* Grays and enqueues `root`. NOT a full trace - see the contract note on
  * yas_gc_mark() in yas.h. */
 void yas_gc_mark(YasAtom root)
 {
-	struct YasGCHeader *h = atom_to_header(root);
-	if (!h || h->color != YAS_GC_WHITE)
-		return;
-	h->color = YAS_GC_GRAY;
-	gc_push_gray(h);
+    struct YasGCHeader *h = atom_to_header(root);
+    if (!h || h->color != YAS_GC_WHITE)
+        return;
+    h->color = YAS_GC_GRAY;
+    gc_push_gray(h);
 }
 
 static void gc_mark_roots(void)
 {
-	yas_gc_mark(yas_library_registry);
-	yas_gc_mark(yas_global_search_paths);
-	yas_gc_mark(yas_global_features);
-	yas_gc_mark(yas_ctx_exception);
+    yas_gc_mark(yas_library_registry);
+    yas_gc_mark(yas_global_search_paths);
+    yas_gc_mark(yas_global_features);
+    yas_gc_mark(yas_ctx_exception);
 
-	for (int i = 0; i < gc_root_count; i++)
-		yas_gc_mark(*gc_roots[i]);
+    for (int i = 0; i < gc_root_count; i++)
+        yas_gc_mark(*gc_roots[i]);
 
-	yas_eval_mark_roots();
+    yas_eval_mark_roots();
 }
 
 static void gc_scan_object(struct YasGCHeader *obj)
 {
-	switch ((YasGCObjType)obj->obj_type) {
-	case YAS_GC_OBJ_PAIR: {
-		struct Allocation *a = (struct Allocation *)obj;
-		YasAtom p;
-		p.type = YAS_ATOM_TYPE_PAIR;
-		p.value.pair = &a->pair;
-		yas_gc_mark(yas_car(p));
-		yas_gc_mark(yas_cdr(p));
-		break;
-	}
-	case YAS_GC_OBJ_VECTOR: {
-		struct YasVector *v = (struct YasVector *)obj;
-		for (size_t i = 0; i < v->size; i++)
-			yas_gc_mark(v->data[i]);
-		break;
-	}
-	case YAS_GC_OBJ_HASH: {
-		struct YasHash *h = (struct YasHash *)obj;
-		if (h->metatable) {
-			YasAtom mt;
-			mt.type = YAS_ATOM_TYPE_HASH;
-			mt.value.hash = h->metatable;
-			yas_gc_mark(mt);
-		}
-		for (size_t i = 0; i < h->size; i++) {
-			yas_gc_mark(h->keys[i]);
-			yas_gc_mark(h->values[i]);
-		}
-		break;
-	}
-	case YAS_GC_OBJ_ENV: {
-		struct YasEnv *e = (struct YasEnv *)obj;
-		yas_gc_mark(e->parent);
-		for (size_t i = 0; i < e->capacity; i++) {
-			if (yas_nilp(e->syms[i]))
-				continue;
-			yas_gc_mark(e->syms[i]);
-			yas_gc_mark(e->vals[i]);
-		}
-		break;
-	}
-	case YAS_GC_OBJ_FRAME: {
-		struct YasFrame *f = (struct YasFrame *)obj;
-		yas_gc_mark(f->parent);
-		yas_gc_mark(f->env);
-		yas_gc_mark(f->op);
-		yas_gc_mark(f->tail);
-		yas_gc_mark(f->args);
-		yas_gc_mark(f->body);
-		break;
-	}
-	case YAS_GC_OBJ_STRING:
-	case YAS_GC_OBJ_PORT:
-	case YAS_GC_OBJ_BYTEVECTOR:
-	case YAS_GC_OBJ_VEC:
-	case YAS_GC_OBJ_MAT4:
+    switch ((YasGCObjType)obj->obj_type) {
+        case YAS_GC_OBJ_PAIR: {
+            struct Allocation *a = (struct Allocation *)obj;
+            YasAtom p;
+            p.type = YAS_ATOM_TYPE_PAIR;
+            p.value.pair = &a->pair;
+            yas_gc_mark(yas_car(p));
+            yas_gc_mark(yas_cdr(p));
+            break;
+        }
+        case YAS_GC_OBJ_VECTOR: {
+            struct YasVector *v = (struct YasVector *)obj;
+            for (size_t i = 0; i < v->size; i++)
+                yas_gc_mark(v->data[i]);
+            break;
+        }
+        case YAS_GC_OBJ_HASH: {
+            struct YasHash *h = (struct YasHash *)obj;
+            if (h->metatable) {
+                YasAtom mt;
+                mt.type = YAS_ATOM_TYPE_HASH;
+                mt.value.hash = h->metatable;
+                yas_gc_mark(mt);
+            }
+            for (size_t i = 0; i < h->size; i++) {
+                yas_gc_mark(h->keys[i]);
+                yas_gc_mark(h->values[i]);
+            }
+            break;
+        }
+        case YAS_GC_OBJ_ENV: {
+            struct YasEnv *e = (struct YasEnv *)obj;
+            yas_gc_mark(e->parent);
+            for (size_t i = 0; i < e->capacity; i++) {
+                if (yas_nilp(e->syms[i]))
+                    continue;
+                yas_gc_mark(e->syms[i]);
+                yas_gc_mark(e->vals[i]);
+            }
+            break;
+        }
+        case YAS_GC_OBJ_FRAME: {
+            struct YasFrame *f = (struct YasFrame *)obj;
+            yas_gc_mark(f->parent);
+            yas_gc_mark(f->env);
+            yas_gc_mark(f->op);
+            yas_gc_mark(f->tail);
+            yas_gc_mark(f->args);
+            yas_gc_mark(f->body);
+            break;
+        }
+        case YAS_GC_OBJ_STRING:
+        case YAS_GC_OBJ_PORT:
+        case YAS_GC_OBJ_BYTEVECTOR:
+        case YAS_GC_OBJ_VEC:
+        case YAS_GC_OBJ_MAT4:
 #ifdef YAS_FFI
-	case YAS_GC_OBJ_FFI_FUNCTION:
-	case YAS_GC_OBJ_FFI_STRUCT:
+        case YAS_GC_OBJ_FFI_FUNCTION:
+        case YAS_GC_OBJ_FFI_STRUCT:
 #endif
-		/* Leaves: no YasAtom children. */
-		break;
-	case YAS_GC_OBJ_COUNT:
-		/* Sentinel, not a real object type - never stored in obj_type.
-		 * Named explicitly (rather than a `default:`) so -Wswitch keeps
-		 * catching a genuinely unhandled type added above this line. */
-		break;
-	}
-	obj->color = YAS_GC_BLACK;
+            /* Leaves: no YasAtom children. */
+            break;
+        case YAS_GC_OBJ_COUNT:
+            /* Sentinel, not a real object type - never stored in obj_type.
+             * Named explicitly (rather than a `default:`) so -Wswitch keeps
+             * catching a genuinely unhandled type added above this line. */
+            break;
+    }
+    obj->color = YAS_GC_BLACK;
 }
 
 static void gc_mark_step(int limit)
 {
-	int work = 0;
-	while (gc_gray_count > 0 && work < limit) {
-		struct YasGCHeader *obj = gc_gray[--gc_gray_count];
-		gc_scan_object(obj);
-		work++;
-	}
+    int work = 0;
+    while (gc_gray_count > 0 && work < limit) {
+        struct YasGCHeader *obj = gc_gray[--gc_gray_count];
+        gc_scan_object(obj);
+        work++;
+    }
 }
 
 /* ── Freeing ──────────────────────────────────────────────────────── */
 
 static void gc_free_object(struct YasGCHeader *obj, size_t *freed)
 {
-	switch ((YasGCObjType)obj->obj_type) {
-	case YAS_GC_OBJ_PAIR:
-		/* car/cdr are YasAtoms, not owned pointers - nothing extra to free. */
-		break;
-	case YAS_GC_OBJ_VECTOR: {
-		struct YasVector *v = (struct YasVector *)obj;
-		free(v->data);
-		v->data = NULL;  /* pool invariant: no dangling buffer pointer while pooled */
-		break;
-	}
-	case YAS_GC_OBJ_HASH: {
-		struct YasHash *h = (struct YasHash *)obj;
-		free(h->keys);
-		free(h->values);
-		free(h->index);
-		h->keys = NULL;
-		h->values = NULL;
-		h->index = NULL;
-		break;
-	}
-	case YAS_GC_OBJ_ENV: {
-		struct YasEnv *e = (struct YasEnv *)obj;
-		free(e->syms);
-		free(e->vals);
-		e->syms = NULL;
-		e->vals = NULL;
-		break;
-	}
-	case YAS_GC_OBJ_FRAME:
-		/* All six fields are YasAtoms, not owned pointers - nothing extra
-		 * to free (mirrors YAS_GC_OBJ_PAIR above). */
-		break;
-	case YAS_GC_OBJ_STRING:
-		/* Single allocation (header + trailing data) - nothing extra. */
-		break;
-	case YAS_GC_OBJ_PORT: {
-		struct YasPort *p = (struct YasPort *)obj;
-		if (p->is_open) {
-			YasAtom tmp;
-			tmp.type = YAS_ATOM_TYPE_PORT;
-			tmp.value.port = p;
-			yas_port_close(tmp);
-		}
-		free(p->path);
-		p->path = NULL;
-		break;
-	}
-	case YAS_GC_OBJ_BYTEVECTOR: {
-		struct YasBytevector *bv = (struct YasBytevector *)obj;
-		free(bv->data);
-		bv->data = NULL;
-		break;
-	}
-	case YAS_GC_OBJ_VEC:
-	case YAS_GC_OBJ_MAT4:
-		/* Single allocation - nothing extra. */
-		break;
+    switch ((YasGCObjType)obj->obj_type) {
+        case YAS_GC_OBJ_PAIR:
+            /* car/cdr are YasAtoms, not owned pointers - nothing extra to free. */
+            break;
+        case YAS_GC_OBJ_VECTOR: {
+            struct YasVector *v = (struct YasVector *)obj;
+            free(v->data);
+            v->data = NULL; /* pool invariant: no dangling buffer pointer while pooled */
+            break;
+        }
+        case YAS_GC_OBJ_HASH: {
+            struct YasHash *h = (struct YasHash *)obj;
+            free(h->keys);
+            free(h->values);
+            free(h->index);
+            h->keys = NULL;
+            h->values = NULL;
+            h->index = NULL;
+            break;
+        }
+        case YAS_GC_OBJ_ENV: {
+            struct YasEnv *e = (struct YasEnv *)obj;
+            free(e->syms);
+            free(e->vals);
+            e->syms = NULL;
+            e->vals = NULL;
+            break;
+        }
+        case YAS_GC_OBJ_FRAME:
+            /* All six fields are YasAtoms, not owned pointers - nothing extra
+             * to free (mirrors YAS_GC_OBJ_PAIR above). */
+            break;
+        case YAS_GC_OBJ_STRING:
+            /* Single allocation (header + trailing data) - nothing extra. */
+            break;
+        case YAS_GC_OBJ_PORT: {
+            struct YasPort *p = (struct YasPort *)obj;
+            if (p->is_open) {
+                YasAtom tmp;
+                tmp.type = YAS_ATOM_TYPE_PORT;
+                tmp.value.port = p;
+                yas_port_close(tmp);
+            }
+            free(p->path);
+            p->path = NULL;
+            break;
+        }
+        case YAS_GC_OBJ_BYTEVECTOR: {
+            struct YasBytevector *bv = (struct YasBytevector *)obj;
+            free(bv->data);
+            bv->data = NULL;
+            break;
+        }
+        case YAS_GC_OBJ_VEC:
+        case YAS_GC_OBJ_MAT4:
+            /* Single allocation - nothing extra. */
+            break;
 #ifdef YAS_FFI
-	case YAS_GC_OBJ_FFI_FUNCTION: {
-		struct YasFFIFunction *fn = (struct YasFFIFunction *)obj;
-		if (fn->cif) free(fn->cif);
-		if (fn->arg_types) free(fn->arg_types);
-		if (fn->ffi_arg_types) free(fn->ffi_arg_types);
-		break;
-	}
-	case YAS_GC_OBJ_FFI_STRUCT: {
-		YasFFIStructInstance *inst = (YasFFIStructInstance *)obj;
-		free(inst->data);
-		break;
-	}
+        case YAS_GC_OBJ_FFI_FUNCTION: {
+            struct YasFFIFunction *fn = (struct YasFFIFunction *)obj;
+            if (fn->cif)
+                free(fn->cif);
+            if (fn->arg_types)
+                free(fn->arg_types);
+            if (fn->ffi_arg_types)
+                free(fn->ffi_arg_types);
+            break;
+        }
+        case YAS_GC_OBJ_FFI_STRUCT: {
+            YasFFIStructInstance *inst = (YasFFIStructInstance *)obj;
+            free(inst->data);
+            break;
+        }
 #endif
-	case YAS_GC_OBJ_COUNT:
-		/* Sentinel, not a real object type - never stored in obj_type.
-		 * See gc_scan_object()'s matching arm. */
-		break;
-	}
-	*freed += obj->backing_size;
+        case YAS_GC_OBJ_COUNT:
+            /* Sentinel, not a real object type - never stored in obj_type.
+             * See gc_scan_object()'s matching arm. */
+            break;
+    }
+    *freed += obj->backing_size;
 #ifndef YAS_NO_GC_POOL
-	if (gc_obj_type_poolable((YasGCObjType)obj->obj_type)
-	    && gc_pool_count[obj->obj_type] < YAS_GC_POOL_CAP) {
-		obj->next = gc_pool[obj->obj_type];
-		gc_pool[obj->obj_type] = obj;
-		gc_pool_count[obj->obj_type]++;
-		gc_pool_puts_since_trim[obj->obj_type]++;
-		return;
-	}
+    if (gc_obj_type_poolable((YasGCObjType)obj->obj_type) && gc_pool_count[obj->obj_type] < YAS_GC_POOL_CAP) {
+        obj->next = gc_pool[obj->obj_type];
+        gc_pool[obj->obj_type] = obj;
+        gc_pool_count[obj->obj_type]++;
+        gc_pool_puts_since_trim[obj->obj_type]++;
+        return;
+    }
 #endif
-	free(obj);
+    free(obj);
 }
 
 #ifndef NDEBUG
@@ -793,80 +796,80 @@ static void gc_free_object(struct YasGCHeader *obj, size_t *freed)
  * cleared back to WHITE at the next cycle's start. */
 static void gc_check_idle_invariant(void)
 {
-	assert(gc_gray_count == 0);
+    assert(gc_gray_count == 0);
 }
 #endif
 
 static void gc_sweep_step(int limit)
 {
-	int work = 0;
-	struct YasGCHeader **prev = gc_sweep_prev ? &gc_sweep_prev->next : &gc_all;
+    int work = 0;
+    struct YasGCHeader **prev = gc_sweep_prev ? &gc_sweep_prev->next : &gc_all;
 
-	while (*prev && work < limit) {
-		struct YasGCHeader *obj = *prev;
-		if (obj->color == YAS_GC_WHITE) {
-			*prev = obj->next;
-			size_t freed = 0;
-			gc_free_object(obj, &freed);
-			if (gc_allocated >= freed)
-				gc_allocated -= freed;
-			else
-				gc_allocated = 0;
-		} else {
-			/* Kept - but deliberately NOT reset to WHITE here. If we
-			 * did, and a write barrier later (still mid-sweep) rescued
-			 * a reference to this already-passed object, marking it
-			 * would recolor it BLACK with nothing left to ever reset
-			 * it back - it would carry BLACK into the next cycle and
-			 * never be scanned again (the very
-			 * "allocate-during-sweep"-shaped hazard docs/GC.md warns
-			 * about, just via rescue instead of fresh allocation).
-			 * Leaving survivors BLACK until yas_gc_start()'s bulk
-			 * clear sidesteps that: a WHITE object encountered anytime
-			 * before the next cycle's clear is unambiguously "unseen
-			 * this cycle", full stop, regardless of whether the sweep
-			 * cursor has passed its list position. */
-			gc_sweep_prev = obj;
-			prev = &obj->next;
-		}
-		work++;
-	}
+    while (*prev && work < limit) {
+        struct YasGCHeader *obj = *prev;
+        if (obj->color == YAS_GC_WHITE) {
+            *prev = obj->next;
+            size_t freed = 0;
+            gc_free_object(obj, &freed);
+            if (gc_allocated >= freed)
+                gc_allocated -= freed;
+            else
+                gc_allocated = 0;
+        } else {
+            /* Kept - but deliberately NOT reset to WHITE here. If we
+             * did, and a write barrier later (still mid-sweep) rescued
+             * a reference to this already-passed object, marking it
+             * would recolor it BLACK with nothing left to ever reset
+             * it back - it would carry BLACK into the next cycle and
+             * never be scanned again (the very
+             * "allocate-during-sweep"-shaped hazard docs/GC.md warns
+             * about, just via rescue instead of fresh allocation).
+             * Leaving survivors BLACK until yas_gc_start()'s bulk
+             * clear sidesteps that: a WHITE object encountered anytime
+             * before the next cycle's clear is unambiguously "unseen
+             * this cycle", full stop, regardless of whether the sweep
+             * cursor has passed its list position. */
+            gc_sweep_prev = obj;
+            prev = &obj->next;
+        }
+        work++;
+    }
 
-	if (!*prev) {
-		gc_phase = YAS_GC_IDLE;
-		gc_sweep_prev = NULL;
-		gc_threshold = gc_allocated * 2;
-		if (gc_threshold < gc_min_threshold_get())
-			gc_threshold = gc_min_threshold_get();
+    if (!*prev) {
+        gc_phase = YAS_GC_IDLE;
+        gc_sweep_prev = NULL;
+        gc_threshold = gc_allocated * 2;
+        if (gc_threshold < gc_min_threshold_get())
+            gc_threshold = gc_min_threshold_get();
 #ifndef NDEBUG
-		gc_check_idle_invariant();
+        gc_check_idle_invariant();
 #endif
 #ifndef YAS_NO_GC_POOL
-		/* Drain surplus pooled blocks now that a cycle has actually
-		 * finished, not on every step - see gc_pool_trim()'s comment for
-		 * why this is bounded rather than a full drain. */
-		gc_pool_trim();
+        /* Drain surplus pooled blocks now that a cycle has actually
+         * finished, not on every step - see gc_pool_trim()'s comment for
+         * why this is bounded rather than a full drain. */
+        gc_pool_trim();
 #endif
-	}
+    }
 }
 
 /* ── Public entry points ──────────────────────────────────────────── */
 
 void yas_gc_start(void)
 {
-	if (gc_phase != YAS_GC_IDLE)
-		return;
-	/* Bulk-clear every survivor back to WHITE before marking. Cheap
-	 * (a byte write per live object, no allocation/freeing) and avoids
-	 * the alternating-white-color bookkeeping production collectors use
-	 * to skip this pass - a deliberate simplicity/perf trade-off for
-	 * this GC. See gc_sweep_step()'s keep branch for why survivors are
-	 * BLACK (not WHITE) going into this call. */
-	for (struct YasGCHeader *h = gc_all; h; h = h->next)
-		h->color = YAS_GC_WHITE;
+    if (gc_phase != YAS_GC_IDLE)
+        return;
+    /* Bulk-clear every survivor back to WHITE before marking. Cheap
+     * (a byte write per live object, no allocation/freeing) and avoids
+     * the alternating-white-color bookkeeping production collectors use
+     * to skip this pass - a deliberate simplicity/perf trade-off for
+     * this GC. See gc_sweep_step()'s keep branch for why survivors are
+     * BLACK (not WHITE) going into this call. */
+    for (struct YasGCHeader *h = gc_all; h; h = h->next)
+        h->color = YAS_GC_WHITE;
 
-	gc_phase = YAS_GC_MARKING;
-	gc_mark_roots();
+    gc_phase = YAS_GC_MARKING;
+    gc_mark_roots();
 }
 
 /* One bounded slice of whichever phase is active; a no-op (besides the
@@ -879,79 +882,79 @@ void yas_gc_start(void)
  * which can still be invoked from arbitrary builtin context. */
 void yas_gc_step(void)
 {
-	switch (gc_phase) {
-	case YAS_GC_IDLE:
-		if (gc_threshold == 0)
-			gc_threshold = gc_min_threshold_get();
-		if (gc_allocated <= gc_threshold)
-			return;
-		yas_gc_start();
-		gc_mark_step(YAS_GC_STEP_LIMIT);
-		break;
-	case YAS_GC_MARKING:
-		gc_mark_step(YAS_GC_STEP_LIMIT);
-		if (gc_gray_count == 0) {
-			/* Atomic phase: the C-stack roots (eval_roots' expr/env/
-			 * stack pointers, the shadow stack) may have been
-			 * reassigned many times across the safe points this cycle
-			 * spanned, so re-mark once more and fully drain before
-			 * sweeping - this never persists across a yas_gc_step()
-			 * call, so no allocation can race it. */
-			gc_mark_roots();
-			while (gc_gray_count > 0)
-				gc_mark_step(1 << 20);
-			gc_phase = YAS_GC_SWEEPING;
-			gc_sweep_prev = NULL;
-			gc_sweep_step(YAS_GC_STEP_LIMIT);
-		}
-		break;
-	case YAS_GC_SWEEPING:
-		/* The write barrier can still fire during SWEEPING: live code
-		 * keeps running between steps, and can store a reference to an
-		 * object this cycle's marking never reached (still WHITE) into
-		 * an already-BLACK container - e.g. resurrecting a value that
-		 * was unreachable at the atomic snapshot via a fresh binding.
-		 * MARKING is over, so nothing else will ever pop and scan that
-		 * re-grayed container; drain it here first so gc_scan_object()
-		 * marks the rescued object non-white *before* the sweep cursor
-		 * can reach and free it. Without this, the assertion in
-		 * gc_check_idle_invariant() (gc_gray_count == 0 at cycle end)
-		 * fires - or worse, without the assertion, the object is
-		 * silently freed out from under a live container. */
-		if (gc_gray_count > 0)
-			gc_mark_step(1 << 20);
-		gc_sweep_step(YAS_GC_STEP_LIMIT);
-		break;
-	}
+    switch (gc_phase) {
+        case YAS_GC_IDLE:
+            if (gc_threshold == 0)
+                gc_threshold = gc_min_threshold_get();
+            if (gc_allocated <= gc_threshold)
+                return;
+            yas_gc_start();
+            gc_mark_step(YAS_GC_STEP_LIMIT);
+            break;
+        case YAS_GC_MARKING:
+            gc_mark_step(YAS_GC_STEP_LIMIT);
+            if (gc_gray_count == 0) {
+                /* Atomic phase: the C-stack roots (eval_roots' expr/env/
+                 * stack pointers, the shadow stack) may have been
+                 * reassigned many times across the safe points this cycle
+                 * spanned, so re-mark once more and fully drain before
+                 * sweeping - this never persists across a yas_gc_step()
+                 * call, so no allocation can race it. */
+                gc_mark_roots();
+                while (gc_gray_count > 0)
+                    gc_mark_step(1 << 20);
+                gc_phase = YAS_GC_SWEEPING;
+                gc_sweep_prev = NULL;
+                gc_sweep_step(YAS_GC_STEP_LIMIT);
+            }
+            break;
+        case YAS_GC_SWEEPING:
+            /* The write barrier can still fire during SWEEPING: live code
+             * keeps running between steps, and can store a reference to an
+             * object this cycle's marking never reached (still WHITE) into
+             * an already-BLACK container - e.g. resurrecting a value that
+             * was unreachable at the atomic snapshot via a fresh binding.
+             * MARKING is over, so nothing else will ever pop and scan that
+             * re-grayed container; drain it here first so gc_scan_object()
+             * marks the rescued object non-white *before* the sweep cursor
+             * can reach and free it. Without this, the assertion in
+             * gc_check_idle_invariant() (gc_gray_count == 0 at cycle end)
+             * fires - or worse, without the assertion, the object is
+             * silently freed out from under a live container. */
+            if (gc_gray_count > 0)
+                gc_mark_step(1 << 20);
+            gc_sweep_step(YAS_GC_STEP_LIMIT);
+            break;
+    }
 }
 
 void yas_gc(void)
 {
-	if (gc_phase == YAS_GC_IDLE) {
-		if (gc_allocated == 0)
-			return;
-		yas_gc_start();
-	}
-	while (gc_phase == YAS_GC_MARKING)
-		yas_gc_step();
-	while (gc_phase == YAS_GC_SWEEPING)
-		yas_gc_step();
+    if (gc_phase == YAS_GC_IDLE) {
+        if (gc_allocated == 0)
+            return;
+        yas_gc_start();
+    }
+    while (gc_phase == YAS_GC_MARKING)
+        yas_gc_step();
+    while (gc_phase == YAS_GC_SWEEPING)
+        yas_gc_step();
 }
 
 /* ── Constructors ─────────────────────────────────────────────────── */
 
 YasAtom yas_cons(YasAtom car_val, YasAtom cdr_val)
 {
-	struct Allocation *a = gc_alloc(sizeof(struct Allocation), YAS_GC_OBJ_PAIR);
-	YasAtom p;
+    struct Allocation *a = gc_alloc(sizeof(struct Allocation), YAS_GC_OBJ_PAIR);
+    YasAtom p;
 
-	p.type = YAS_ATOM_TYPE_PAIR;
-	p.value.pair = &a->pair;
+    p.type = YAS_ATOM_TYPE_PAIR;
+    p.value.pair = &a->pair;
 
-	yas_set_car(p, car_val);
-	yas_set_cdr(p, cdr_val);
+    yas_set_car(p, car_val);
+    yas_set_cdr(p, cdr_val);
 
-	return p;
+    return p;
 }
 
 /* eval.c's control-stack frame constructor (ticket #40) - one gc_alloc()
@@ -965,156 +968,156 @@ YasAtom yas_cons(YasAtom car_val, YasAtom cdr_val)
  * the barriered stores below, so `f` can't be swept out from under us. */
 YasAtom yas_make_frame(YasAtom parent, YasAtom env, YasAtom tail)
 {
-	struct YasFrame *f = gc_alloc(sizeof(struct YasFrame), YAS_GC_OBJ_FRAME);
-	YasAtom a;
+    struct YasFrame *f = gc_alloc(sizeof(struct YasFrame), YAS_GC_OBJ_FRAME);
+    YasAtom a;
 
-	a.type = YAS_ATOM_TYPE_FRAME;
-	a.value.frame = f;
+    a.type = YAS_ATOM_TYPE_FRAME;
+    a.value.frame = f;
 
-	f->parent = parent;
-	yas_gc_write_barrier(a, parent);
-	f->env = env;
-	yas_gc_write_barrier(a, env);
-	f->tail = tail;
-	yas_gc_write_barrier(a, tail);
+    f->parent = parent;
+    yas_gc_write_barrier(a, parent);
+    f->env = env;
+    yas_gc_write_barrier(a, env);
+    f->tail = tail;
+    yas_gc_write_barrier(a, tail);
 
-	return a;
+    return a;
 }
 
 YasAtom yas_make_int(long x)
 {
-	YasAtom a;
-	a.type = YAS_ATOM_TYPE_INTEGER;
-	a.value.integer = x;
-	return a;
+    YasAtom a;
+    a.type = YAS_ATOM_TYPE_INTEGER;
+    a.value.integer = x;
+    return a;
 }
 
 YasAtom yas_make_sym(const char *s)
 {
-	YasAtom a;
-	a.type = YAS_ATOM_TYPE_SYMBOL;
-	a.value.symbol = intern_find_or_insert(&sym_intern, s);
-	return a;
+    YasAtom a;
+    a.type = YAS_ATOM_TYPE_SYMBOL;
+    a.value.symbol = intern_find_or_insert(&sym_intern, s);
+    return a;
 }
 
 YasAtom yas_make_keyword(const char *s)
 {
-	YasAtom a;
-	a.type = YAS_ATOM_TYPE_KEYWORD;
-	a.value.keyword = intern_find_or_insert(&kw_intern, s);
-	return a;
+    YasAtom a;
+    a.type = YAS_ATOM_TYPE_KEYWORD;
+    a.value.keyword = intern_find_or_insert(&kw_intern, s);
+    return a;
 }
 
 YasAtom yas_make_builtin(YasBuiltin fn)
 {
-	YasAtom a;
-	a.type = YAS_ATOM_TYPE_BUILTIN;
-	a.value.builtin = fn;
-	return a;
+    YasAtom a;
+    a.type = YAS_ATOM_TYPE_BUILTIN;
+    a.value.builtin = fn;
+    return a;
 }
 
 YasAtom yas_make_float(double x)
 {
-	YasAtom a;
-	a.type = YAS_ATOM_TYPE_FLOAT;
-	a.value.floatval = x;
-	return a;
+    YasAtom a;
+    a.type = YAS_ATOM_TYPE_FLOAT;
+    a.value.floatval = x;
+    return a;
 }
 
 YasAtom yas_make_char(int32_t codepoint)
 {
-	YasAtom a;
-	a.type = YAS_ATOM_TYPE_CHAR;
-	a.value.character = codepoint;
-	return a;
+    YasAtom a;
+    a.type = YAS_ATOM_TYPE_CHAR;
+    a.value.character = codepoint;
+    return a;
 }
 
 YasAtom yas_make_string(const char *s)
 {
-	YasAtom a;
-	size_t len = strlen(s);
-	struct YasStringAlloc *sa = gc_alloc(sizeof(struct YasStringAlloc) + len + 1, YAS_GC_OBJ_STRING);
-	memcpy(sa->data, s, len + 1);
-	a.type = YAS_ATOM_TYPE_STRING;
-	a.value.string = sa->data;
-	return a;
+    YasAtom a;
+    size_t len = strlen(s);
+    struct YasStringAlloc *sa = gc_alloc(sizeof(struct YasStringAlloc) + len + 1, YAS_GC_OBJ_STRING);
+    memcpy(sa->data, s, len + 1);
+    a.type = YAS_ATOM_TYPE_STRING;
+    a.value.string = sa->data;
+    return a;
 }
 
 YasAtom yas_make_string_n(const char *s, size_t len)
 {
-	YasAtom a;
-	struct YasStringAlloc *sa = gc_alloc(sizeof(struct YasStringAlloc) + len + 1, YAS_GC_OBJ_STRING);
-	if (s)
-		memcpy(sa->data, s, len);
-	sa->data[len] = '\0';
-	a.type = YAS_ATOM_TYPE_STRING;
-	a.value.string = sa->data;
-	return a;
+    YasAtom a;
+    struct YasStringAlloc *sa = gc_alloc(sizeof(struct YasStringAlloc) + len + 1, YAS_GC_OBJ_STRING);
+    if (s)
+        memcpy(sa->data, s, len);
+    sa->data[len] = '\0';
+    a.type = YAS_ATOM_TYPE_STRING;
+    a.value.string = sa->data;
+    return a;
 }
 
 YasAtom yas_make_vector(size_t size, YasAtom fill)
 {
-	YasAtom a;
-	struct YasVector *v = gc_alloc(sizeof(struct YasVector), YAS_GC_OBJ_VECTOR);
-	a.type = YAS_ATOM_TYPE_VECTOR;
-	a.value.vector = v;
-	/* `v` is fully linked into gc_all and colored by gc_alloc() above,
-	 * but nothing marks it reachable yet - it's not returned to our
-	 * caller until this function returns. Ordinarily allocate-black
-	 * would protect it for the rest of an already-active cycle, but if
-	 * *this* gc_alloc() is what happened to run while IDLE (v colored
-	 * WHITE) and gc_account_extra() below is what starts the next cycle
-	 * (e.g. the very first collection of the process, when the live
-	 * heap is small enough for a single bounded step to complete an
-	 * entire mark+sweep), v was never inside an active cycle at all -
-	 * it would be swept in the very call that starts one. Root `a` to
-	 * cover that window. */
-	yas_gc_push_root(&a);
+    YasAtom a;
+    struct YasVector *v = gc_alloc(sizeof(struct YasVector), YAS_GC_OBJ_VECTOR);
+    a.type = YAS_ATOM_TYPE_VECTOR;
+    a.value.vector = v;
+    /* `v` is fully linked into gc_all and colored by gc_alloc() above,
+     * but nothing marks it reachable yet - it's not returned to our
+     * caller until this function returns. Ordinarily allocate-black
+     * would protect it for the rest of an already-active cycle, but if
+     * *this* gc_alloc() is what happened to run while IDLE (v colored
+     * WHITE) and gc_account_extra() below is what starts the next cycle
+     * (e.g. the very first collection of the process, when the live
+     * heap is small enough for a single bounded step to complete an
+     * entire mark+sweep), v was never inside an active cycle at all -
+     * it would be swept in the very call that starts one. Root `a` to
+     * cover that window. */
+    yas_gc_push_root(&a);
 
-	/* v->size is left at 0 (calloc's zero-init, via gc_alloc()) until
-	 * the fill loop below has written a valid YasAtom into every slot -
-	 * gc_scan_object() walks exactly v->data[0..v->size), and setting
-	 * v->size before v->data is malloc'd/filled would let a step scan
-	 * uninitialized/garbage bytes as YasAtoms. */
-	v->capacity = size > 0 ? size : 4;
-	v->data = malloc(sizeof(YasAtom) * v->capacity);
-	gc_account_extra(&v->gc, sizeof(YasAtom) * v->capacity);
-	for (size_t i = 0; i < size; i++) {
-		v->data[i] = fill;
-	}
-	v->size = size;
+    /* v->size is left at 0 (calloc's zero-init, via gc_alloc()) until
+     * the fill loop below has written a valid YasAtom into every slot -
+     * gc_scan_object() walks exactly v->data[0..v->size), and setting
+     * v->size before v->data is malloc'd/filled would let a step scan
+     * uninitialized/garbage bytes as YasAtoms. */
+    v->capacity = size > 0 ? size : 4;
+    v->data = malloc(sizeof(YasAtom) * v->capacity);
+    gc_account_extra(&v->gc, sizeof(YasAtom) * v->capacity);
+    for (size_t i = 0; i < size; i++) {
+        v->data[i] = fill;
+    }
+    v->size = size;
 
-	if (size > 0)
-		yas_gc_write_barrier(a, fill);
+    if (size > 0)
+        yas_gc_write_barrier(a, fill);
 
-	yas_gc_pop_roots(1);
-	return a;
+    yas_gc_pop_roots(1);
+    return a;
 }
 
 YasAtom yas_make_hash(void)
 {
-	YasAtom a;
-	struct YasHash *h = gc_alloc(sizeof(struct YasHash), YAS_GC_OBJ_HASH);
-	a.type = YAS_ATOM_TYPE_HASH;
-	a.value.hash = h;
-	/* Same rationale as yas_make_vector() above. */
-	yas_gc_push_root(&a);
+    YasAtom a;
+    struct YasHash *h = gc_alloc(sizeof(struct YasHash), YAS_GC_OBJ_HASH);
+    a.type = YAS_ATOM_TYPE_HASH;
+    a.value.hash = h;
+    /* Same rationale as yas_make_vector() above. */
+    yas_gc_push_root(&a);
 
-	h->size = 0;
-	h->capacity = 16;
-	h->keys = malloc(sizeof(YasAtom) * h->capacity);
-	h->values = malloc(sizeof(YasAtom) * h->capacity);
-	gc_account_extra(&h->gc, sizeof(YasAtom) * h->capacity * 2);
-	h->metatable = NULL;
+    h->size = 0;
+    h->capacity = 16;
+    h->keys = malloc(sizeof(YasAtom) * h->capacity);
+    h->values = malloc(sizeof(YasAtom) * h->capacity);
+    gc_account_extra(&h->gc, sizeof(YasAtom) * h->capacity * 2);
+    h->metatable = NULL;
 
-	h->index_capacity = h->capacity * 2;
-	h->index = malloc(sizeof(size_t) * h->index_capacity);
-	for (size_t i = 0; i < h->index_capacity; i++)
-		h->index[i] = YAS_HASH_INDEX_EMPTY;
-	gc_account_extra(&h->gc, sizeof(size_t) * h->index_capacity);
+    h->index_capacity = h->capacity * 2;
+    h->index = malloc(sizeof(size_t) * h->index_capacity);
+    for (size_t i = 0; i < h->index_capacity; i++)
+        h->index[i] = YAS_HASH_INDEX_EMPTY;
+    gc_account_extra(&h->gc, sizeof(size_t) * h->index_capacity);
 
-	yas_gc_pop_roots(1);
-	return a;
+    yas_gc_pop_roots(1);
+    return a;
 }
 
 /* ── Environments ─────────────────────────────────────────────────── */
@@ -1125,11 +1128,11 @@ YasAtom yas_make_hash(void)
  * power of two. */
 static size_t env_hash_ptr(const void *p)
 {
-	uintptr_t x = (uintptr_t)p;
-	x ^= x >> 13;
-	x *= (uintptr_t)0xff51afd7ed558ccdULL;
-	x ^= x >> 13;
-	return (size_t)x;
+    uintptr_t x = (uintptr_t)p;
+    x ^= x >> 13;
+    x *= (uintptr_t)0xff51afd7ed558ccdULL;
+    x ^= x >> 13;
+    return (size_t)x;
 }
 
 /* Probe env `e` for `sym`. Returns the occupied slot on a hit, or the
@@ -1138,14 +1141,14 @@ static size_t env_hash_ptr(const void *p)
  * Open addressing, no deletes, so no tombstones to skip. */
 static size_t env_probe(struct YasEnv *e, YasAtom sym)
 {
-	size_t mask = e->capacity - 1;
-	size_t i = env_hash_ptr(sym.value.symbol) & mask;
-	while (!yas_nilp(e->syms[i])) {
-		if (e->syms[i].value.symbol == sym.value.symbol)
-			return i;
-		i = (i + 1) & mask;
-	}
-	return i;
+    size_t mask = e->capacity - 1;
+    size_t i = env_hash_ptr(sym.value.symbol) & mask;
+    while (!yas_nilp(e->syms[i])) {
+        if (e->syms[i].value.symbol == sym.value.symbol)
+            return i;
+        i = (i + 1) & mask;
+    }
+    return i;
 }
 
 /* Doubles capacity and rehashes every occupied slot. Mirrors
@@ -1154,133 +1157,133 @@ static size_t env_probe(struct YasEnv *e, YasAtom sym)
  * search a full table. */
 static void env_grow(struct YasEnv *e)
 {
-	size_t old_capacity = e->capacity;
-	YasAtom *old_syms = e->syms;
-	YasAtom *old_vals = e->vals;
+    size_t old_capacity = e->capacity;
+    YasAtom *old_syms = e->syms;
+    YasAtom *old_vals = e->vals;
 
-	e->capacity = old_capacity * 2;
-	e->syms = malloc(sizeof(YasAtom) * e->capacity);
-	e->vals = malloc(sizeof(YasAtom) * e->capacity);
-	for (size_t i = 0; i < e->capacity; i++) {
-		e->syms[i] = yas_nil;
-		e->vals[i] = yas_nil;
-	}
-	gc_account_extra(&e->gc, sizeof(YasAtom) * (e->capacity - old_capacity) * 2);
+    e->capacity = old_capacity * 2;
+    e->syms = malloc(sizeof(YasAtom) * e->capacity);
+    e->vals = malloc(sizeof(YasAtom) * e->capacity);
+    for (size_t i = 0; i < e->capacity; i++) {
+        e->syms[i] = yas_nil;
+        e->vals[i] = yas_nil;
+    }
+    gc_account_extra(&e->gc, sizeof(YasAtom) * (e->capacity - old_capacity) * 2);
 
-	for (size_t i = 0; i < old_capacity; i++) {
-		if (yas_nilp(old_syms[i]))
-			continue;
-		size_t slot = env_probe(e, old_syms[i]);
-		e->syms[slot] = old_syms[i];
-		e->vals[slot] = old_vals[i];
-	}
-	free(old_syms);
-	free(old_vals);
+    for (size_t i = 0; i < old_capacity; i++) {
+        if (yas_nilp(old_syms[i]))
+            continue;
+        size_t slot = env_probe(e, old_syms[i]);
+        e->syms[slot] = old_syms[i];
+        e->vals[slot] = old_vals[i];
+    }
+    free(old_syms);
+    free(old_vals);
 }
 
 YasAtom yas_env_create(YasAtom parent)
 {
-	YasAtom a;
-	struct YasEnv *e = gc_alloc(sizeof(struct YasEnv), YAS_GC_OBJ_ENV);
-	a.type = YAS_ATOM_TYPE_ENV;
-	a.value.env = e;
-	/* Same rationale as yas_make_vector()/yas_make_hash() above: `e` is
-	 * BLACK if allocated mid-cycle (gc_alloc()'s allocate-black), and the
-	 * malloc()s/write barrier below can themselves step the GC before
-	 * this constructor returns. */
-	yas_gc_push_root(&a);
+    YasAtom a;
+    struct YasEnv *e = gc_alloc(sizeof(struct YasEnv), YAS_GC_OBJ_ENV);
+    a.type = YAS_ATOM_TYPE_ENV;
+    a.value.env = e;
+    /* Same rationale as yas_make_vector()/yas_make_hash() above: `e` is
+     * BLACK if allocated mid-cycle (gc_alloc()'s allocate-black), and the
+     * malloc()s/write barrier below can themselves step the GC before
+     * this constructor returns. */
+    yas_gc_push_root(&a);
 
-	e->parent = yas_nil;
-	e->count = 0;
-	e->capacity = 8;
-	e->syms = malloc(sizeof(YasAtom) * e->capacity);
-	e->vals = malloc(sizeof(YasAtom) * e->capacity);
-	for (size_t i = 0; i < e->capacity; i++) {
-		e->syms[i] = yas_nil;
-		e->vals[i] = yas_nil;
-	}
-	gc_account_extra(&e->gc, sizeof(YasAtom) * e->capacity * 2);
+    e->parent = yas_nil;
+    e->count = 0;
+    e->capacity = 8;
+    e->syms = malloc(sizeof(YasAtom) * e->capacity);
+    e->vals = malloc(sizeof(YasAtom) * e->capacity);
+    for (size_t i = 0; i < e->capacity; i++) {
+        e->syms[i] = yas_nil;
+        e->vals[i] = yas_nil;
+    }
+    gc_account_extra(&e->gc, sizeof(YasAtom) * e->capacity * 2);
 
-	e->parent = parent;
-	yas_gc_write_barrier(a, parent);
+    e->parent = parent;
+    yas_gc_write_barrier(a, parent);
 
-	yas_gc_pop_roots(1);
-	return a;
+    yas_gc_pop_roots(1);
+    return a;
 }
 
 int yas_env_define(YasAtom env, YasAtom symbol, YasAtom value)
 {
-	struct YasEnv *e = env.value.env;
-	size_t slot = env_probe(e, symbol);
+    struct YasEnv *e = env.value.env;
+    size_t slot = env_probe(e, symbol);
 
-	if (!yas_nilp(e->syms[slot])) {
-		e->vals[slot] = value;
-		yas_gc_write_barrier(env, value);
-		return YAS_ERROR_OK;
-	}
+    if (!yas_nilp(e->syms[slot])) {
+        e->vals[slot] = value;
+        yas_gc_write_barrier(env, value);
+        return YAS_ERROR_OK;
+    }
 
-	if ((e->count + 1) * 10 >= e->capacity * 7) {
-		env_grow(e);
-		slot = env_probe(e, symbol);
-	}
+    if ((e->count + 1) * 10 >= e->capacity * 7) {
+        env_grow(e);
+        slot = env_probe(e, symbol);
+    }
 
-	e->syms[slot] = symbol;
-	e->vals[slot] = value;
-	e->count++;
-	yas_gc_write_barrier(env, symbol);
-	yas_gc_write_barrier(env, value);
+    e->syms[slot] = symbol;
+    e->vals[slot] = value;
+    e->count++;
+    yas_gc_write_barrier(env, symbol);
+    yas_gc_write_barrier(env, value);
 
-	return YAS_ERROR_OK;
+    return YAS_ERROR_OK;
 }
 
 int yas_env_get(YasAtom env, YasAtom symbol, YasAtom *result)
 {
-	struct YasEnv *e = env.value.env;
-	size_t slot = env_probe(e, symbol);
+    struct YasEnv *e = env.value.env;
+    size_t slot = env_probe(e, symbol);
 
-	if (!yas_nilp(e->syms[slot])) {
-		*result = e->vals[slot];
-		return YAS_ERROR_OK;
-	}
+    if (!yas_nilp(e->syms[slot])) {
+        *result = e->vals[slot];
+        return YAS_ERROR_OK;
+    }
 
-	if (yas_nilp(e->parent))
-		return YAS_ERROR_UNBOUND;
+    if (yas_nilp(e->parent))
+        return YAS_ERROR_UNBOUND;
 
-	return yas_env_get(e->parent, symbol, result);
+    return yas_env_get(e->parent, symbol, result);
 }
 
 int yas_env_set(YasAtom env, YasAtom symbol, YasAtom value)
 {
-	struct YasEnv *e = env.value.env;
-	size_t slot = env_probe(e, symbol);
+    struct YasEnv *e = env.value.env;
+    size_t slot = env_probe(e, symbol);
 
-	if (!yas_nilp(e->syms[slot])) {
-		e->vals[slot] = value;
-		yas_gc_write_barrier(env, value);
-		return YAS_ERROR_OK;
-	}
+    if (!yas_nilp(e->syms[slot])) {
+        e->vals[slot] = value;
+        yas_gc_write_barrier(env, value);
+        return YAS_ERROR_OK;
+    }
 
-	if (yas_nilp(e->parent))
-		return YAS_ERROR_UNBOUND;
+    if (yas_nilp(e->parent))
+        return YAS_ERROR_UNBOUND;
 
-	return yas_env_set(e->parent, symbol, value);
+    return yas_env_set(e->parent, symbol, value);
 }
 
 /* Vector operations */
 YasAtom yas_vector_ref(YasAtom vec, size_t index)
 {
-	return vec.value.vector->data[index];
+    return vec.value.vector->data[index];
 }
 
 void yas_vector_set(YasAtom vec, size_t index, YasAtom value)
 {
-	vec.value.vector->data[index] = value;
-	yas_gc_write_barrier(vec, value);
+    vec.value.vector->data[index] = value;
+    yas_gc_write_barrier(vec, value);
 }
 
 size_t yas_vector_length(YasAtom vec)
 {
-	return vec.value.vector->size;
+    return vec.value.vector->size;
 }
 
 /* Hash operations - dense keys[]/values[] arrays (unchanged: iteration
@@ -1291,16 +1294,24 @@ size_t yas_vector_length(YasAtom vec)
  * slot numbers giving O(1) amortized lookup instead of an O(n) scan. */
 static int atom_equal(YasAtom a, YasAtom b)
 {
-	if (a.type != b.type) return 0;
-	switch (a.type) {
-	case YAS_ATOM_TYPE_NIL: return 1;
-	case YAS_ATOM_TYPE_SYMBOL: return a.value.symbol == b.value.symbol;
-	case YAS_ATOM_TYPE_KEYWORD: return a.value.keyword == b.value.keyword;
-	case YAS_ATOM_TYPE_INTEGER: return a.value.integer == b.value.integer;
-	case YAS_ATOM_TYPE_FLOAT: return a.value.floatval == b.value.floatval;
-	case YAS_ATOM_TYPE_STRING: return strcmp(a.value.string, b.value.string) == 0;
-	default: return a.value.pair == b.value.pair;
-	}
+    if (a.type != b.type)
+        return 0;
+    switch (a.type) {
+        case YAS_ATOM_TYPE_NIL:
+            return 1;
+        case YAS_ATOM_TYPE_SYMBOL:
+            return a.value.symbol == b.value.symbol;
+        case YAS_ATOM_TYPE_KEYWORD:
+            return a.value.keyword == b.value.keyword;
+        case YAS_ATOM_TYPE_INTEGER:
+            return a.value.integer == b.value.integer;
+        case YAS_ATOM_TYPE_FLOAT:
+            return a.value.floatval == b.value.floatval;
+        case YAS_ATOM_TYPE_STRING:
+            return strcmp(a.value.string, b.value.string) == 0;
+        default:
+            return a.value.pair == b.value.pair;
+    }
 }
 
 /* Must agree with atom_equal() above exactly, key type by key type -
@@ -1312,25 +1323,25 @@ static int atom_equal(YasAtom a, YasAtom b)
  * never dereferenced, just reusing its mixing step. */
 static size_t atom_hash(YasAtom a)
 {
-	switch (a.type) {
-	case YAS_ATOM_TYPE_NIL:
-		return 0;
-	case YAS_ATOM_TYPE_SYMBOL:
-		return env_hash_ptr(a.value.symbol);
-	case YAS_ATOM_TYPE_KEYWORD:
-		return env_hash_ptr(a.value.keyword);
-	case YAS_ATOM_TYPE_INTEGER:
-		return env_hash_ptr((const void *)(uintptr_t)a.value.integer);
-	case YAS_ATOM_TYPE_FLOAT: {
-		uint64_t bits;
-		memcpy(&bits, &a.value.floatval, sizeof(bits));
-		return env_hash_ptr((const void *)(uintptr_t)bits);
-	}
-	case YAS_ATOM_TYPE_STRING:
-		return fnv1a_hash(a.value.string);
-	default:
-		return env_hash_ptr(a.value.pair);
-	}
+    switch (a.type) {
+        case YAS_ATOM_TYPE_NIL:
+            return 0;
+        case YAS_ATOM_TYPE_SYMBOL:
+            return env_hash_ptr(a.value.symbol);
+        case YAS_ATOM_TYPE_KEYWORD:
+            return env_hash_ptr(a.value.keyword);
+        case YAS_ATOM_TYPE_INTEGER:
+            return env_hash_ptr((const void *)(uintptr_t)a.value.integer);
+        case YAS_ATOM_TYPE_FLOAT: {
+            uint64_t bits;
+            memcpy(&bits, &a.value.floatval, sizeof(bits));
+            return env_hash_ptr((const void *)(uintptr_t)bits);
+        }
+        case YAS_ATOM_TYPE_STRING:
+            return fnv1a_hash(a.value.string);
+        default:
+            return env_hash_ptr(a.value.pair);
+    }
 }
 
 /* Probe `h->index` for `key` (already-computed `key_hash`). Returns the
@@ -1340,14 +1351,14 @@ static size_t atom_hash(YasAtom a)
  * of leaving a tombstone - see there). */
 static size_t hash_index_probe(struct YasHash *h, YasAtom key, size_t key_hash)
 {
-	size_t mask = h->index_capacity - 1;
-	size_t i = key_hash & mask;
-	while (h->index[i] != YAS_HASH_INDEX_EMPTY) {
-		if (atom_equal(h->keys[h->index[i]], key))
-			return i;
-		i = (i + 1) & mask;
-	}
-	return i;
+    size_t mask = h->index_capacity - 1;
+    size_t i = key_hash & mask;
+    while (h->index[i] != YAS_HASH_INDEX_EMPTY) {
+        if (atom_equal(h->keys[h->index[i]], key))
+            return i;
+        i = (i + 1) & mask;
+    }
+    return i;
 }
 
 /* Rebuilds `h->index` from scratch against the current `h->keys`/
@@ -1358,225 +1369,227 @@ static size_t hash_index_probe(struct YasHash *h, YasAtom key, size_t key_hash)
  * probing. */
 static void hash_index_rebuild(struct YasHash *h)
 {
-	for (size_t i = 0; i < h->index_capacity; i++)
-		h->index[i] = YAS_HASH_INDEX_EMPTY;
-	for (size_t i = 0; i < h->size; i++) {
-		size_t slot = hash_index_probe(h, h->keys[i], atom_hash(h->keys[i]));
-		h->index[slot] = i;
-	}
+    for (size_t i = 0; i < h->index_capacity; i++)
+        h->index[i] = YAS_HASH_INDEX_EMPTY;
+    for (size_t i = 0; i < h->size; i++) {
+        size_t slot = hash_index_probe(h, h->keys[i], atom_hash(h->keys[i]));
+        h->index[slot] = i;
+    }
 }
 
 YasAtom yas_hash_ref(YasAtom hash, YasAtom key, YasAtom default_val)
 {
-	struct YasHash *h = hash.value.hash;
-	size_t slot = hash_index_probe(h, key, atom_hash(key));
-	if (h->index[slot] != YAS_HASH_INDEX_EMPTY)
-		return h->values[h->index[slot]];
-	return default_val;
+    struct YasHash *h = hash.value.hash;
+    size_t slot = hash_index_probe(h, key, atom_hash(key));
+    if (h->index[slot] != YAS_HASH_INDEX_EMPTY)
+        return h->values[h->index[slot]];
+    return default_val;
 }
 
 void yas_hash_set(YasAtom hash, YasAtom key, YasAtom value)
 {
-	struct YasHash *h = hash.value.hash;
-	size_t key_hash = atom_hash(key);
-	size_t slot = hash_index_probe(h, key, key_hash);
+    struct YasHash *h = hash.value.hash;
+    size_t key_hash = atom_hash(key);
+    size_t slot = hash_index_probe(h, key, key_hash);
 
-	if (h->index[slot] != YAS_HASH_INDEX_EMPTY) {
-		h->values[h->index[slot]] = value;
-		yas_gc_write_barrier(hash, value);
-		return;
-	}
+    if (h->index[slot] != YAS_HASH_INDEX_EMPTY) {
+        h->values[h->index[slot]] = value;
+        yas_gc_write_barrier(hash, value);
+        return;
+    }
 
-	/* Add new key */
-	if (h->size >= h->capacity) {
-		h->capacity *= 2;
-		h->keys = realloc(h->keys, sizeof(YasAtom) * h->capacity);
-		h->values = realloc(h->values, sizeof(YasAtom) * h->capacity);
+    /* Add new key */
+    if (h->size >= h->capacity) {
+        h->capacity *= 2;
+        h->keys = realloc(h->keys, sizeof(YasAtom) * h->capacity);
+        h->values = realloc(h->values, sizeof(YasAtom) * h->capacity);
 
-		/* index_capacity tracks capacity * 2 (see yas.h) - rebuild
-		 * against the new, larger table rather than growing in place,
-		 * since every existing slot's probe sequence changes with the
-		 * mask. */
-		free(h->index);
-		h->index_capacity = h->capacity * 2;
-		h->index = malloc(sizeof(size_t) * h->index_capacity);
-		hash_index_rebuild(h);
-		slot = hash_index_probe(h, key, key_hash);
-	}
+        /* index_capacity tracks capacity * 2 (see yas.h) - rebuild
+         * against the new, larger table rather than growing in place,
+         * since every existing slot's probe sequence changes with the
+         * mask. */
+        free(h->index);
+        h->index_capacity = h->capacity * 2;
+        h->index = malloc(sizeof(size_t) * h->index_capacity);
+        hash_index_rebuild(h);
+        slot = hash_index_probe(h, key, key_hash);
+    }
 
-	h->keys[h->size] = key;
-	h->values[h->size] = value;
-	h->index[slot] = h->size;
-	h->size++;
-	yas_gc_write_barrier(hash, key);
-	yas_gc_write_barrier(hash, value);
+    h->keys[h->size] = key;
+    h->values[h->size] = value;
+    h->index[slot] = h->size;
+    h->size++;
+    yas_gc_write_barrier(hash, key);
+    yas_gc_write_barrier(hash, value);
 }
 
 int yas_hash_remove(YasAtom hash, YasAtom key)
 {
-	struct YasHash *h = hash.value.hash;
-	size_t slot = hash_index_probe(h, key, atom_hash(key));
-	if (h->index[slot] == YAS_HASH_INDEX_EMPTY)
-		return 0;
+    struct YasHash *h = hash.value.hash;
+    size_t slot = hash_index_probe(h, key, atom_hash(key));
+    if (h->index[slot] == YAS_HASH_INDEX_EMPTY)
+        return 0;
 
-	size_t i = h->index[slot];
-	/* Move last element to this position. Both the moved key and value
-	 * were already reachable through this same hash before the move,
-	 * so no new white child is introduced - no write barrier needed
-	 * here. */
-	h->size--;
-	if (i < h->size) {
-		h->keys[i] = h->keys[h->size];
-		h->values[i] = h->values[h->size];
-	}
-	/* The move above changed which slot number names the relocated
-	 * entry, and open addressing has no delete - cheapest correct fix
-	 * is a wholesale rebuild rather than tombstone bookkeeping. Removal
-	 * is rare relative to ref/set, so this is not the hot path. */
-	hash_index_rebuild(h);
-	return 1;
+    size_t i = h->index[slot];
+    /* Move last element to this position. Both the moved key and value
+     * were already reachable through this same hash before the move,
+     * so no new white child is introduced - no write barrier needed
+     * here. */
+    h->size--;
+    if (i < h->size) {
+        h->keys[i] = h->keys[h->size];
+        h->values[i] = h->values[h->size];
+    }
+    /* The move above changed which slot number names the relocated
+     * entry, and open addressing has no delete - cheapest correct fix
+     * is a wholesale rebuild rather than tombstone bookkeeping. Removal
+     * is rare relative to ref/set, so this is not the hot path. */
+    hash_index_rebuild(h);
+    return 1;
 }
 
 size_t yas_hash_size(YasAtom hash)
 {
-	return hash.value.hash->size;
+    return hash.value.hash->size;
 }
 
 /* Metatable operations */
 YasAtom yas_get_metamethod(YasAtom hash, const char *name)
 {
-	struct YasHash *h = hash.value.hash;
-	if (!h->metatable) return yas_nil;
+    struct YasHash *h = hash.value.hash;
+    if (!h->metatable)
+        return yas_nil;
 
-	/* Use keyword for metamethod lookup (uppercase to match reader) */
-	char kw_name[64];
-	snprintf(kw_name, sizeof(kw_name), "%s", name);
-	/* Convert to uppercase */
-	for (char *p = kw_name; *p; p++) {
-		if (*p >= 'a' && *p <= 'z') *p -= 32;
-	}
-	YasAtom key = yas_make_keyword(kw_name);
+    /* Use keyword for metamethod lookup (uppercase to match reader) */
+    char kw_name[64];
+    snprintf(kw_name, sizeof(kw_name), "%s", name);
+    /* Convert to uppercase */
+    for (char *p = kw_name; *p; p++) {
+        if (*p >= 'a' && *p <= 'z')
+            *p -= 32;
+    }
+    YasAtom key = yas_make_keyword(kw_name);
 
-	/* Look up in metatable */
-	YasAtom mt;
-	mt.type = YAS_ATOM_TYPE_HASH;
-	mt.value.hash = h->metatable;
-	return yas_hash_ref(mt, key, yas_nil);
+    /* Look up in metatable */
+    YasAtom mt;
+    mt.type = YAS_ATOM_TYPE_HASH;
+    mt.value.hash = h->metatable;
+    return yas_hash_ref(mt, key, yas_nil);
 }
 
 int yas_has_metamethod(YasAtom hash, const char *name)
 {
-	return !yas_nilp(yas_get_metamethod(hash, name));
+    return !yas_nilp(yas_get_metamethod(hash, name));
 }
 
 int yas_listp(YasAtom expr)
 {
-	while (!yas_nilp(expr)) {
-		if (expr.type != YAS_ATOM_TYPE_PAIR)
-			return 0;
-		expr = yas_cdr(expr);
-	}
-	return 1;
+    while (!yas_nilp(expr)) {
+        if (expr.type != YAS_ATOM_TYPE_PAIR)
+            return 0;
+        expr = yas_cdr(expr);
+    }
+    return 1;
 }
 
 YasAtom yas_copy_list(YasAtom list)
 {
-	YasAtom a, p;
+    YasAtom a, p;
 
-	if (yas_nilp(list))
-		return yas_nil;
+    if (yas_nilp(list))
+        return yas_nil;
 
-	a = yas_cons(yas_car(list), yas_nil);
-	/* `a` (the new list's head) is a fresh, otherwise-unreachable local
-	 * built up across further yas_cons() calls below - root it for the
-	 * loop's duration. `p` needs no separate root: it's always reachable
-	 * by walking cdrs from `a`, since each iteration's yas_set_cdr()
-	 * links the newly-consed node in before `p` ever advances past it.
-	 * `list` (the *source* being copied) is this function's parameter,
-	 * not a value it created - whether it needs protection is the
-	 * caller's responsibility, per docs/GC.md's "Callers not affected". */
-	yas_gc_push_root(&a);
-	p = a;
-	list = yas_cdr(list);
+    a = yas_cons(yas_car(list), yas_nil);
+    /* `a` (the new list's head) is a fresh, otherwise-unreachable local
+     * built up across further yas_cons() calls below - root it for the
+     * loop's duration. `p` needs no separate root: it's always reachable
+     * by walking cdrs from `a`, since each iteration's yas_set_cdr()
+     * links the newly-consed node in before `p` ever advances past it.
+     * `list` (the *source* being copied) is this function's parameter,
+     * not a value it created - whether it needs protection is the
+     * caller's responsibility, per docs/GC.md's "Callers not affected". */
+    yas_gc_push_root(&a);
+    p = a;
+    list = yas_cdr(list);
 
-	while (!yas_nilp(list)) {
-		yas_set_cdr(p, yas_cons(yas_car(list), yas_nil));
-		p = yas_cdr(p);
-		list = yas_cdr(list);
-	}
+    while (!yas_nilp(list)) {
+        yas_set_cdr(p, yas_cons(yas_car(list), yas_nil));
+        p = yas_cdr(p);
+        list = yas_cdr(list);
+    }
 
-	yas_gc_pop_roots(1);
-	return a;
+    yas_gc_pop_roots(1);
+    return a;
 }
 
 YasAtom yas_list_create(int n, ...)
 {
-	va_list ap;
-	YasAtom list = yas_nil;
+    va_list ap;
+    YasAtom list = yas_nil;
 
-	/* `list` accumulates across repeated yas_cons() calls below - each
-	 * one is a fresh, otherwise-unreachable pair until the *next*
-	 * iteration links it in, so root the slot for the whole loop (one
-	 * push covers every reassignment - yas_gc_push_root() tracks the
-	 * slot's address, not a snapshot). This is not hypothetical: two
-	 * items are already enough to reproduce a real use-after-free here
-	 * (main.c's own top-level (yas base) import, at process startup
-	 * before the heap is large enough for bounded stepping to make this
-	 * astronomically unlikely instead of merely unlikely). */
-	yas_gc_push_root(&list);
-	va_start(ap, n);
-	while (n--) {
-		YasAtom item = va_arg(ap, YasAtom);
-		list = yas_cons(item, list);
-	}
-	va_end(ap);
+    /* `list` accumulates across repeated yas_cons() calls below - each
+     * one is a fresh, otherwise-unreachable pair until the *next*
+     * iteration links it in, so root the slot for the whole loop (one
+     * push covers every reassignment - yas_gc_push_root() tracks the
+     * slot's address, not a snapshot). This is not hypothetical: two
+     * items are already enough to reproduce a real use-after-free here
+     * (main.c's own top-level (yas base) import, at process startup
+     * before the heap is large enough for bounded stepping to make this
+     * astronomically unlikely instead of merely unlikely). */
+    yas_gc_push_root(&list);
+    va_start(ap, n);
+    while (n--) {
+        YasAtom item = va_arg(ap, YasAtom);
+        list = yas_cons(item, list);
+    }
+    va_end(ap);
 
-	yas_list_reverse(&list);
-	yas_gc_pop_roots(1);
-	return list;
+    yas_list_reverse(&list);
+    yas_gc_pop_roots(1);
+    return list;
 }
 
 YasAtom yas_list_get(YasAtom list, int k)
 {
-	while (k--)
-		list = yas_cdr(list);
-	return yas_car(list);
+    while (k--)
+        list = yas_cdr(list);
+    return yas_car(list);
 }
 
 void yas_list_set(YasAtom list, int k, YasAtom value)
 {
-	while (k--)
-		list = yas_cdr(list);
-	yas_set_car(list, value);
+    while (k--)
+        list = yas_cdr(list);
+    yas_set_car(list, value);
 }
 
 void yas_list_reverse(YasAtom *list)
 {
-	YasAtom tail = yas_nil;
-	while (!yas_nilp(*list)) {
-		YasAtom p = yas_cdr(*list);
-		yas_set_cdr(*list, tail);
-		tail = *list;
-		*list = p;
-	}
-	*list = tail;
+    YasAtom tail = yas_nil;
+    while (!yas_nilp(*list)) {
+        YasAtom p = yas_cdr(*list);
+        yas_set_cdr(*list, tail);
+        tail = *list;
+        *list = p;
+    }
+    *list = tail;
 }
 
 /* Port operations */
 YasAtom yas_make_port(void *handle, const char *path, int is_input, int is_binary, int provider_id)
 {
-	YasAtom a;
-	struct YasPort *p = gc_alloc(sizeof(struct YasPort), YAS_GC_OBJ_PORT);
-	p->handle = handle;
-	p->path = strdup(path);
-	p->is_input = is_input;
-	p->is_binary = is_binary;
-	p->is_open = 1;
-	p->provider_id = provider_id;
-	a.type = YAS_ATOM_TYPE_PORT;
-	a.value.port = p;
+    YasAtom a;
+    struct YasPort *p = gc_alloc(sizeof(struct YasPort), YAS_GC_OBJ_PORT);
+    p->handle = handle;
+    p->path = strdup(path);
+    p->is_input = is_input;
+    p->is_binary = is_binary;
+    p->is_open = 1;
+    p->provider_id = provider_id;
+    a.type = YAS_ATOM_TYPE_PORT;
+    a.value.port = p;
 
-	return a;
+    return a;
 }
 
 #ifdef YAS_FFI
@@ -1586,303 +1599,292 @@ YasAtom yas_make_port(void *handle, const char *path, int is_input, int is_binar
  * just get a zeroed, GC-tracked block of the right size. */
 struct YasFFIFunction *yas_gc_alloc_ffi_function(void)
 {
-	return gc_alloc(sizeof(struct YasFFIFunction), YAS_GC_OBJ_FFI_FUNCTION);
+    return gc_alloc(sizeof(struct YasFFIFunction), YAS_GC_OBJ_FFI_FUNCTION);
 }
 
 YasFFIStructInstance *yas_gc_alloc_ffi_struct(void)
 {
-	return gc_alloc(sizeof(YasFFIStructInstance), YAS_GC_OBJ_FFI_STRUCT);
+    return gc_alloc(sizeof(YasFFIStructInstance), YAS_GC_OBJ_FFI_STRUCT);
 }
 #endif
 
 /* Bytevector operations */
 YasAtom yas_make_bytevector(size_t size)
 {
-	YasAtom a;
-	struct YasBytevector *bv = gc_alloc(sizeof(struct YasBytevector), YAS_GC_OBJ_BYTEVECTOR);
-	a.type = YAS_ATOM_TYPE_BYTEVECTOR;
-	a.value.bytevector = bv;
-	/* Same rationale as yas_make_vector() above: `bv` itself (not its
-	 * contents - bytevectors are GC leaves, gc_scan_object() never reads
-	 * bv->data) needs protecting across gc_account_extra() below. */
-	yas_gc_push_root(&a);
+    YasAtom a;
+    struct YasBytevector *bv = gc_alloc(sizeof(struct YasBytevector), YAS_GC_OBJ_BYTEVECTOR);
+    a.type = YAS_ATOM_TYPE_BYTEVECTOR;
+    a.value.bytevector = bv;
+    /* Same rationale as yas_make_vector() above: `bv` itself (not its
+     * contents - bytevectors are GC leaves, gc_scan_object() never reads
+     * bv->data) needs protecting across gc_account_extra() below. */
+    yas_gc_push_root(&a);
 
-	bv->size = size;
-	bv->data = calloc(size, 1);
-	gc_account_extra(&bv->gc, size);
+    bv->size = size;
+    bv->data = calloc(size, 1);
+    gc_account_extra(&bv->gc, size);
 
-	yas_gc_pop_roots(1);
-	return a;
+    yas_gc_pop_roots(1);
+    return a;
 }
 
 YasAtom yas_make_bytevector_from_data(const unsigned char *data, size_t size)
 {
-	YasAtom a;
-	struct YasBytevector *bv = gc_alloc(sizeof(struct YasBytevector), YAS_GC_OBJ_BYTEVECTOR);
-	a.type = YAS_ATOM_TYPE_BYTEVECTOR;
-	a.value.bytevector = bv;
-	/* Same rationale as yas_make_bytevector() above. */
-	yas_gc_push_root(&a);
+    YasAtom a;
+    struct YasBytevector *bv = gc_alloc(sizeof(struct YasBytevector), YAS_GC_OBJ_BYTEVECTOR);
+    a.type = YAS_ATOM_TYPE_BYTEVECTOR;
+    a.value.bytevector = bv;
+    /* Same rationale as yas_make_bytevector() above. */
+    yas_gc_push_root(&a);
 
-	bv->size = size;
-	bv->data = malloc(size);
-	memcpy(bv->data, data, size);
-	gc_account_extra(&bv->gc, size);
+    bv->size = size;
+    bv->data = malloc(size);
+    memcpy(bv->data, data, size);
+    gc_account_extra(&bv->gc, size);
 
-	yas_gc_pop_roots(1);
-	return a;
+    yas_gc_pop_roots(1);
+    return a;
 }
 
 unsigned char yas_bytevector_ref(YasAtom bv, size_t index)
 {
-	return bv.value.bytevector->data[index];
+    return bv.value.bytevector->data[index];
 }
 
 void yas_bytevector_set(YasAtom bv, size_t index, unsigned char value)
 {
-	bv.value.bytevector->data[index] = value;
+    bv.value.bytevector->data[index] = value;
 }
 
 size_t yas_bytevector_length(YasAtom bv)
 {
-	return bv.value.bytevector->size;
+    return bv.value.bytevector->size;
 }
 
 /* SIMD Vector/Matrix constructors */
 static yas_vec4_t *gc_alloc_vec(void)
 {
-	struct YasVecAlloc *va = gc_alloc(sizeof(struct YasVecAlloc), YAS_GC_OBJ_VEC);
-	return &va->v;
+    struct YasVecAlloc *va = gc_alloc(sizeof(struct YasVecAlloc), YAS_GC_OBJ_VEC);
+    return &va->v;
 }
 
 static yas_mat4_t *gc_alloc_mat4(void)
 {
-	struct YasMat4Alloc *ma = gc_alloc(sizeof(struct YasMat4Alloc), YAS_GC_OBJ_MAT4);
-	return &ma->m;
+    struct YasMat4Alloc *ma = gc_alloc(sizeof(struct YasMat4Alloc), YAS_GC_OBJ_MAT4);
+    return &ma->m;
 }
 
 YasAtom yas_make_vec2(float x, float y)
 {
-	YasAtom a;
-	a.type = YAS_ATOM_TYPE_VEC2;
-	a.value.vec = gc_alloc_vec();
+    YasAtom a;
+    a.type = YAS_ATOM_TYPE_VEC2;
+    a.value.vec = gc_alloc_vec();
 #ifdef YAS_SIMD_X86
-	a.value.vec->v = _mm_set_ps(0, 0, y, x);
+    a.value.vec->v = _mm_set_ps(0, 0, y, x);
 #elif defined(YAS_SIMD_ARM_NEON)
-	float vals[4] = {x, y, 0, 0};
-	a.value.vec->v = vld1q_f32(vals);
+    float vals[4] = {x, y, 0, 0};
+    a.value.vec->v = vld1q_f32(vals);
 #elif defined(YAS_SIMD_WASM)
-	a.value.vec->v = wasm_f32x4_make(x, y, 0, 0);
+    a.value.vec->v = wasm_f32x4_make(x, y, 0, 0);
 #else
-	a.value.vec->data[0] = x;
-	a.value.vec->data[1] = y;
-	a.value.vec->data[2] = 0;
-	a.value.vec->data[3] = 0;
+    a.value.vec->data[0] = x;
+    a.value.vec->data[1] = y;
+    a.value.vec->data[2] = 0;
+    a.value.vec->data[3] = 0;
 #endif
-	return a;
+    return a;
 }
 
 YasAtom yas_make_vec3(float x, float y, float z)
 {
-	YasAtom a;
-	a.type = YAS_ATOM_TYPE_VEC3;
-	a.value.vec = gc_alloc_vec();
+    YasAtom a;
+    a.type = YAS_ATOM_TYPE_VEC3;
+    a.value.vec = gc_alloc_vec();
 #ifdef YAS_SIMD_X86
-	a.value.vec->v = _mm_set_ps(0, z, y, x);
+    a.value.vec->v = _mm_set_ps(0, z, y, x);
 #elif defined(YAS_SIMD_ARM_NEON)
-	float vals[4] = {x, y, z, 0};
-	a.value.vec->v = vld1q_f32(vals);
+    float vals[4] = {x, y, z, 0};
+    a.value.vec->v = vld1q_f32(vals);
 #elif defined(YAS_SIMD_WASM)
-	a.value.vec->v = wasm_f32x4_make(x, y, z, 0);
+    a.value.vec->v = wasm_f32x4_make(x, y, z, 0);
 #else
-	a.value.vec->data[0] = x;
-	a.value.vec->data[1] = y;
-	a.value.vec->data[2] = z;
-	a.value.vec->data[3] = 0;
+    a.value.vec->data[0] = x;
+    a.value.vec->data[1] = y;
+    a.value.vec->data[2] = z;
+    a.value.vec->data[3] = 0;
 #endif
-	return a;
+    return a;
 }
 
 YasAtom yas_make_vec4(float x, float y, float z, float w)
 {
-	YasAtom a;
-	a.type = YAS_ATOM_TYPE_VEC4;
-	a.value.vec = gc_alloc_vec();
+    YasAtom a;
+    a.type = YAS_ATOM_TYPE_VEC4;
+    a.value.vec = gc_alloc_vec();
 #ifdef YAS_SIMD_X86
-	a.value.vec->v = _mm_set_ps(w, z, y, x);
+    a.value.vec->v = _mm_set_ps(w, z, y, x);
 #elif defined(YAS_SIMD_ARM_NEON)
-	float vals[4] = {x, y, z, w};
-	a.value.vec->v = vld1q_f32(vals);
+    float vals[4] = {x, y, z, w};
+    a.value.vec->v = vld1q_f32(vals);
 #elif defined(YAS_SIMD_WASM)
-	a.value.vec->v = wasm_f32x4_make(x, y, z, w);
+    a.value.vec->v = wasm_f32x4_make(x, y, z, w);
 #else
-	a.value.vec->data[0] = x;
-	a.value.vec->data[1] = y;
-	a.value.vec->data[2] = z;
-	a.value.vec->data[3] = w;
+    a.value.vec->data[0] = x;
+    a.value.vec->data[1] = y;
+    a.value.vec->data[2] = z;
+    a.value.vec->data[3] = w;
 #endif
-	return a;
+    return a;
 }
 
 YasAtom yas_make_mat4_identity(void)
 {
-	YasAtom a;
-	a.type = YAS_ATOM_TYPE_MAT4;
-	a.value.mat4 = gc_alloc_mat4();
-	/* Column-major identity matrix */
-	for (int c = 0; c < 4; c++) {
+    YasAtom a;
+    a.type = YAS_ATOM_TYPE_MAT4;
+    a.value.mat4 = gc_alloc_mat4();
+    /* Column-major identity matrix */
+    for (int c = 0; c < 4; c++) {
 #ifdef YAS_SIMD_X86
-		a.value.mat4->columns[c].v = _mm_set_ps(
-			c == 3 ? 1.0f : 0.0f,
-			c == 2 ? 1.0f : 0.0f,
-			c == 1 ? 1.0f : 0.0f,
-			c == 0 ? 1.0f : 0.0f);
+        a.value.mat4->columns[c].v =
+            _mm_set_ps(c == 3 ? 1.0f : 0.0f, c == 2 ? 1.0f : 0.0f, c == 1 ? 1.0f : 0.0f, c == 0 ? 1.0f : 0.0f);
 #elif defined(YAS_SIMD_ARM_NEON)
-		float vals[4] = {
-			c == 0 ? 1.0f : 0.0f,
-			c == 1 ? 1.0f : 0.0f,
-			c == 2 ? 1.0f : 0.0f,
-			c == 3 ? 1.0f : 0.0f};
-		a.value.mat4->columns[c].v = vld1q_f32(vals);
+        float vals[4] = {c == 0 ? 1.0f : 0.0f, c == 1 ? 1.0f : 0.0f, c == 2 ? 1.0f : 0.0f, c == 3 ? 1.0f : 0.0f};
+        a.value.mat4->columns[c].v = vld1q_f32(vals);
 #elif defined(YAS_SIMD_WASM)
-		a.value.mat4->columns[c].v = wasm_f32x4_make(
-			c == 0 ? 1.0f : 0.0f,
-			c == 1 ? 1.0f : 0.0f,
-			c == 2 ? 1.0f : 0.0f,
-			c == 3 ? 1.0f : 0.0f);
+        a.value.mat4->columns[c].v =
+            wasm_f32x4_make(c == 0 ? 1.0f : 0.0f, c == 1 ? 1.0f : 0.0f, c == 2 ? 1.0f : 0.0f, c == 3 ? 1.0f : 0.0f);
 #else
-		a.value.mat4->columns[c].data[0] = (c == 0) ? 1.0f : 0.0f;
-		a.value.mat4->columns[c].data[1] = (c == 1) ? 1.0f : 0.0f;
-		a.value.mat4->columns[c].data[2] = (c == 2) ? 1.0f : 0.0f;
-		a.value.mat4->columns[c].data[3] = (c == 3) ? 1.0f : 0.0f;
+        a.value.mat4->columns[c].data[0] = (c == 0) ? 1.0f : 0.0f;
+        a.value.mat4->columns[c].data[1] = (c == 1) ? 1.0f : 0.0f;
+        a.value.mat4->columns[c].data[2] = (c == 2) ? 1.0f : 0.0f;
+        a.value.mat4->columns[c].data[3] = (c == 3) ? 1.0f : 0.0f;
 #endif
-	}
-	return a;
+    }
+    return a;
 }
 
 YasAtom yas_make_mat4_from_floats(const float *values)
 {
-	YasAtom a;
-	a.type = YAS_ATOM_TYPE_MAT4;
-	a.value.mat4 = gc_alloc_mat4();
-	/* Values are column-major: first 4 = column 0, etc. */
-	for (int c = 0; c < 4; c++) {
+    YasAtom a;
+    a.type = YAS_ATOM_TYPE_MAT4;
+    a.value.mat4 = gc_alloc_mat4();
+    /* Values are column-major: first 4 = column 0, etc. */
+    for (int c = 0; c < 4; c++) {
 #ifdef YAS_SIMD_X86
-		a.value.mat4->columns[c].v = _mm_loadu_ps(values + c * 4);
+        a.value.mat4->columns[c].v = _mm_loadu_ps(values + c * 4);
 #elif defined(YAS_SIMD_ARM_NEON)
-		a.value.mat4->columns[c].v = vld1q_f32(values + c * 4);
+        a.value.mat4->columns[c].v = vld1q_f32(values + c * 4);
 #elif defined(YAS_SIMD_WASM)
-		a.value.mat4->columns[c].v = wasm_v128_load(values + c * 4);
+        a.value.mat4->columns[c].v = wasm_v128_load(values + c * 4);
 #else
-		for (int r = 0; r < 4; r++) {
-			a.value.mat4->columns[c].data[r] = values[c * 4 + r];
-		}
+        for (int r = 0; r < 4; r++) {
+            a.value.mat4->columns[c].data[r] = values[c * 4 + r];
+        }
 #endif
-	}
-	return a;
+    }
+    return a;
 }
 
 /* ============================================================
  * GLOBAL FEATURES SYSTEM
  * ============================================================ */
 
-YasAtom yas_global_features = { YAS_ATOM_TYPE_NIL };
+YasAtom yas_global_features = {YAS_ATOM_TYPE_NIL};
 
 void yas_init_features(void)
 {
-	yas_global_features = yas_nil;
+    yas_global_features = yas_nil;
 
-	/* Platform detection */
+    /* Platform detection */
 #if defined(__APPLE__)
-	yas_global_features = yas_cons(yas_make_sym("MACOS"), yas_global_features);
-	yas_global_features = yas_cons(yas_make_sym("UNIX"), yas_global_features);
+    yas_global_features = yas_cons(yas_make_sym("MACOS"), yas_global_features);
+    yas_global_features = yas_cons(yas_make_sym("UNIX"), yas_global_features);
 #elif defined(_WIN32)
-	yas_global_features = yas_cons(yas_make_sym("WINDOWS"), yas_global_features);
+    yas_global_features = yas_cons(yas_make_sym("WINDOWS"), yas_global_features);
 #elif defined(__linux__)
-	yas_global_features = yas_cons(yas_make_sym("LINUX"), yas_global_features);
-	yas_global_features = yas_cons(yas_make_sym("UNIX"), yas_global_features);
+    yas_global_features = yas_cons(yas_make_sym("LINUX"), yas_global_features);
+    yas_global_features = yas_cons(yas_make_sym("UNIX"), yas_global_features);
 #elif defined(__FreeBSD__) || defined(__OpenBSD__) || defined(__NetBSD__)
-	yas_global_features = yas_cons(yas_make_sym("BSD"), yas_global_features);
-	yas_global_features = yas_cons(yas_make_sym("UNIX"), yas_global_features);
+    yas_global_features = yas_cons(yas_make_sym("BSD"), yas_global_features);
+    yas_global_features = yas_cons(yas_make_sym("UNIX"), yas_global_features);
 #endif
 
-	/* Architecture detection */
+    /* Architecture detection */
 #if defined(__x86_64__) || defined(_M_X64)
-	yas_global_features = yas_cons(yas_make_sym("X86-64"), yas_global_features);
+    yas_global_features = yas_cons(yas_make_sym("X86-64"), yas_global_features);
 #elif defined(__i386__) || defined(_M_IX86)
-	yas_global_features = yas_cons(yas_make_sym("X86"), yas_global_features);
+    yas_global_features = yas_cons(yas_make_sym("X86"), yas_global_features);
 #elif defined(__aarch64__) || defined(_M_ARM64)
-	yas_global_features = yas_cons(yas_make_sym("ARM64"), yas_global_features);
+    yas_global_features = yas_cons(yas_make_sym("ARM64"), yas_global_features);
 #elif defined(__arm__) || defined(_M_ARM)
-	yas_global_features = yas_cons(yas_make_sym("ARM"), yas_global_features);
+    yas_global_features = yas_cons(yas_make_sym("ARM"), yas_global_features);
 #elif defined(__wasm__)
-	yas_global_features = yas_cons(yas_make_sym("WASM"), yas_global_features);
+    yas_global_features = yas_cons(yas_make_sym("WASM"), yas_global_features);
 #endif
 
-	/* Optional features - compile-time flags */
+    /* Optional features - compile-time flags */
 #ifdef YAS_FFI
-	yas_global_features = yas_cons(yas_make_sym("FFI"), yas_global_features);
+    yas_global_features = yas_cons(yas_make_sym("FFI"), yas_global_features);
 #endif
 }
 
 int yas_has_feature(const char *name)
 {
-	YasAtom p = yas_global_features;
-	while (!yas_nilp(p)) {
-		if (yas_car(p).type == YAS_ATOM_TYPE_SYMBOL &&
-		    strcmp(yas_car(p).value.symbol, name) == 0) {
-			return 1;
-		}
-		p = yas_cdr(p);
-	}
-	return 0;
+    YasAtom p = yas_global_features;
+    while (!yas_nilp(p)) {
+        if (yas_car(p).type == YAS_ATOM_TYPE_SYMBOL && strcmp(yas_car(p).value.symbol, name) == 0) {
+            return 1;
+        }
+        p = yas_cdr(p);
+    }
+    return 0;
 }
 
 /* Evaluate compound feature expressions like (or macos linux), (and x y), (not x) */
 int yas_eval_feature_expr(YasAtom expr)
 {
-	/* Simple symbol */
-	if (expr.type == YAS_ATOM_TYPE_SYMBOL) {
-		return yas_has_feature(expr.value.symbol);
-	}
+    /* Simple symbol */
+    if (expr.type == YAS_ATOM_TYPE_SYMBOL) {
+        return yas_has_feature(expr.value.symbol);
+    }
 
-	/* Compound expression */
-	if (expr.type == YAS_ATOM_TYPE_PAIR && !yas_nilp(expr)) {
-		YasAtom op = yas_car(expr);
-		YasAtom args = yas_cdr(expr);
+    /* Compound expression */
+    if (expr.type == YAS_ATOM_TYPE_PAIR && !yas_nilp(expr)) {
+        YasAtom op = yas_car(expr);
+        YasAtom args = yas_cdr(expr);
 
-		if (op.type == YAS_ATOM_TYPE_SYMBOL) {
-			/* (or ...) - true if any arg is true */
-			if (strcmp(op.value.symbol, "OR") == 0) {
-				while (!yas_nilp(args)) {
-					if (yas_eval_feature_expr(yas_car(args)))
-						return 1;
-					args = yas_cdr(args);
-				}
-				return 0;
-			}
-			/* (and ...) - true if all args are true */
-			if (strcmp(op.value.symbol, "AND") == 0) {
-				while (!yas_nilp(args)) {
-					if (!yas_eval_feature_expr(yas_car(args)))
-						return 0;
-					args = yas_cdr(args);
-				}
-				return 1;
-			}
-			/* (not x) - true if x is false */
-			if (strcmp(op.value.symbol, "NOT") == 0) {
-				if (!yas_nilp(args)) {
-					return !yas_eval_feature_expr(yas_car(args));
-				}
-				return 0;
-			}
-			/* Single symbol in parens like (macos) */
-			if (yas_nilp(args)) {
-				return yas_has_feature(op.value.symbol);
-			}
-		}
-	}
+        if (op.type == YAS_ATOM_TYPE_SYMBOL) {
+            /* (or ...) - true if any arg is true */
+            if (strcmp(op.value.symbol, "OR") == 0) {
+                while (!yas_nilp(args)) {
+                    if (yas_eval_feature_expr(yas_car(args)))
+                        return 1;
+                    args = yas_cdr(args);
+                }
+                return 0;
+            }
+            /* (and ...) - true if all args are true */
+            if (strcmp(op.value.symbol, "AND") == 0) {
+                while (!yas_nilp(args)) {
+                    if (!yas_eval_feature_expr(yas_car(args)))
+                        return 0;
+                    args = yas_cdr(args);
+                }
+                return 1;
+            }
+            /* (not x) - true if x is false */
+            if (strcmp(op.value.symbol, "NOT") == 0) {
+                if (!yas_nilp(args)) {
+                    return !yas_eval_feature_expr(yas_car(args));
+                }
+                return 0;
+            }
+            /* Single symbol in parens like (macos) */
+            if (yas_nilp(args)) {
+                return yas_has_feature(op.value.symbol);
+            }
+        }
+    }
 
-	return 0;
+    return 0;
 }

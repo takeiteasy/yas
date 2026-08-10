@@ -5,30 +5,30 @@
 #include <stdint.h>
 
 typedef enum {
-	YAS_ERROR_OK = 0,
-	YAS_ERROR_SYNTAX,
-	YAS_ERROR_UNBOUND,
-	YAS_ERROR_ARGS,
-	YAS_ERROR_TYPE,
-	YAS_ERROR_EXCEPTION,
-	YAS_ERROR_SKIP  /* Used internally by reader to skip feature-excluded expressions */
+    YAS_ERROR_OK = 0,
+    YAS_ERROR_SYNTAX,
+    YAS_ERROR_UNBOUND,
+    YAS_ERROR_ARGS,
+    YAS_ERROR_TYPE,
+    YAS_ERROR_EXCEPTION,
+    YAS_ERROR_SKIP /* Used internally by reader to skip feature-excluded expressions */
 } YasError;
 
 /* Reader position tracking */
 typedef struct {
-	const char *filename;     /* Source filename (or "<stdin>") */
-	const char *source;       /* Original source string start */
-	int line;                 /* Current line (1-indexed) */
-	int column;               /* Current column (1-indexed) */
+    const char *filename; /* Source filename (or "<stdin>") */
+    const char *source;   /* Original source string start */
+    int line;             /* Current line (1-indexed) */
+    int column;           /* Current column (1-indexed) */
 } YasReaderPos;
 
 /* Error context for detailed messages */
 #define YAS_ERROR_MSG_MAX 256
 
 typedef struct {
-	YasError code;
-	YasReaderPos pos;
-	char message[YAS_ERROR_MSG_MAX];
+    YasError code;
+    YasReaderPos pos;
+    char message[YAS_ERROR_MSG_MAX];
 } YasErrorContext;
 
 struct YasAtom;
@@ -44,7 +44,7 @@ struct YasFrame;
 #include <wasm_simd128.h>
 #elif defined(__x86_64__) || defined(_M_X64) || defined(__i386__) || defined(_M_IX86)
 #define YAS_SIMD_X86
-#include <xmmintrin.h>  /* SSE */
+#include <xmmintrin.h> /* SSE */
 #elif defined(__ARM_NEON) || defined(__aarch64__)
 #define YAS_SIMD_ARM_NEON
 #include <arm_neon.h>
@@ -68,77 +68,77 @@ typedef yas_vec4_t yas_vec2_t;
 typedef yas_vec4_t yas_vec3_t;
 
 typedef struct {
-	yas_vec4_t m;
+    yas_vec4_t m;
 } yas_mat2_t;
 
 typedef struct {
-	yas_vec4_t columns[3];
+    yas_vec4_t columns[3];
 } yas_mat3_t;
 
 typedef struct {
-	yas_vec4_t columns[4];
+    yas_vec4_t columns[4];
 } yas_mat4_t;
 
 typedef int (*YasBuiltin)(struct YasAtom args, struct YasAtom *result);
 
 struct YasAtom {
-	enum {
-		YAS_ATOM_TYPE_NIL,
-		YAS_ATOM_TYPE_PAIR,
-		YAS_ATOM_TYPE_SYMBOL,
-		YAS_ATOM_TYPE_INTEGER,
-		YAS_ATOM_TYPE_FLOAT,
-		YAS_ATOM_TYPE_STRING,
-		YAS_ATOM_TYPE_VECTOR,
-		YAS_ATOM_TYPE_HASH,
-		YAS_ATOM_TYPE_PORT,
-		YAS_ATOM_TYPE_BYTEVECTOR,
-		YAS_ATOM_TYPE_BUILTIN,
-		YAS_ATOM_TYPE_CLOSURE,
-		YAS_ATOM_TYPE_MACRO,
-		YAS_ATOM_TYPE_CONTINUATION,
-		YAS_ATOM_TYPE_CHAR,
-		YAS_ATOM_TYPE_KEYWORD,
-		YAS_ATOM_TYPE_VEC2,
-		YAS_ATOM_TYPE_VEC3,
-		YAS_ATOM_TYPE_VEC4,
-		YAS_ATOM_TYPE_MAT4,
-		YAS_ATOM_TYPE_ENV,  /* environment frame (see struct YasEnv below) */
-		YAS_ATOM_TYPE_FRAME,  /* eval.c control-stack frame (see struct YasFrame below) */
+    enum {
+        YAS_ATOM_TYPE_NIL,
+        YAS_ATOM_TYPE_PAIR,
+        YAS_ATOM_TYPE_SYMBOL,
+        YAS_ATOM_TYPE_INTEGER,
+        YAS_ATOM_TYPE_FLOAT,
+        YAS_ATOM_TYPE_STRING,
+        YAS_ATOM_TYPE_VECTOR,
+        YAS_ATOM_TYPE_HASH,
+        YAS_ATOM_TYPE_PORT,
+        YAS_ATOM_TYPE_BYTEVECTOR,
+        YAS_ATOM_TYPE_BUILTIN,
+        YAS_ATOM_TYPE_CLOSURE,
+        YAS_ATOM_TYPE_MACRO,
+        YAS_ATOM_TYPE_CONTINUATION,
+        YAS_ATOM_TYPE_CHAR,
+        YAS_ATOM_TYPE_KEYWORD,
+        YAS_ATOM_TYPE_VEC2,
+        YAS_ATOM_TYPE_VEC3,
+        YAS_ATOM_TYPE_VEC4,
+        YAS_ATOM_TYPE_MAT4,
+        YAS_ATOM_TYPE_ENV,   /* environment frame (see struct YasEnv below) */
+        YAS_ATOM_TYPE_FRAME, /* eval.c control-stack frame (see struct YasFrame below) */
 #ifdef YAS_FFI
-		YAS_ATOM_TYPE_FFI_LIBRARY,   /* dlopen handle */
-		YAS_ATOM_TYPE_FFI_POINTER,   /* Raw C pointer */
-		YAS_ATOM_TYPE_FFI_FUNCTION,  /* Prepared ffi function */
-		YAS_ATOM_TYPE_FFI_STRUCT     /* Struct instance (packed bytes) */
+        YAS_ATOM_TYPE_FFI_LIBRARY,  /* dlopen handle */
+        YAS_ATOM_TYPE_FFI_POINTER,  /* Raw C pointer */
+        YAS_ATOM_TYPE_FFI_FUNCTION, /* Prepared ffi function */
+        YAS_ATOM_TYPE_FFI_STRUCT    /* Struct instance (packed bytes) */
 #endif
-	} type;
+    } type;
 
-	union {
-		struct YasPair *pair;
-		const char *symbol;
-		long integer;
-		double floatval;
-		char *string;
-		struct YasVector *vector;
-		struct YasHash *hash;
-		struct YasPort *port;
-		struct YasBytevector *bytevector;
-		YasBuiltin builtin;
-		int32_t character;  /* Unicode codepoint */
-		const char *keyword;  /* Interned keyword name (without :) */
-		yas_vec4_t *vec;         /* Used for vec2, vec3, vec4 (SIMD aligned) */
-		yas_mat4_t *mat4;        /* 4x4 matrix */
-		struct YasEnv *env;      /* Environment frame */
-		struct YasFrame *frame;  /* eval.c control-stack frame; also used for
-		                          * YAS_ATOM_TYPE_CONTINUATION (a captured
-		                          * frame chain retagged - see struct YasFrame) */
+    union {
+        struct YasPair *pair;
+        const char *symbol;
+        long integer;
+        double floatval;
+        char *string;
+        struct YasVector *vector;
+        struct YasHash *hash;
+        struct YasPort *port;
+        struct YasBytevector *bytevector;
+        YasBuiltin builtin;
+        int32_t character;      /* Unicode codepoint */
+        const char *keyword;    /* Interned keyword name (without :) */
+        yas_vec4_t *vec;        /* Used for vec2, vec3, vec4 (SIMD aligned) */
+        yas_mat4_t *mat4;       /* 4x4 matrix */
+        struct YasEnv *env;     /* Environment frame */
+        struct YasFrame *frame; /* eval.c control-stack frame; also used for
+                                 * YAS_ATOM_TYPE_CONTINUATION (a captured
+                                 * frame chain retagged - see struct YasFrame) */
 #ifdef YAS_FFI
-		void *ffi_library;           /* dlopen handle */
-		void *ffi_pointer;           /* raw C pointer */
-		struct YasFFIFunction *ffi_fn;  /* prepared ffi function */
-		struct YasFFIStructInstance *ffi_struct; /* struct instance */
+        void *ffi_library;                       /* dlopen handle */
+        void *ffi_pointer;                       /* raw C pointer */
+        struct YasFFIFunction *ffi_fn;           /* prepared ffi function */
+        struct YasFFIStructInstance *ffi_struct; /* struct instance */
 #endif
-	} value;
+    } value;
 };
 
 /* ── Unified GC header ──────────────────────────────────────────────
@@ -148,68 +148,68 @@ struct YasAtom {
  * without a separate list per type; `color` is the tricolor mark used by
  * the incremental collector (see docs/GC.md). */
 typedef enum {
-	YAS_GC_WHITE,   /* not yet reached this cycle - candidate for sweep */
-	YAS_GC_GRAY,    /* reached, not yet scanned - on the gray worklist */
-	YAS_GC_BLACK    /* reached and scanned (or allocated mid-cycle) */
+    YAS_GC_WHITE, /* not yet reached this cycle - candidate for sweep */
+    YAS_GC_GRAY,  /* reached, not yet scanned - on the gray worklist */
+    YAS_GC_BLACK  /* reached and scanned (or allocated mid-cycle) */
 } YasGCColor;
 
 typedef enum {
-	YAS_GC_OBJ_PAIR,
-	YAS_GC_OBJ_VECTOR,
-	YAS_GC_OBJ_HASH,
-	YAS_GC_OBJ_STRING,
-	YAS_GC_OBJ_PORT,
-	YAS_GC_OBJ_BYTEVECTOR,
-	YAS_GC_OBJ_VEC,
-	YAS_GC_OBJ_MAT4,
-	YAS_GC_OBJ_ENV,
-	YAS_GC_OBJ_FRAME,
+    YAS_GC_OBJ_PAIR,
+    YAS_GC_OBJ_VECTOR,
+    YAS_GC_OBJ_HASH,
+    YAS_GC_OBJ_STRING,
+    YAS_GC_OBJ_PORT,
+    YAS_GC_OBJ_BYTEVECTOR,
+    YAS_GC_OBJ_VEC,
+    YAS_GC_OBJ_MAT4,
+    YAS_GC_OBJ_ENV,
+    YAS_GC_OBJ_FRAME,
 #ifdef YAS_FFI
-	YAS_GC_OBJ_FFI_FUNCTION,
-	YAS_GC_OBJ_FFI_STRUCT,
+    YAS_GC_OBJ_FFI_FUNCTION,
+    YAS_GC_OBJ_FFI_STRUCT,
 #endif
-	YAS_GC_OBJ_COUNT  /* sentinel - not a real type, sizes the pool arrays
-	                   * (data.c) in both YAS_FFI build configurations */
+    YAS_GC_OBJ_COUNT /* sentinel - not a real type, sizes the pool arrays
+                      * (data.c) in both YAS_FFI build configurations */
 } YasGCObjType;
 
 struct YasGCHeader {
-	struct YasGCHeader *next;
-	unsigned char color;     /* YasGCColor */
-	unsigned char obj_type;  /* YasGCObjType */
-	size_t backing_size;     /* Total bytes owned (struct + any external
-	                           * buffers) - returned to the allocated-bytes
-	                           * counter on sweep. */
+    struct YasGCHeader *next;
+    unsigned char color;    /* YasGCColor */
+    unsigned char obj_type; /* YasGCObjType */
+    size_t backing_size;    /* Total bytes owned (struct + any external
+                             * buffers) - returned to the allocated-bytes
+                             * counter on sweep. */
 };
 
 struct YasPair {
-	struct YasAtom atom[2];
+    struct YasAtom atom[2];
 };
 
 /* Vector/Hash/Port/Bytevector: the atom points directly at the allocation
  * (e.g. `atom.value.vector` IS the `struct YasVector *`), so `gc` goes
  * first and a plain cast recovers the header - no offsetof needed. */
 struct YasVector {
-	struct YasGCHeader gc;
-	struct YasAtom *data;
-	size_t size;
-	size_t capacity;
+    struct YasGCHeader gc;
+    struct YasAtom *data;
+    size_t size;
+    size_t capacity;
 };
 
 struct YasHash {
-	struct YasGCHeader gc;
-	struct YasAtom *keys;
-	struct YasAtom *values;
-	size_t size;
-	size_t capacity;
-	struct YasHash *metatable;  /* Metatable for operator overloading */
-	/* Open-addressed index over `keys`/`values` (data.c): `index[slot]`
-	 * is the row in `keys`/`values`, or (size_t)-1 for an empty slot.
-	 * `index_capacity` is always `capacity * 2` (power of two, since
-	 * `capacity` is), keeping load factor <= 50% - metadata over atoms
-	 * the hash already owns, so it needs no GC marking or write barrier
-	 * of its own; the barriers on keys[]/values[] writes are unchanged. */
-	size_t *index;
-	size_t index_capacity;
+    struct YasGCHeader gc;
+    struct YasAtom *keys;
+    struct YasAtom *values;
+    size_t size;
+    size_t capacity;
+    struct YasHash *metatable; /* Metatable for operator overloading */
+    /* Open-addressed index over `keys`/`values` (data.c): `index[slot]`
+     * is the row in `keys`/`values`, or (size_t)-1 for an empty slot.
+     * `index_capacity` is always `capacity * 2` (power of two, since
+     * `capacity` is), keeping load factor <= 50% - metadata over atoms
+     * the hash already owns, so it needs no GC marking or write barrier
+     * of its own; the barriers on keys[]/values[] writes are unchanged. */
+    size_t *index;
+    size_t index_capacity;
 };
 
 /* An environment frame: `parent` (NIL at the root) plus an open-addressed
@@ -222,12 +222,12 @@ struct YasHash {
  * through yas_gc_write_barrier() (see data.c), since they bypass
  * yas_set_car/yas_set_cdr. */
 struct YasEnv {
-	struct YasGCHeader gc;
-	struct YasAtom parent;
-	struct YasAtom *syms;
-	struct YasAtom *vals;
-	size_t count;
-	size_t capacity;
+    struct YasGCHeader gc;
+    struct YasAtom parent;
+    struct YasAtom *syms;
+    struct YasAtom *vals;
+    size_t count;
+    size_t capacity;
 };
 
 /* eval.c's explicit control-stack frame (see docs/ARCHITECTURE.md
@@ -241,29 +241,29 @@ struct YasEnv {
  * unchanged: a continuation *is* a captured frame chain, just retagged (see
  * eval.c's CALL/CC capture/restore). */
 struct YasFrame {
-	struct YasGCHeader gc;
-	struct YasAtom parent;
-	struct YasAtom env;
-	struct YasAtom op;
-	struct YasAtom tail;
-	struct YasAtom args;
-	struct YasAtom body;
+    struct YasGCHeader gc;
+    struct YasAtom parent;
+    struct YasAtom env;
+    struct YasAtom op;
+    struct YasAtom tail;
+    struct YasAtom args;
+    struct YasAtom body;
 };
 
 struct YasPort {
-	struct YasGCHeader gc;
-	void *handle;           /* FILE* or custom provider handle */
-	char *path;
-	int is_input;
-	int is_binary;
-	int is_open;
-	int provider_id;        /* 0 = stdio, >0 = custom provider */
+    struct YasGCHeader gc;
+    void *handle; /* FILE* or custom provider handle */
+    char *path;
+    int is_input;
+    int is_binary;
+    int is_open;
+    int provider_id; /* 0 = stdio, >0 = custom provider */
 };
 
 struct YasBytevector {
-	struct YasGCHeader gc;
-	unsigned char *data;
-	size_t size;
+    struct YasGCHeader gc;
+    unsigned char *data;
+    size_t size;
 };
 
 /* GC headers for otherwise-bare-pointer atom payloads (String, Vec2/3/4,
@@ -271,18 +271,18 @@ struct YasBytevector {
  * data; gc_mark() recovers the header via offsetof, mirroring how `cons`
  * recovers `struct Allocation` from a `struct Pair *`. */
 struct YasStringAlloc {
-	struct YasGCHeader gc;
-	char data[];
+    struct YasGCHeader gc;
+    char data[];
 };
 
 struct YasVecAlloc {
-	struct YasGCHeader gc;
-	yas_vec4_t v;
+    struct YasGCHeader gc;
+    yas_vec4_t v;
 };
 
 struct YasMat4Alloc {
-	struct YasGCHeader gc;
-	yas_mat4_t m;
+    struct YasGCHeader gc;
+    yas_mat4_t m;
 };
 
 typedef struct YasAtom YasAtom;
@@ -298,13 +298,12 @@ typedef struct YasAtom YasAtom;
 void yas_set_car(YasAtom p, YasAtom v);
 void yas_set_cdr(YasAtom p, YasAtom v);
 
-static const YasAtom yas_nil = { YAS_ATOM_TYPE_NIL };
+static const YasAtom yas_nil = {YAS_ATOM_TYPE_NIL};
 
 /* READER */
 
 int yas_read_expr(const char *input, const char **end, YasAtom *result, YasErrorContext *err);
 void yas_error_print(YasErrorContext *err);
-
 
 /* PRINTER */
 
@@ -364,18 +363,18 @@ void yas_list_reverse(YasAtom *list);
  * effect until a cycle is started (yas_gc_start/yas_gc/yas_gc_step). */
 void yas_gc_mark(YasAtom root);
 
-void yas_gc(void);          /* Run a full collection cycle to completion. */
-void yas_gc_step(void);     /* Run one incremental slice (bounded work). */
-void yas_gc_start(void);    /* Force IDLE -> MARKING, mark roots, don't drain.
-                              * Exists so tests/tools can observe a cycle
-                              * mid-flight rather than only when the byte
-                              * threshold trips it. */
-int    yas_gc_phase(void);      /* 0=idle 1=marking 2=sweeping. The "atomic"
-                                  * root re-mark/full-drain between marking
-                                  * and sweeping never persists across a
-                                  * yas_gc_step() call, so it isn't a phase
-                                  * observable from outside - see docs/GC.md. */
-size_t yas_gc_allocated(void);  /* Bytes currently tracked as live. */
+void yas_gc(void);             /* Run a full collection cycle to completion. */
+void yas_gc_step(void);        /* Run one incremental slice (bounded work). */
+void yas_gc_start(void);       /* Force IDLE -> MARKING, mark roots, don't drain.
+                                * Exists so tests/tools can observe a cycle
+                                * mid-flight rather than only when the byte
+                                * threshold trips it. */
+int yas_gc_phase(void);        /* 0=idle 1=marking 2=sweeping. The "atomic"
+                                * root re-mark/full-drain between marking
+                                * and sweeping never persists across a
+                                * yas_gc_step() call, so it isn't a phase
+                                * observable from outside - see docs/GC.md. */
+size_t yas_gc_allocated(void); /* Bytes currently tracked as live. */
 
 /* Root-registration API (embedders / native builtins). Register the
  * address of a local YasAtom before any call that might allocate and
@@ -383,7 +382,7 @@ size_t yas_gc_allocated(void);  /* Bytes currently tracked as live. */
  * pop in LIFO order. */
 void yas_gc_push_root(YasAtom *slot);
 void yas_gc_pop_roots(int n);
-int  yas_gc_root_count(void);
+int yas_gc_root_count(void);
 
 /* Write barrier: call after storing `child` into a reference field owned
  * by `container` whenever that store bypasses yas_set_car/yas_set_cdr/
@@ -512,25 +511,25 @@ int yas_load_file(YasAtom env, const char *path);
 
 /* Sandbox modes */
 typedef enum {
-	YAS_IO_SANDBOX_UNRESTRICTED,  /* Default: no restrictions */
-	YAS_IO_SANDBOX_RESTRICTED,    /* Allow/deny lists apply; default_allow controls unmatched */
-	YAS_IO_SANDBOX_DISABLED       /* All I/O operations fail */
+    YAS_IO_SANDBOX_UNRESTRICTED, /* Default: no restrictions */
+    YAS_IO_SANDBOX_RESTRICTED,   /* Allow/deny lists apply; default_allow controls unmatched */
+    YAS_IO_SANDBOX_DISABLED      /* All I/O operations fail */
 } YasIOSandboxMode;
 
 /* Virtual filesystem provider callbacks */
 typedef struct {
-	const char *prefix;       /* e.g., "asset://" or "zip://" */
-	void *userdata;
-	/* Open file, return handle (NULL on failure) */
-	void *(*open)(const char *path, int is_input, int is_binary, void *userdata);
-	/* Close file */
-	void (*close)(void *handle, void *userdata);
-	/* Read up to n bytes, return bytes read (-1 on error) */
-	long (*read)(void *handle, void *buf, size_t n, void *userdata);
-	/* Write n bytes, return bytes written (-1 on error) */
-	long (*write)(void *handle, const void *buf, size_t n, void *userdata);
-	/* Check if file exists (0 = no, 1 = yes) */
-	int (*exists)(const char *path, void *userdata);
+    const char *prefix; /* e.g., "asset://" or "zip://" */
+    void *userdata;
+    /* Open file, return handle (NULL on failure) */
+    void *(*open)(const char *path, int is_input, int is_binary, void *userdata);
+    /* Close file */
+    void (*close)(void *handle, void *userdata);
+    /* Read up to n bytes, return bytes read (-1 on error) */
+    long (*read)(void *handle, void *buf, size_t n, void *userdata);
+    /* Write n bytes, return bytes written (-1 on error) */
+    long (*write)(void *handle, const void *buf, size_t n, void *userdata);
+    /* Check if file exists (0 = no, 1 = yes) */
+    int (*exists)(const char *path, void *userdata);
 } YasIOProvider;
 
 /* Sandbox C API (for embedding) */
@@ -538,13 +537,13 @@ void yas_io_sandbox_init(YasIOSandboxMode mode);
 YasIOSandboxMode yas_io_sandbox_get_mode(void);
 void yas_io_sandbox_allow_path(const char *pattern);
 void yas_io_sandbox_deny_path(const char *pattern);
-void yas_io_sandbox_set_default(int allow);  /* Set default for unmatched paths in RESTRICTED mode */
-int  yas_io_sandbox_get_default(void);
+void yas_io_sandbox_set_default(int allow); /* Set default for unmatched paths in RESTRICTED mode */
+int yas_io_sandbox_get_default(void);
 void yas_io_sandbox_clear(void);
-int  yas_io_sandbox_check_path(const char *path, int writing);
+int yas_io_sandbox_check_path(const char *path, int writing);
 
 /* Provider system (for virtual filesystems) */
-int  yas_io_register_provider(YasIOProvider *provider);
+int yas_io_register_provider(YasIOProvider *provider);
 void yas_io_unregister_provider(const char *prefix);
 
 /* Port operations */
@@ -553,9 +552,9 @@ void yas_port_close(YasAtom port);
 YasAtom yas_io_open_file(const char *path, int is_input, int is_binary);
 long yas_port_read(struct YasPort *p, void *buf, size_t n);
 long yas_port_write(struct YasPort *p, const void *buf, size_t n);
-int  yas_port_getc(struct YasPort *p);
+int yas_port_getc(struct YasPort *p);
 void yas_port_flush(struct YasPort *p);
-int  yas_io_file_exists(const char *path);
+int yas_io_file_exists(const char *path);
 
 /* Bytevector operations */
 YasAtom yas_make_bytevector(size_t size);
@@ -665,14 +664,20 @@ int yas_builtin_substring(YasAtom args, YasAtom *result);
 
 /* FFI Type descriptors for marshaling */
 typedef enum {
-	YAS_FFI_TYPE_VOID,
-	YAS_FFI_TYPE_INT8, YAS_FFI_TYPE_UINT8,
-	YAS_FFI_TYPE_INT16, YAS_FFI_TYPE_UINT16,
-	YAS_FFI_TYPE_INT32, YAS_FFI_TYPE_UINT32,
-	YAS_FFI_TYPE_INT64, YAS_FFI_TYPE_UINT64,
-	YAS_FFI_TYPE_FLOAT, YAS_FFI_TYPE_DOUBLE,
-	YAS_FFI_TYPE_POINTER, YAS_FFI_TYPE_STRING,
-	YAS_FFI_TYPE_STRUCT   /* Struct by value */
+    YAS_FFI_TYPE_VOID,
+    YAS_FFI_TYPE_INT8,
+    YAS_FFI_TYPE_UINT8,
+    YAS_FFI_TYPE_INT16,
+    YAS_FFI_TYPE_UINT16,
+    YAS_FFI_TYPE_INT32,
+    YAS_FFI_TYPE_UINT32,
+    YAS_FFI_TYPE_INT64,
+    YAS_FFI_TYPE_UINT64,
+    YAS_FFI_TYPE_FLOAT,
+    YAS_FFI_TYPE_DOUBLE,
+    YAS_FFI_TYPE_POINTER,
+    YAS_FFI_TYPE_STRING,
+    YAS_FFI_TYPE_STRUCT /* Struct by value */
 } YasFFIType;
 
 /* Maximum fields per struct */
@@ -680,28 +685,28 @@ typedef enum {
 
 /* Struct field definition */
 typedef struct YasFFIStructField {
-	char *name;            /* Field name */
-	YasFFIType type;      /* Field type */
-	size_t offset;         /* Byte offset in struct */
+    char *name;      /* Field name */
+    YasFFIType type; /* Field type */
+    size_t offset;   /* Byte offset in struct */
 } YasFFIStructField;
 
 /* Struct type definition (registered via ffi-defstruct) */
 typedef struct YasFFIStructType {
-	char *name;                                    /* Struct name (e.g., "Color") */
-	void *ffi_struct;                              /* ffi_type* for this struct */
-	void *elements[YAS_FFI_STRUCT_MAX_FIELDS + 1];     /* ffi_type** element array */
-	YasFFIStructField fields[YAS_FFI_STRUCT_MAX_FIELDS];  /* Field metadata */
-	int field_count;                               /* Number of fields */
-	size_t size;                                   /* Total size in bytes */
-	struct YasFFIStructType *next;                    /* Linked list for registry */
+    char *name;                                          /* Struct name (e.g., "Color") */
+    void *ffi_struct;                                    /* ffi_type* for this struct */
+    void *elements[YAS_FFI_STRUCT_MAX_FIELDS + 1];       /* ffi_type** element array */
+    YasFFIStructField fields[YAS_FFI_STRUCT_MAX_FIELDS]; /* Field metadata */
+    int field_count;                                     /* Number of fields */
+    size_t size;                                         /* Total size in bytes */
+    struct YasFFIStructType *next;                       /* Linked list for registry */
 } YasFFIStructType;
 
 /* Struct instance (created via make-ffi-struct). Atom points at the
  * allocation directly, so `gc` goes first (see YasVector et al above). */
 typedef struct YasFFIStructInstance {
-	struct YasGCHeader gc;
-	YasFFIStructType *type;   /* Pointer to struct type definition */
-	void *data;            /* Pointer to packed struct data */
+    struct YasGCHeader gc;
+    YasFFIStructType *type; /* Pointer to struct type definition */
+    void *data;             /* Pointer to packed struct data */
 } YasFFIStructInstance;
 
 /* Global struct type registry */
@@ -713,14 +718,14 @@ YasFFIStructType *yas_ffi_lookup_struct_type(const char *name);
 /* Forward declaration for ffi_cif. Atom points at the allocation
  * directly, so `gc` goes first (see YasVector et al above). */
 struct YasFFIFunction {
-	struct YasGCHeader gc;
-	void *fn_ptr;           /* Function pointer */
-	void *cif;              /* ffi_cif* (opaque) */
-	YasFFIType ret_type;
-	YasFFIType *arg_types;
-	void **ffi_arg_types;   /* ffi_type** for each arg (needed for structs) */
-	void *ffi_ret_type;     /* ffi_type* for return (needed for structs) */
-	int arg_count;
+    struct YasGCHeader gc;
+    void *fn_ptr; /* Function pointer */
+    void *cif;    /* ffi_cif* (opaque) */
+    YasFFIType ret_type;
+    YasFFIType *arg_types;
+    void **ffi_arg_types; /* ffi_type** for each arg (needed for structs) */
+    void *ffi_ret_type;   /* ffi_type* for return (needed for structs) */
+    int arg_count;
 };
 
 /* FFIFunction/FFIStructInstance are tracked in the single unified GC list

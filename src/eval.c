@@ -452,7 +452,15 @@ int eval_do_bind(YasAtom *stack, YasAtom *expr, YasAtom *env)
                         return YAS_ERROR_ARGS;
                     found_val = yas_car(yas_cdr(search));
                     found = 1;
-                    /* Remove kw and value from args list */
+                    /* Remove kw and value from args list. For an
+                     * ordinary closure call `args` is the freshly-built
+                     * evaluated-argument list, safe to splice - but for
+                     * a macro call this splices the *source* call
+                     * form's own argument spine in place (see #64's
+                     * macro-memo comments above for why FRAME_ARGS
+                     * aliases FRAME_TAIL there). Not reachable today
+                     * (no keyword/optional-arg macro exists in
+                     * src/stdlib.h or std/), filed as #66. */
                     if (yas_nilp(prev)) {
                         args = yas_cdr(yas_cdr(search));
                     } else {

@@ -517,4 +517,121 @@
         (b (current-time)))
     (check (>= b a) t)))
 
+;; Root-frame lookup cache (ticket #45, data.c's yas_env_get()/
+;; yas_env_set()): a symbol never yas_env_define()'d into a non-root
+;; frame caches (root env, slot) behind its interned pointer and skips
+;; the parent-chain walk entirely. These are the scenarios where the
+;; design could produce a silently wrong value rather than a crash -
+;; see docs/ARCHITECTURE.md's "Environments" section.
+
+(define lex-global 100)
+
+(test "Lexical cache: global read through nested frames"
+  ;; Force several env frames between the lookup site and the root, and
+  ;; call twice so the second call hits the now-warm cache - a bug that
+  ;; only walks one hop, or that only works cold, would show up here.
+  (check ((let ((a 1)) (let ((b 2)) (lambda () lex-global)))) lex-global)
+  (check ((let ((a 1)) (let ((b 2)) (lambda () lex-global)))) 100))
+
+(test "Lexical cache: parameter shadows, then unshadows"
+  ;; Read the global first (warms the root-frame cache while unshadowed),
+  ;; then call a lambda whose parameter shares the name - its body must
+  ;; see the parameter, not the cached global - then read the bare global
+  ;; again afterwards to confirm the outer binding was never disturbed.
+  (check lex-global 100)
+  (check ((lambda (lex-global) lex-global) 999) 999)
+  (check lex-global 100)
+  ;; and the reverse order: shadow first, cache second
+  (check ((lambda (lex-global) lex-global) 999) 999)
+  (check lex-global 100))
+
+(test "Lexical cache: set! on a global from a nested closure"
+  (define lex-counter 0)
+  (define (bump) (set! lex-counter (+ lex-counter 1)))
+  (let ((x 1)) (let ((y 2)) (bump)))
+  (check lex-counter 1))
+
+(test "Lexical cache: set! with a warm cache, then shadowed"
+  ;; The one scenario that would be a silent wrong-value bug rather than
+  ;; a crash: read `lex-shadow-target` at top level (populating the
+  ;; root-frame cache while unshadowed), then call a lambda that binds
+  ;; the same name as a parameter and set!s it - the write must land on
+  ;; the parameter, not the cached global slot.
+  (define lex-shadow-target 5)
+  (check lex-shadow-target 5) ;; warms the cache
+  (check ((lambda (lex-shadow-target)
+            (set! lex-shadow-target 999)
+            lex-shadow-target)
+          5)
+         999)
+  (check lex-shadow-target 5)) ;; global must be untouched
+
+(test "Lexical cache: internal define shadows without corrupting outer"
+  (define lex-inner-target 7)
+  (define (lex-inner-shadow)
+    (define lex-inner-target 42)
+    lex-inner-target)
+  (check (lex-inner-shadow) 42)
+  (check lex-inner-target 7))
+
+(test "Lexical cache: redefine a global after it has been cached"
+  (define lex-redef 1)
+  (check lex-redef 1) ;; warms the cache
+  (define lex-redef 2) ;; overwrite-in-place, same root slot
+  (check lex-redef 2))
+
+;; Warm the cache for a global, then define enough fresh top-level
+;; globals (no eval/string->symbol in this build, so these are spelled
+;; out literally) to cross the 70% load factor and force env_grow() to
+;; rehash every slot in the script's root frame, moving lex-grow-target's
+;; - the cache must self-validate against the live table and re-probe
+;; rather than reading a stale/wrong slot after the move.
+(define lex-grow-target 'before-grow)
+(test "Lexical cache: survives env_grow rehash (before filler defines)"
+  (check lex-grow-target 'before-grow)) ;; warms the cache
+
+(define lex-grow-filler-00 0) (define lex-grow-filler-01 1)
+(define lex-grow-filler-02 2) (define lex-grow-filler-03 3)
+(define lex-grow-filler-04 4) (define lex-grow-filler-05 5)
+(define lex-grow-filler-06 6) (define lex-grow-filler-07 7)
+(define lex-grow-filler-08 8) (define lex-grow-filler-09 9)
+(define lex-grow-filler-10 10) (define lex-grow-filler-11 11)
+(define lex-grow-filler-12 12) (define lex-grow-filler-13 13)
+(define lex-grow-filler-14 14) (define lex-grow-filler-15 15)
+(define lex-grow-filler-16 16) (define lex-grow-filler-17 17)
+(define lex-grow-filler-18 18) (define lex-grow-filler-19 19)
+(define lex-grow-filler-20 20) (define lex-grow-filler-21 21)
+(define lex-grow-filler-22 22) (define lex-grow-filler-23 23)
+(define lex-grow-filler-24 24) (define lex-grow-filler-25 25)
+(define lex-grow-filler-26 26) (define lex-grow-filler-27 27)
+(define lex-grow-filler-28 28) (define lex-grow-filler-29 29)
+(define lex-grow-filler-30 30) (define lex-grow-filler-31 31)
+(define lex-grow-filler-32 32) (define lex-grow-filler-33 33)
+(define lex-grow-filler-34 34) (define lex-grow-filler-35 35)
+(define lex-grow-filler-36 36) (define lex-grow-filler-37 37)
+(define lex-grow-filler-38 38) (define lex-grow-filler-39 39)
+
+(test "Lexical cache: survives env_grow rehash (after filler defines)"
+  (check lex-grow-target 'before-grow)
+  (check lex-grow-filler-39 39))
+
+(test "Lexical cache: unbound symbol still errors"
+  ;; The `!shadowed` fast path's early UNBOUND return (data.c) is a new
+  ;; code path to the existing error - make sure it still reports it.
+  ;; (the exception's `type-error` tag is built via yas_make_sym() in C,
+  ;; not read from source, so it stays lowercase - CLAUDE.md's "reader
+  ;; uppercases every symbol" doesn't apply to it - check the message
+  ;; text instead of the whole list.)
+  (check (car (cdr (try
+                      lex-totally-unbound-symbol
+                      (catch e e))))
+         "Symbol not bound: LEX-TOTALLY-UNBOUND-SYMBOL"))
+
+(test "Lexical cache: module-imported global still resolves"
+  ;; (yas base) rebinds +/-/*// to variadic closures (CLAUDE.md) - make
+  ;; sure the cache resolves to the module's binding, not some earlier
+  ;; native builtin slot.
+  (check (+ 1 2 3) 6)
+  (check (let ((a 1)) (let ((b 2)) (+ 1 2 3))) 6))
+
 (run-tests)

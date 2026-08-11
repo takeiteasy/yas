@@ -214,16 +214,26 @@ struct YasHash {
 
 /* An environment frame: `parent` (NIL at the root) plus an open-addressed
  * table keyed on interned-symbol pointer identity - see yas_env_create()/
- * yas_env_define()/yas_env_get()/yas_env_set() (eval.c). `syms[i].type ==
+ * yas_env_define()/yas_env_get()/yas_env_set() (data.c). `syms[i].type ==
  * YAS_ATOM_TYPE_NIL` marks an empty slot (a symbol atom is never NIL, so
  * this is an unambiguous sentinel); no delete API exists, so no
  * tombstones. Direct pointer, header first, same shape as
  * YasVector/YasHash above - writes to `parent`/`syms`/`vals` must go
  * through yas_gc_write_barrier() (see data.c), since they bypass
- * yas_set_car/yas_set_cdr. */
+ * yas_set_car/yas_set_cdr.
+ *
+ * `root` is the chain's top frame (self if `parent` is NIL), set once in
+ * yas_env_create() and never mutated again - `parent` itself is written
+ * only there, so a frame's root is fixed for its lifetime. It backs the
+ * O(1) global-lookup fast path in yas_env_get()/yas_env_set() (ticket
+ * #45, see the `struct YasSymbol` cache fields in data.c): a raw
+ * pointer, not a `YasAtom`, since the root frame is already reachable
+ * through the ordinary `parent` chain and needs no separate GC root or
+ * write barrier of its own. */
 struct YasEnv {
     struct YasGCHeader gc;
     struct YasAtom parent;
+    struct YasEnv *root;
     struct YasAtom *syms;
     struct YasAtom *vals;
     size_t count;

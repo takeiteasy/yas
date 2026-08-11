@@ -156,16 +156,43 @@ static void gc_pace(size_t size)
 }
 
 /* ── Symbol/keyword interning ────────────────────────────────────────
- * Open-addressed `char *` tables keyed by string content, probed by
+ * Open-addressed tables keyed by string content, probed by
  * yas_make_sym()/yas_make_keyword() further down this file. Plain
- * malloc, not GC-managed - the interned strings are immortal for the
+ * malloc, not GC-managed - the interned records are immortal for the
  * process lifetime (nothing ever un-interns a symbol), so there is
  * nothing for the collector to trace here and no GC root needed (see
  * gc_mark_roots() below, which used to mark a cons-list version of
- * these tables). */
+ * these tables).
+ *
+ * Each slot is a `struct YasSymbol *`, not a bare `char *`: `name` is a
+ * flexible array member holding the interned text, and `atom.value.symbol`
+ * / `atom.value.keyword` point directly at `name` - every existing use of
+ * `value.symbol` (string ops, pointer-identity comparison) is unaffected,
+ * since `name`'s address is exactly what a plain interned `char *` used to
+ * be. `sym_rec()` recovers the enclosing record from that pointer via
+ * `offsetof`. The extra fields (`cache_env`/`cache_slot`/`shadowed`) back
+ * the root-frame lookup cache in yas_env_get()/yas_env_set() (ticket #45)
+ * - `kw_intern` entries never populate them. */
+struct YasSymbol {
+    struct YasEnv *cache_env; /* last env whose ROOT this resolved in */
+    size_t cache_slot;        /* its slot in that root frame's syms/vals */
+    unsigned char shadowed;   /* ever yas_env_define()'d into a non-root
+                               * frame? Monotone, never cleared - once
+                               * set, yas_env_get()/yas_env_set() always
+                               * take the full parent-chain walk for this
+                               * symbol, which is merely a missed
+                               * optimization, never a wrong answer. */
+    char name[];
+};
+
+static struct YasSymbol *sym_rec(const char *name)
+{
+    return (struct YasSymbol *)((char *)name - offsetof(struct YasSymbol, name));
+}
+
 struct YasInternTable {
-    char **slots;    /* NULL = empty slot */
-    size_t capacity; /* always a power of two */
+    struct YasSymbol **slots; /* NULL = empty slot */
+    size_t capacity;          /* always a power of two */
     size_t count;
 };
 
@@ -188,26 +215,26 @@ static size_t fnv1a_hash(const char *s)
     return h;
 }
 
-/* Insert `s` (already known absent) into `t` without taking ownership -
- * caller passes a pointer it already owns (a fresh strdup or one being
+/* Insert `rec` (already known absent) into `t` without taking ownership -
+ * caller passes a record it already owns (a fresh allocation or one being
  * relocated by intern_grow()). */
-static void intern_insert(struct YasInternTable *t, char *s)
+static void intern_insert(struct YasInternTable *t, struct YasSymbol *rec)
 {
     size_t mask = t->capacity - 1;
-    size_t i = fnv1a_hash(s) & mask;
+    size_t i = fnv1a_hash(rec->name) & mask;
     while (t->slots[i])
         i = (i + 1) & mask;
-    t->slots[i] = s;
+    t->slots[i] = rec;
     t->count++;
 }
 
 static void intern_grow(struct YasInternTable *t)
 {
     size_t old_capacity = t->capacity;
-    char **old_slots = t->slots;
+    struct YasSymbol **old_slots = t->slots;
 
     t->capacity = old_capacity ? old_capacity * 2 : 256;
-    t->slots = calloc(t->capacity, sizeof(char *));
+    t->slots = calloc(t->capacity, sizeof(struct YasSymbol *));
     t->count = 0;
 
     for (size_t i = 0; i < old_capacity; i++)
@@ -216,7 +243,7 @@ static void intern_grow(struct YasInternTable *t)
     free(old_slots);
 }
 
-/* Probe `t` for `s`; return the interned pointer on a hit, NULL on a
+/* Probe `t` for `s`; return the interned name pointer on a hit, NULL on a
  * miss. Grows (rehashing every live entry) at 70% load before an
  * insert would cross it - open addressing with no deletes, so no
  * tombstones to worry about. */
@@ -228,8 +255,8 @@ static char *intern_find_or_insert(struct YasInternTable *t, const char *s)
     size_t mask = t->capacity - 1;
     size_t i = fnv1a_hash(s) & mask;
     while (t->slots[i]) {
-        if (strcmp(t->slots[i], s) == 0)
-            return t->slots[i];
+        if (strcmp(t->slots[i]->name, s) == 0)
+            return t->slots[i]->name;
         i = (i + 1) & mask;
     }
 
@@ -242,9 +269,14 @@ static char *intern_find_or_insert(struct YasInternTable *t, const char *s)
             i = (i + 1) & mask;
     }
 
-    char *owned = strdup(s);
-    intern_insert(t, owned);
-    return owned;
+    size_t len = strlen(s);
+    struct YasSymbol *rec = malloc(sizeof(struct YasSymbol) + len + 1);
+    rec->cache_env = NULL;
+    rec->cache_slot = 0;
+    rec->shadowed = 0;
+    memcpy(rec->name, s, len + 1);
+    intern_insert(t, rec);
+    return rec->name;
 }
 
 /* Root-registration API (see yas.h and docs/GC.md). A stack of pointers
@@ -1205,6 +1237,7 @@ YasAtom yas_env_create(YasAtom parent)
     gc_account_extra(&e->gc, sizeof(YasAtom) * e->capacity * 2);
 
     e->parent = parent;
+    e->root = yas_nilp(parent) ? e : parent.value.env->root;
     yas_gc_write_barrier(a, parent);
 
     yas_gc_pop_roots(1);
@@ -1215,6 +1248,14 @@ int yas_env_define(YasAtom env, YasAtom symbol, YasAtom value)
 {
     struct YasEnv *e = env.value.env;
     size_t slot = env_probe(e, symbol);
+
+    /* Any insert into a non-root frame permanently disqualifies this
+     * symbol from the fast path below (ticket #45) - set before the
+     * insert so the flag is live before the frame's body runs. Monotone,
+     * never cleared: a false "shadowed" just means an extra parent-chain
+     * walk, never a wrong value. */
+    if (e != e->root)
+        sym_rec(symbol.value.symbol)->shadowed = 1;
 
     if (!yas_nilp(e->syms[slot])) {
         e->vals[slot] = value;
@@ -1238,35 +1279,80 @@ int yas_env_define(YasAtom env, YasAtom symbol, YasAtom value)
 
 int yas_env_get(YasAtom env, YasAtom symbol, YasAtom *result)
 {
-    struct YasEnv *e = env.value.env;
-    size_t slot = env_probe(e, symbol);
-
-    if (!yas_nilp(e->syms[slot])) {
-        *result = e->vals[slot];
+    /* Root-frame fast path (ticket #45): a symbol never yas_env_define()'d
+     * into a non-root frame always resolves at the chain's root, so cache
+     * (root, slot) behind the interned symbol and skip both the
+     * frame-by-frame walk and the per-frame probe on a hit. The cached
+     * slot is re-validated against the live table on every use - this is
+     * what makes env_grow()'s rehash (which moves every slot) and the
+     * free-list pool's env-address recycling (ticket #44) safe without a
+     * generation counter: a stale/foreign slot either fails the symbol
+     * check or the `cache_slot < capacity` bounds check, and falls back
+     * to a fresh probe. */
+    struct YasSymbol *s = sym_rec(symbol.value.symbol);
+    if (!s->shadowed) {
+        struct YasEnv *r = env.value.env->root;
+        if (s->cache_env == r && s->cache_slot < r->capacity &&
+            r->syms[s->cache_slot].value.symbol == symbol.value.symbol) {
+            *result = r->vals[s->cache_slot];
+            return YAS_ERROR_OK;
+        }
+        size_t slot = env_probe(r, symbol);
+        if (yas_nilp(r->syms[slot]))
+            return YAS_ERROR_UNBOUND; /* sound: not shadowed anywhere */
+        s->cache_env = r;
+        s->cache_slot = slot;
+        *result = r->vals[slot];
         return YAS_ERROR_OK;
     }
 
-    if (yas_nilp(e->parent))
-        return YAS_ERROR_UNBOUND;
-
-    return yas_env_get(e->parent, symbol, result);
+    struct YasEnv *e = env.value.env;
+    for (;;) {
+        size_t slot = env_probe(e, symbol);
+        if (!yas_nilp(e->syms[slot])) {
+            *result = e->vals[slot];
+            return YAS_ERROR_OK;
+        }
+        if (yas_nilp(e->parent))
+            return YAS_ERROR_UNBOUND;
+        e = e->parent.value.env;
+    }
 }
 
 int yas_env_set(YasAtom env, YasAtom symbol, YasAtom value)
 {
-    struct YasEnv *e = env.value.env;
-    size_t slot = env_probe(e, symbol);
-
-    if (!yas_nilp(e->syms[slot])) {
-        e->vals[slot] = value;
-        yas_gc_write_barrier(env, value);
+    struct YasSymbol *s = sym_rec(symbol.value.symbol);
+    if (!s->shadowed) {
+        struct YasEnv *r = env.value.env->root;
+        if (s->cache_env == r && s->cache_slot < r->capacity &&
+            r->syms[s->cache_slot].value.symbol == symbol.value.symbol) {
+            r->vals[s->cache_slot] = value;
+            yas_gc_write_barrier((YasAtom){.type = YAS_ATOM_TYPE_ENV, .value.env = r}, value);
+            return YAS_ERROR_OK;
+        }
+        size_t slot = env_probe(r, symbol);
+        if (yas_nilp(r->syms[slot]))
+            return YAS_ERROR_UNBOUND;
+        s->cache_env = r;
+        s->cache_slot = slot;
+        r->vals[slot] = value;
+        yas_gc_write_barrier((YasAtom){.type = YAS_ATOM_TYPE_ENV, .value.env = r}, value);
         return YAS_ERROR_OK;
     }
 
-    if (yas_nilp(e->parent))
-        return YAS_ERROR_UNBOUND;
-
-    return yas_env_set(e->parent, symbol, value);
+    struct YasEnv *e = env.value.env;
+    for (;;) {
+        size_t slot = env_probe(e, symbol);
+        if (!yas_nilp(e->syms[slot])) {
+            YasAtom eatom = {.type = YAS_ATOM_TYPE_ENV, .value.env = e};
+            e->vals[slot] = value;
+            yas_gc_write_barrier(eatom, value);
+            return YAS_ERROR_OK;
+        }
+        if (yas_nilp(e->parent))
+            return YAS_ERROR_UNBOUND;
+        e = e->parent.value.env;
+    }
 }
 
 /* Vector operations */

@@ -833,6 +833,10 @@ static int eval_vm(YasAtom expr, YasAtom env, YasAtom *result, struct EvalRoot *
         } else if (expr.type != YAS_ATOM_TYPE_PAIR) {
             *result = expr;
         } else if (!yas_listp(expr)) {
+            /* yas_listp() walks the whole list to confirm it's proper -
+             * O(len) per call node, on the hottest path in the
+             * evaluator. Found while investigating #45; tracked
+             * separately as #63, not fixed here. */
             return YAS_ERROR_SYNTAX;
         } else {
             YasAtom op = yas_car(expr);

@@ -269,6 +269,43 @@ still the only way anything outside `data.c` touches an environment;
 `make_closure()` (`eval.c`) stores one as an opaque atom alongside a
 closure's args/body without looking inside it.
 
+**Global lookups skip the chain walk entirely.** Every environment
+carries a `root` pointer (`yas.h`) to its chain's top frame - `self` if
+`parent` is NIL, else the parent's own `root` - set once in
+`yas_env_create()` and never mutated again (`parent` itself is written
+only there, so a frame's root is fixed for its lifetime). The interned
+symbol record behind every `YasAtom.value.symbol`/`.value.keyword`
+pointer (`struct YasSymbol`, `data.c`) carries a `{cache_env, cache_slot}`
+pair and a `shadowed` flag. A symbol that has never been
+`yas_env_define()`'d into a non-root frame can only ever resolve at the
+chain's root regardless of where the lookup started, so `yas_env_get()`/
+`yas_env_set()` cache that root frame and slot on the symbol and,
+on a hit, index straight into `root->vals[]` - no frame-by-frame walk,
+no per-frame probe. `yas_env_define()` sets `shadowed` the first time a
+symbol is bound into any frame that isn't its own root; the flag is
+monotone (never cleared) - a false positive just means an extra chain
+walk, never a wrong value.
+
+The cached slot is re-validated against the live table on every use
+(`root->syms[cache_slot].value.symbol == symbol` plus a
+`cache_slot < root->capacity` bounds check), which is what makes two
+hazards safe without a generation counter: `env_grow()` rehashing a
+frame (moves every slot - the validation catches the move and re-probes)
+and the free-list pool (ticket #44) recycling an env's address (the
+cache never dereferences `cache_env`, only compares it against the
+*current* chain's live root, so a collision either fails the symbol
+check or, courtesy of the bounds check, can't read past a freshly
+`yas_env_create()`'d frame's capacity-8 arrays). This whole design rests
+on one invariant: `yas_env_define()` is the only way a binding enters a
+frame (see its call sites - `data.c`'s comment on that function names
+them). If that ever stops being true, `yas_env_set()`'s fast path could
+write a global instead of an unmarked local - the code comment at its
+definition flags this explicitly.
+
+Locals (anything ever bound below the root) keep the plain parent-chain
+walk described above - already O(1) per frame, and typically only one
+or two hops deep.
+
 ## Hashes
 
 `YasHash` (`yas.h`) keeps its dense `keys`/`values` arrays exactly as

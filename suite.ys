@@ -634,4 +634,31 @@
   (check (+ 1 2 3) 6)
   (check (let ((a 1)) (let ((b 2)) (+ 1 2 3))) 6))
 
+;; #63 removed the up-front yas_listp(expr) walk that used to reject an
+;; improper call/special-form spine before anything else happened -
+;; properness is now checked incrementally, at each site that actually
+;; consumes another cell (see eval.c's "Evaluator" comment and
+;; docs/ARCHITECTURE.md). These pin the new behaviour: an improper form
+;; still always errors and is still caught by TRY/CATCH. (Checking only
+;; that the catch fires, not the exact message: yas_ctx_exception is
+;; never reset after a caught exception - eval.c:988's "if nil, convert
+;; the error code to a message" branch means a later error that never
+;; sets an explicit exception object can pick up a stale message from
+;; an earlier, unrelated catch in the same run. Pre-existing, unrelated
+;; to #63 - filed separately, not fixed here.)
+(test "Improper forms: call/special-form spine still errors (#63)"
+  (check (try (1 . 2) (catch e 'caught)) 'caught)
+  (check (try (if 1 . 2) (catch e 'caught)) 'caught)
+  (check (try (+ 1 . 2) (catch e 'caught)) 'caught)
+  (check (try ((lambda (x) x) . 5) (catch e 'caught)) 'caught)
+  (check (try (lambda (x) . 5) (catch e 'caught)) 'caught)
+  (check (try (defmacro (bad-macro x) . 5) (catch e 'caught)) 'caught))
+
+(test "Improper forms: ordinary evaluation is unaffected (#63)"
+  ;; Same shapes as above, but proper - nothing here should have changed.
+  (check (+ 1 2 3) 6)
+  (check (if 1 'yes 'no) 'yes)
+  (check ((lambda (x) x) 5) 5)
+  (check ((lambda (x) (+ x 1)) 5) 6))
+
 (run-tests)

@@ -137,6 +137,35 @@ default (`[x default]`), keyword args (`:KW [var default]`), and a
 `. rest` tail. A leading string in the body, if more body follows, is
 taken as a docstring.
 
+**Spine properness is checked incrementally, not up front.** Every pair
+`eval_vm()` evaluates as a call or special form used to be validated by one
+`yas_listp(expr)` call before anything else happened - an O(length) walk of
+the whole argument spine on the hottest path in the evaluator, on top of
+the O(length) walk argument evaluation already does. That up-front check
+is gone: each special form instead uses `eval.c`'s `arity_ok(args, min,
+max)` - an O(1)-per-call, bounded structural + arity check (`max < 0` means
+"at least `min`, unbounded tail, checked no further here") - and each site
+that actually consumes another cell of a call's argument spine
+(`eval_do_return()`'s per-argument advance, `eval_do_exec()`'s per-form body
+walk, `eval_do_bind()`'s argument binding, the `TRY`/`INCLUDE` clause loops,
+`yas_module_import()`/`yas_module_define_library()`'s top-level decl
+walks) checks the cell it's about to read is a pair before reading it.
+`apply`'s runtime argument list (arbitrary caller-supplied data, not a
+source form) still gets a `yas_listp()` walk in `eval_do_apply()` - there
+is no later per-cell consumption point to push that check down to.
+
+Consequence: an improper form (`(f a . b)`, a dotted `lambda` body, an
+improper macro-call argument spine, `(if a . b)`, …) still always errors,
+but the diagnosis now happens when the offending cell is reached rather
+than before evaluation starts - so `a` may already have been evaluated
+(side effects included), and the resulting error code may be `ARGS`/`TYPE`
+rather than always `SYNTAX`. A hand-built form whose *argument* spine is
+improper past the first cell and whose operator is a builtin (e.g. `(eval
+(cons car (cons 1 2)))`) is undefined behaviour: the O(1) guard on the
+`BUILTIN` dispatch path only catches an immediately-non-pair cdr, since
+`builtin_*.c` otherwise assumes - as it always has - that a builtin's
+argument list is proper by construction.
+
 ### call/cc
 
 Continuations snapshot the evaluator's stack (a chain of `struct

@@ -191,8 +191,14 @@ static int make_closure(YasAtom env, YasAtom args, YasAtom body, YasAtom *result
 {
     YasAtom p;
 
-    if (!yas_listp(body))
-        return YAS_ERROR_SYNTAX;
+    /* No more up-front yas_listp(body) here (#63) - that walked the
+     * whole body spine on every LAMBDA/DEFMACRO/closure-shape DEFINE
+     * evaluation, directly in the `closure` bench workload. `body` is
+     * yas_cdr(args) at every call site below, and the caller's
+     * arity_ok(args, 2, -1) already established `args` and `body` are
+     * both pairs (docstring check just below relies on that); a body
+     * cell past the first is now validated incrementally, one form per
+     * call, by eval_do_exec() as the closure actually runs. */
 
     /* Check argument names are valid:
      * - Symbol (regular arg or rest)
@@ -223,7 +229,8 @@ static int make_closure(YasAtom env, YasAtom args, YasAtom body, YasAtom *result
 
     /* Extract docstring if first body form is a string and there's more body */
     YasAtom docstring = yas_nil;
-    if (!yas_nilp(body) && yas_car(body).type == YAS_ATOM_TYPE_STRING && !yas_nilp(yas_cdr(body))) {
+    if (body.type == YAS_ATOM_TYPE_PAIR && yas_car(body).type == YAS_ATOM_TYPE_STRING &&
+        !yas_nilp(yas_cdr(body))) {
         docstring = yas_car(body);
         body = yas_cdr(body);
     }
@@ -303,12 +310,55 @@ static inline void frame_set(YasAtom f, int slot, YasAtom v)
     yas_gc_write_barrier(f, v);
 }
 
+/* Bounded arity + spine-properness check for a special form's argument
+ * list `args` (e.g. yas_cdr(expr)), replacing the O(len) yas_listp(expr)
+ * that used to guard every call node up front (#63). Verifies the first
+ * `min` cells are pairs (so `args` has at least `min` elements); when
+ * `max < 0` that's all it checks - a special form whose tail is an
+ * unbounded body (LAMBDA, DEFMACRO, TRY, INCLUDE) relies on a separate,
+ * incremental check further down that spine instead (eval_do_exec() for
+ * closure/macro bodies, the TRY/INCLUDE clause loops below) rather than
+ * this walking the rest of it. When `max >= 0`, additionally verifies the
+ * spine terminates in NIL at exactly `max` elements (so min==max means
+ * "exactly N"). Either way this never walks past `max` (or `min`) cells,
+ * so it stays O(1) for every fixed-arity form on the hot path. */
+static int arity_ok(YasAtom args, int min, int max)
+{
+    YasAtom p = args;
+    int count = 0;
+
+    while (count < min) {
+        if (p.type != YAS_ATOM_TYPE_PAIR)
+            return 0;
+        p = yas_cdr(p);
+        count++;
+    }
+    if (max < 0)
+        return 1;
+    while (count < max) {
+        if (yas_nilp(p))
+            return 1;
+        if (p.type != YAS_ATOM_TYPE_PAIR)
+            return 0;
+        p = yas_cdr(p);
+        count++;
+    }
+    return yas_nilp(p);
+}
+
 int eval_do_exec(YasAtom *stack, YasAtom *expr, YasAtom *env)
 {
     YasAtom body;
 
     *env = frame_get(*stack, FRAME_ENV);
     body = frame_get(*stack, FRAME_BODY);
+    /* Walks one body form per call, across many calls as the closure's
+     * body drains - this is where an improper body spine (formerly
+     * rejected up front by make_closure()'s yas_listp(body), #63) now
+     * gets caught, one cell at a time, instead of all at once on every
+     * `lambda` evaluation. */
+    if (body.type != YAS_ATOM_TYPE_PAIR)
+        return YAS_ERROR_SYNTAX;
     *expr = yas_car(body);
     body = yas_cdr(body);
     if (yas_nilp(body)) {
@@ -357,6 +407,15 @@ int eval_do_bind(YasAtom *stack, YasAtom *expr, YasAtom *env)
 
         YasAtom arg_spec = yas_car(arg_names);
 
+        /* `args` is proper-by-construction for an ordinary closure call
+         * (eval_do_apply()'s yas_list_reverse() output), but for a macro
+         * call it's the raw source argument spine (eval_do_return()'s
+         * MACRO branch sets FRAME_ARGS straight from FRAME_TAIL, #63/#64)
+         * - guard it here instead of relying on the up-front whole-spine
+         * check this ticket removes. */
+        if (!yas_nilp(args) && args.type != YAS_ATOM_TYPE_PAIR)
+            return YAS_ERROR_SYNTAX;
+
         /* Keyword marker - next items are keyword args */
         if (arg_spec.type == YAS_ATOM_TYPE_KEYWORD) {
             in_keywords = 1;
@@ -385,7 +444,7 @@ int eval_do_bind(YasAtom *stack, YasAtom *expr, YasAtom *env)
             int found = 0;
             YasAtom search = args;
             YasAtom prev = yas_nil;
-            while (!yas_nilp(search)) {
+            while (search.type == YAS_ATOM_TYPE_PAIR) {
                 if (yas_car(search).type == YAS_ATOM_TYPE_KEYWORD &&
                     yas_car(search).value.keyword == kw.value.keyword) {
                     /* Found keyword, next is value */
@@ -448,11 +507,16 @@ int eval_do_bind(YasAtom *stack, YasAtom *expr, YasAtom *env)
 
     /* Check for leftover positional args (keywords are allowed to remain) */
     while (!yas_nilp(args)) {
+        if (args.type != YAS_ATOM_TYPE_PAIR)
+            return YAS_ERROR_SYNTAX;
         if (yas_car(args).type != YAS_ATOM_TYPE_KEYWORD)
             return YAS_ERROR_ARGS;
         args = yas_cdr(args);
-        if (!yas_nilp(args))
+        if (!yas_nilp(args)) {
+            if (args.type != YAS_ATOM_TYPE_PAIR)
+                return YAS_ERROR_SYNTAX;
             args = yas_cdr(args); /* Skip value too */
+        }
     }
 
     frame_set(*stack, FRAME_ARGS, yas_nil);
@@ -479,6 +543,12 @@ int eval_do_apply(YasAtom *stack, YasAtom *expr, YasAtom *env, YasAtom *result)
             *stack = make_frame(*stack, *env, yas_nil);
             op = yas_car(args);
             args = yas_car(yas_cdr(args));
+            /* Unlike a source call form's argument spine (#63), this is
+             * a genuine runtime value - the second argument to `apply`,
+             * arbitrary user data that has never been validated as a
+             * proper list. yas_listp() stays here; there's no later
+             * per-cell consumption point to push this check down to,
+             * and `apply` isn't the hot path #63 targets. */
             if (!yas_listp(args))
                 return YAS_ERROR_SYNTAX;
 
@@ -765,6 +835,13 @@ int eval_do_return(YasAtom *stack, YasAtom *expr, YasAtom *env, YasAtom *result)
         /* No more arguments left to evaluate */
         return eval_do_apply(stack, expr, env, result);
     }
+    /* `args` is the source call form's own argument spine (FRAME_TAIL was
+     * seeded straight from yas_cdr(expr) at push-time), walked one cell
+     * per evaluated argument - this is exactly the invariant the old
+     * up-front yas_listp(expr) check (#63) used to guarantee. Catch an
+     * improper spine here instead, at the point it's actually consumed. */
+    if (args.type != YAS_ATOM_TYPE_PAIR)
+        return YAS_ERROR_SYNTAX;
 
     /* Evaluate next argument */
     *expr = yas_car(args);
@@ -832,13 +909,20 @@ static int eval_vm(YasAtom expr, YasAtom env, YasAtom *result, struct EvalRoot *
             }
         } else if (expr.type != YAS_ATOM_TYPE_PAIR) {
             *result = expr;
-        } else if (!yas_listp(expr)) {
-            /* yas_listp() walks the whole list to confirm it's proper -
-             * O(len) per call node, on the hottest path in the
-             * evaluator. Found while investigating #45; tracked
-             * separately as #63, not fixed here. */
-            return YAS_ERROR_SYNTAX;
         } else {
+            /* No more up-front yas_listp(expr) here (#63): that used to
+             * walk the whole spine to prove it terminates in NIL before
+             * anything else happened, on every call/special-form node.
+             * Properness is now checked incrementally, at each site that
+             * actually consumes another cell - arity_ok() below for
+             * special forms, eval_do_return()'s TAIL advance for
+             * ordinary call arguments, eval_do_exec()/eval_do_bind() for
+             * bodies. Consequence: an improper form is now diagnosed
+             * when the offending cell is reached rather than up front,
+             * so e.g. `(f a . b)` may evaluate `a` (side effects
+             * included) before erroring, and the resulting error code
+             * may be ARGS/TYPE rather than always SYNTAX - see
+             * docs/ARCHITECTURE.md's "Evaluator" section. */
             YasAtom op = yas_car(expr);
             YasAtom args = yas_cdr(expr);
 
@@ -846,14 +930,14 @@ static int eval_vm(YasAtom expr, YasAtom env, YasAtom *result, struct EvalRoot *
                 /* Handle special forms */
 
                 if (strcmp(op.value.symbol, "QUOTE") == 0) {
-                    if (yas_nilp(args) || !yas_nilp(yas_cdr(args)))
+                    if (!arity_ok(args, 1, 1))
                         return YAS_ERROR_ARGS;
 
                     *result = yas_car(args);
                 } else if (strcmp(op.value.symbol, "DEFINE") == 0) {
                     YasAtom sym;
 
-                    if (yas_nilp(args) || yas_nilp(yas_cdr(args)))
+                    if (!arity_ok(args, 2, -1))
                         return YAS_ERROR_ARGS;
 
                     sym = yas_car(args);
@@ -876,13 +960,12 @@ static int eval_vm(YasAtom expr, YasAtom env, YasAtom *result, struct EvalRoot *
                         return YAS_ERROR_TYPE;
                     }
                 } else if (strcmp(op.value.symbol, "LAMBDA") == 0) {
-                    if (yas_nilp(args) || yas_nilp(yas_cdr(args)))
+                    if (!arity_ok(args, 2, -1))
                         return YAS_ERROR_ARGS;
 
                     err = make_closure(env, yas_car(args), yas_cdr(args), result);
                 } else if (strcmp(op.value.symbol, "IF") == 0) {
-                    if (yas_nilp(args) || yas_nilp(yas_cdr(args)) || yas_nilp(yas_cdr(yas_cdr(args))) ||
-                        !yas_nilp(yas_cdr(yas_cdr(yas_cdr(args)))))
+                    if (!arity_ok(args, 3, 3))
                         return YAS_ERROR_ARGS;
 
                     stack = make_frame(stack, env, yas_cdr(args));
@@ -890,7 +973,7 @@ static int eval_vm(YasAtom expr, YasAtom env, YasAtom *result, struct EvalRoot *
                     expr = yas_car(args);
                     continue;
                 } else if (strcmp(op.value.symbol, "TRY") == 0) {
-                    if (yas_nilp(args))
+                    if (!arity_ok(args, 1, -1))
                         return YAS_ERROR_ARGS;
 
                     YasAtom try_expr = yas_car(args);
@@ -903,7 +986,14 @@ static int eval_vm(YasAtom expr, YasAtom env, YasAtom *result, struct EvalRoot *
                     if (err != YAS_ERROR_OK) {
                         /* Exception thrown or runtime error */
                         if (yas_nilp(yas_ctx_exception)) {
-                            /* Convert code to exception string if not already set */
+                            /* Convert code to exception string if not already set.
+                             * Pre-existing gap (not #63/#64, filed as a separate
+                             * ticket): yas_ctx_exception is never reset to nil
+                             * after a CATCH consumes it, so if this branch's
+                             * "not already set" check is false only because an
+                             * *earlier*, already-caught error left a stale value
+                             * here, this CATCH sees that stale exception instead
+                             * of one describing its own failure. */
                             const char *msg = "Unknown Error";
                             if (err == YAS_ERROR_UNBOUND)
                                 msg = "Symbol not bound";
@@ -919,7 +1009,12 @@ static int eval_vm(YasAtom expr, YasAtom env, YasAtom *result, struct EvalRoot *
                         /* Exception thrown */
                         int caught = 0;
                         YasAtom p = rest;
-                        while (!yas_nilp(p)) {
+                        /* `p` walks the same top-level spine `expr`'s
+                         * yas_listp() check used to guarantee proper
+                         * (#63) - check the cell type explicitly instead
+                         * of trusting yas_nilp() alone to signal the
+                         * end. */
+                        while (p.type == YAS_ATOM_TYPE_PAIR) {
                             YasAtom clause = yas_car(p);
                             if (clause.type == YAS_ATOM_TYPE_PAIR && yas_car(clause).type == YAS_ATOM_TYPE_SYMBOL &&
                                 strcmp(yas_car(clause).value.symbol, "CATCH") == 0) {
@@ -1030,7 +1125,7 @@ static int eval_vm(YasAtom expr, YasAtom env, YasAtom *result, struct EvalRoot *
 
                     /* Execute FINALLY */
                     YasAtom p = rest;
-                    while (!yas_nilp(p)) {
+                    while (p.type == YAS_ATOM_TYPE_PAIR) {
                         YasAtom clause = yas_car(p);
                         if (clause.type == YAS_ATOM_TYPE_PAIR && yas_car(clause).type == YAS_ATOM_TYPE_SYMBOL &&
                             strcmp(yas_car(clause).value.symbol, "FINALLY") == 0) {
@@ -1061,7 +1156,7 @@ static int eval_vm(YasAtom expr, YasAtom env, YasAtom *result, struct EvalRoot *
                 } else if (strcmp(op.value.symbol, "DEFMACRO") == 0) {
                     YasAtom name, macro;
 
-                    if (yas_nilp(args) || yas_nilp(yas_cdr(args)))
+                    if (!arity_ok(args, 2, -1))
                         return YAS_ERROR_ARGS;
 
                     if (yas_car(args).type != YAS_ATOM_TYPE_PAIR)
@@ -1078,7 +1173,7 @@ static int eval_vm(YasAtom expr, YasAtom env, YasAtom *result, struct EvalRoot *
                         (void)yas_env_define(env, name, macro);
                     }
                 } else if (strcmp(op.value.symbol, "APPLY") == 0) {
-                    if (yas_nilp(args) || yas_nilp(yas_cdr(args)) || !yas_nilp(yas_cdr(yas_cdr(args))))
+                    if (!arity_ok(args, 2, 2))
                         return YAS_ERROR_ARGS;
 
                     stack = make_frame(stack, env, yas_cdr(args));
@@ -1086,7 +1181,7 @@ static int eval_vm(YasAtom expr, YasAtom env, YasAtom *result, struct EvalRoot *
                     expr = yas_car(args);
                     continue;
                 } else if (strcmp(op.value.symbol, "SET!") == 0) {
-                    if (yas_nilp(args) || yas_nilp(yas_cdr(args)) || !yas_nilp(yas_cdr(yas_cdr(args))))
+                    if (!arity_ok(args, 2, 2))
                         return YAS_ERROR_ARGS;
                     if (yas_car(args).type != YAS_ATOM_TYPE_SYMBOL)
                         return YAS_ERROR_TYPE;
@@ -1096,7 +1191,7 @@ static int eval_vm(YasAtom expr, YasAtom env, YasAtom *result, struct EvalRoot *
                     expr = yas_car(yas_cdr(args));
                     continue;
                 } else if (strcmp(op.value.symbol, "MACROEXPAND-1") == 0) {
-                    if (yas_nilp(args) || !yas_nilp(yas_cdr(args)))
+                    if (!arity_ok(args, 1, 1))
                         return YAS_ERROR_ARGS;
                     /* Evaluate the argument to get the form */
                     stack = make_frame(stack, env, yas_nil);
@@ -1104,7 +1199,7 @@ static int eval_vm(YasAtom expr, YasAtom env, YasAtom *result, struct EvalRoot *
                     expr = yas_car(args);
                     continue;
                 } else if (strcmp(op.value.symbol, "CALL/CC") == 0) {
-                    if (yas_nilp(args) || !yas_nilp(yas_cdr(args)))
+                    if (!arity_ok(args, 1, 1))
                         return YAS_ERROR_ARGS;
                     /* Evaluate the function argument */
                     stack = make_frame(stack, env, yas_nil);
@@ -1113,14 +1208,14 @@ static int eval_vm(YasAtom expr, YasAtom env, YasAtom *result, struct EvalRoot *
                     continue;
                 } else if (strcmp(op.value.symbol, "INCLUDE") == 0 || strcmp(op.value.symbol, "INCLUDE-CI") == 0) {
                     /* (include "file.ys" ...) - textual file inclusion */
-                    if (yas_nilp(args))
+                    if (!arity_ok(args, 1, -1))
                         return YAS_ERROR_ARGS;
 
                     int case_insensitive = (strcmp(op.value.symbol, "INCLUDE-CI") == 0);
 
                     /* Process each file argument */
                     YasAtom file_list = args;
-                    while (!yas_nilp(file_list)) {
+                    while (file_list.type == YAS_ATOM_TYPE_PAIR) {
                         YasAtom file_arg = yas_car(file_list);
                         if (file_arg.type != YAS_ATOM_TYPE_STRING)
                             return YAS_ERROR_TYPE;
@@ -1131,6 +1226,8 @@ static int eval_vm(YasAtom expr, YasAtom env, YasAtom *result, struct EvalRoot *
 
                         file_list = yas_cdr(file_list);
                     }
+                    if (!yas_nilp(file_list))
+                        return YAS_ERROR_SYNTAX;
                     /* result is set to the last expression evaluated */
                 } else if (strcmp(op.value.symbol, "DEFINE-LIBRARY") == 0) {
                     err = yas_module_define_library(args, result);
@@ -1144,6 +1241,19 @@ static int eval_vm(YasAtom expr, YasAtom env, YasAtom *result, struct EvalRoot *
                     goto push;
                 }
             } else if (op.type == YAS_ATOM_TYPE_BUILTIN) {
+                /* `args` is proper by construction on the ordinary path
+                 * (eval_do_apply()'s yas_cons(builtin, args)), which is
+                 * why builtin_*.c walks it unchecked - but a hand-built
+                 * form can reach here directly, e.g. `(eval (cons car
+                 * 1))` gives a BUILTIN car and a non-pair cdr. An O(1)
+                 * nil-or-pair check catches that immediate case without
+                 * reinstating a yas_listp() walk on every builtin call
+                 * (#63); a non-pair cell further down a hand-built args
+                 * spine - `(eval (cons car (cons 1 2)))` - stays
+                 * undetected and is undefined behaviour, documented in
+                 * docs/ARCHITECTURE.md. */
+                if (!yas_nilp(args) && args.type != YAS_ATOM_TYPE_PAIR)
+                    return YAS_ERROR_SYNTAX;
                 err = (*op.value.builtin)(args, result);
             } else {
             push:

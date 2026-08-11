@@ -845,14 +845,22 @@ int yas_module_import(YasAtom args, YasAtom env, YasAtom *result)
      * transitively from EvalRoot->expr throughout, per docs/GC.md's
      * "Callers not affected" (both hold even though process_import_set()
      * can trigger nested library loads, which re-enter the evaluator and
-     * push their own EvalRoot without ever popping this frame's). */
+     * push their own EvalRoot without ever popping this frame's).
+     *
+     * `args` is the IMPORT form's own top-level argument spine - eval.c's
+     * up-front yas_listp(expr) check used to guarantee it was proper
+     * before this function ever saw it; that check is gone (#63), so `p`
+     * is walked by explicit pair type instead of trusting yas_nilp()
+     * alone to mark the end. */
     YasAtom p = args;
-    while (!yas_nilp(p)) {
+    while (p.type == YAS_ATOM_TYPE_PAIR) {
         int err = process_import_set(yas_car(p), env);
         if (err)
             return err;
         p = yas_cdr(p);
     }
+    if (!yas_nilp(p))
+        return YAS_ERROR_SYNTAX;
     *result = yas_nil;
     return YAS_ERROR_OK;
 }
@@ -881,8 +889,11 @@ int yas_module_define_library(YasAtom args, YasAtom *result)
     YasAtom lib_env = yas_hash_ref(lib, yas_make_sym("*env*"), yas_nil);
     YasAtom lib_exports = yas_hash_ref(lib, yas_make_sym("*exports*"), yas_nil);
 
+    /* `decls` is the DEFINE-LIBRARY form's own top-level spine, same
+     * status as yas_module_import()'s `p` above (#63) - walk by explicit
+     * pair type rather than the removed up-front yas_listp(expr). */
     YasAtom decls = yas_cdr(args);
-    while (!yas_nilp(decls)) {
+    while (decls.type == YAS_ATOM_TYPE_PAIR) {
         YasAtom decl = yas_car(decls);
         if (decl.type != YAS_ATOM_TYPE_PAIR)
             return YAS_ERROR_SYNTAX;
@@ -969,6 +980,8 @@ int yas_module_define_library(YasAtom args, YasAtom *result)
 
         decls = yas_cdr(decls);
     }
+    if (!yas_nilp(decls))
+        return YAS_ERROR_SYNTAX;
 
     *result = name;
     return YAS_ERROR_OK;

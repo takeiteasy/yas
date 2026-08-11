@@ -477,6 +477,58 @@ reachable via `yas_library_registry → lib → lib_env`. It's only values
 with *no* such path - like the lookup key above - that need an explicit
 root.
 
+## Macro expansion memo
+
+`eval.c`'s macro call dispatch (`eval_do_return()`, see docs/ARCHITECTURE.md's
+"Evaluator") caches a call site's expansion instead of re-running the
+macro's closure on every evaluation - a source-pair-keyed memo
+(`data.c`, `yas_macro_memo_get()`/`yas_macro_memo_put()`) that sits
+alongside, but separate from, the ordinary GC heap:
+
+- **Table**: a plain open-addressed array (`struct YasMacroMemoEntry`),
+  not itself GC-tracked - it's `calloc`'d/`realloc`'d C memory, sized
+  and probed like the symbol intern table earlier in `data.c`. Keyed on
+  `struct YasPair *` identity (the call form's argument-spine cell) plus
+  the macro binding's `.value.pair` identity, both compared as raw
+  pointers, not deep-equal.
+- **Weak key, strong values**: an entry's `key` is *not* marked by
+  `gc_mark_roots()` - only `macro` and `expansion` are
+  (`macro_memo_mark_roots()`). If nothing else keeps the key pair alive,
+  it gets swept normally; `key` existing in the table doesn't protect it.
+  `macro`/`expansion`, by contrast, are marked for as long as their entry
+  exists, same strength as any other GC root.
+- **O(1) removal on sweep, not a table scan**: a new bit,
+  `YAS_GC_FLAG_MACRO_MEMO_KEY`, lives in `YasGCHeader.flags` (padding
+  before `backing_size` that cost nothing to claim). `yas_macro_memo_put()`
+  sets it on the key pair; `gc_free_object()`'s `YAS_GC_OBJ_PAIR` case
+  checks it and calls `macro_memo_remove()` before the object is pooled or
+  freed - exact, targeted invalidation instead of scanning every entry on
+  every sweep. `gc_alloc()`'s `memset()` on a pool-recycled block already
+  clears `flags`, so a reused pair can never inherit a stale flag; the
+  explicit clear in `gc_free_object()` is just to leave no stale bit on a
+  pooled-but-not-yet-reused header.
+- **Mid-cycle insert hazard**: a `yas_macro_memo_put()` call during an
+  active MARKING or SWEEPING cycle (docs/GC.md's phase state machine)
+  can be storing a strong reference to pre-existing WHITE structure this
+  cycle's marking hasn't reached yet - not necessarily freshly-consed,
+  BLACK-on-alloc structure (see "Survivor colors" above). `yas_macro_memo_put()`
+  calls `yas_gc_mark(macro)`/`yas_gc_mark(expansion)` itself whenever
+  `gc_phase != YAS_GC_IDLE`, closing the gap between "inserted" and the
+  next full `gc_mark_roots()` pass (which covers every live entry
+  regardless, including the atomic pre-sweep re-mark in
+  `yas_gc_step()`'s MARKING case).
+- **Permanence trade-off**: an entry's key staying alive keeps its
+  `macro`/`expansion` alive too, even after the macro binding is
+  redefined (the *old* entry, keyed on the old macro's identity, is
+  simply superseded by a new entry for the new identity - never
+  removed until the key itself dies). For a macro call inside a
+  permanently-cached library (`yas_library_registry` holds every loaded
+  module for the process's lifetime - see "Module system"), a one-shot,
+  top-level macro expansion that would previously have been collected
+  right after use is now retained for as long as that library is loaded.
+  This showed up directly in `aux/gc_test.c`'s pool test (see "Testing"
+  below) as a shift in a stable live-byte baseline, not a leak.
+
 ## FFI exclusions
 
 `YasFFIFunction` and `YasFFIStructInstance` are GC-tracked like everything
@@ -518,7 +570,20 @@ explicitly managed via `ffi-close`/`ffi-free`.
   throwaway conses churned across repeated full collections, confirming
   `yas_gc_allocated()` returns to the same pre-churn baseline every time -
   a pooled block must not inflate the live-byte counter, only change
-  where its backing bytes come from.
+  where its backing bytes come from. That check calls `yas_gc()` twice
+  per churn cycle, not once: `gc_alloc()`'s own pacing can auto-start a
+  cycle partway through a churn burst, and every object allocated
+  *during* an already-active cycle is colored BLACK on arrival (see
+  "Survivor colors" above) - conservatively surviving that cycle's sweep
+  even though it's genuinely garbage, and only getting reclaimed on the
+  *next* one. The macro expansion memo (above) raising this test's live-
+  byte baseline (permanently-cached one-shot library-load expansions,
+  same as any other call site) was what first exposed this - it shifted
+  exactly when the automatic threshold trips relative to the test's own
+  loop, from "never in practice" to "reliably". A single `yas_gc()` call
+  only continues/finishes whatever cycle is already in flight (see
+  `yas_gc()`'s `if (gc_phase == IDLE)` guard) - it doesn't restart one -
+  so it isn't guaranteed to fully settle by itself; a second call is.
 - `suite.ys` ("GC rooting across nested eval") - Lisp-level: a `TRY`
   whose `FINALLY` clause calls `(gc)`, checking the try-block's result
   survives; a `CATCH` whose first body form recurses deeply enough to

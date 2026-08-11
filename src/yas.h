@@ -176,10 +176,21 @@ struct YasGCHeader {
     struct YasGCHeader *next;
     unsigned char color;    /* YasGCColor */
     unsigned char obj_type; /* YasGCObjType */
+    unsigned char flags;    /* Per-object bits, currently only
+                             * YAS_GC_FLAG_MACRO_MEMO_KEY (#64, data.c) -
+                             * set on a PAIR that is the live key of an
+                             * entry in the macro-expansion memo, so
+                             * gc_free_object() knows to drop that entry
+                             * when the pair is swept without scanning
+                             * the whole memo table on every free. Sits
+                             * in what was otherwise alignment padding
+                             * before `backing_size`. */
     size_t backing_size;    /* Total bytes owned (struct + any external
                              * buffers) - returned to the allocated-bytes
                              * counter on sweep. */
 };
+
+#define YAS_GC_FLAG_MACRO_MEMO_KEY 0x01u
 
 struct YasPair {
     struct YasAtom atom[2];
@@ -400,6 +411,22 @@ int yas_gc_root_count(void);
  * set-metatable! (builtin_hash.c), which writes a raw struct YasHash*
  * rather than a YasAtom field. No-op if either atom isn't heap-tracked. */
 void yas_gc_write_barrier(YasAtom container, YasAtom child);
+
+/* Macro expansion memo (#64, data.c): a source macro call site
+ * re-expands to the same result on every evaluation unless the macro is
+ * redefined or the call site's argument forms change identity - memoise
+ * it instead of re-running the macro's closure every time. `args_cell`
+ * is the call form's own argument spine (yas_cdr(call-form) - a stable
+ * per-call-site cons identity, see eval.c's eval_do_return()); `macro`
+ * is the macro binding at the time of the call, compared by identity so
+ * a `defmacro` redefinition invalidates the cached entry. Weakly keyed:
+ * the entry is dropped automatically when `args_cell` is swept (see
+ * YAS_GC_FLAG_MACRO_MEMO_KEY above and gc_free_object()), so a caller
+ * never needs to invalidate by hand. A nil `args_cell` (a zero-argument
+ * macro call has no per-call-site identity to key on) is never stored
+ * and never hits. */
+int yas_macro_memo_get(YasAtom args_cell, YasAtom macro, YasAtom *expansion);
+void yas_macro_memo_put(YasAtom args_cell, YasAtom macro, YasAtom expansion);
 
 /* Vector operations */
 YasAtom yas_vector_ref(YasAtom vec, size_t index);

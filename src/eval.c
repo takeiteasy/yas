@@ -750,6 +750,22 @@ int eval_do_return(YasAtom *stack, YasAtom *expr, YasAtom *env, YasAtom *result)
         if (op.type == YAS_ATOM_TYPE_MACRO) {
             /* Don't evaluate macro arguments */
             args = frame_get(*stack, FRAME_TAIL);
+
+            /* #64: this call site may already have an expansion cached
+             * from a previous evaluation - `args` (yas_cdr(call-form))
+             * is a stable identity per call site, so a hit here skips
+             * running the macro's closure entirely. See
+             * yas_macro_memo_get()/put() (data.c) and
+             * docs/ARCHITECTURE.md's "Evaluator" section. A nil `args`
+             * (a zero-argument macro call) has no per-call-site identity
+             * to key on and always misses. */
+            YasAtom cached;
+            if (!yas_nilp(args) && yas_macro_memo_get(args, op, &cached)) {
+                *expr = cached;
+                *stack = frame_get(*stack, FRAME_PARENT);
+                return YAS_ERROR_OK;
+            }
+
             *stack = make_frame(*stack, *env, yas_nil);
             op.type = YAS_ATOM_TYPE_CLOSURE;
             frame_set(*stack, FRAME_OP, op);
@@ -819,7 +835,20 @@ int eval_do_return(YasAtom *stack, YasAtom *expr, YasAtom *env, YasAtom *result)
             goto store_arg;
         }
     } else if (op.type == YAS_ATOM_TYPE_MACRO) {
-        /* Finished evaluating macro */
+        /* Finished evaluating macro - `*stack` is still the call-site
+         * frame (the one pushed at `push:` whose FRAME_OP matched
+         * YAS_ATOM_TYPE_MACRO above): the child frame pushed for the
+         * expansion carries the macro retagged to CLOSURE and is popped
+         * by eval_do_exec() when its body drains, restoring `*stack` to
+         * this frame before eval_do_return() is called again. FRAME_TAIL
+         * on this frame is therefore the exact same cell used as the
+         * memo key on the lookup side above - it's only ever reassigned
+         * by the store_arg path below, which this branch never takes.
+         * #64: record the expansion for future evaluations of this call
+         * site before discarding it. */
+        YasAtom call_args = frame_get(*stack, FRAME_TAIL);
+        if (!yas_nilp(call_args))
+            yas_macro_memo_put(call_args, op, *result);
         *expr = *result;
         *stack = frame_get(*stack, FRAME_PARENT);
         return YAS_ERROR_OK;

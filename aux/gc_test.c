@@ -456,6 +456,32 @@ static void test_pool_does_not_inflate_live_bytes(void)
 
 	for (int cycle = 0; cycle < 5; cycle++) {
 		churn(20000);
+		/* One yas_gc() call isn't always enough: gc_alloc()'s own
+		 * pacing (docs/GC.md, "Allocation-triggered stepping") can
+		 * auto-start a cycle partway through churn() if the byte
+		 * threshold trips mid-loop - and every object allocated
+		 * *during* an already-active cycle is colored BLACK on
+		 * arrival (data.c's gc_alloc(), "New objects during an
+		 * active cycle are BLACK"), a deliberate conservative
+		 * choice since a fresh allocation can't be proven garbage
+		 * without another whole reachability pass. That defers
+		 * reclaiming the *later* half of this churn() call's
+		 * throwaway conses to the *next* cycle - this call's
+		 * explicit yas_gc() only continues/finishes whatever cycle
+		 * is already in flight (see yas_gc()'s `if (gc_phase ==
+		 * IDLE)` guard), it doesn't restart one. A second yas_gc()
+		 * call settles it: nothing keeps that leftover BLACK batch
+		 * reachable, so the immediately next cycle reclaims it for
+		 * real. (#64's macro-expansion memo raised this test's
+		 * baseline - std/yas/base.ys's own top-level macro calls
+		 * during module load are cached, same as any other call
+		 * site - which was enough to shift exactly when the
+		 * automatic threshold trips relative to this loop and make
+		 * the single-yas_gc()-call assumption below start missing
+		 * in practice; two calls is the same total work suite.ys's
+		 * runs already do implicitly across many forms, not a new
+		 * behavior being relied on here.) */
+		yas_gc();
 		yas_gc();
 		CHECK(yas_gc_allocated() <= baseline);
 	}

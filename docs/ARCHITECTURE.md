@@ -166,6 +166,32 @@ improper past the first cell and whose operator is a builtin (e.g. `(eval
 `builtin_*.c` otherwise assumes - as it always has - that a builtin's
 argument list is proper by construction.
 
+**Macro call sites memoise their expansion.** A macro call used to
+re-expand from scratch on every evaluation - inside a loop body, that
+meant reconstructing the same control-flow skeleton (`when`, `cond`,
+`let`, `while`, …, nearly all of which are `defmacro`s, see above) every
+single iteration. `eval_do_return()`'s macro branch now looks up the call
+site's expansion in a weak-keyed memo (`data.c`, `yas_macro_memo_get()`/
+`yas_macro_memo_put()`) before running the macro's closure, keyed on the
+call form's own argument-spine cell identity (a stable per-call-site cons
+cell, aliased by `FRAME_TAIL`/`FRAME_ARGS` in the two frames spanning a
+macro call) plus the macro binding's identity (compared by the closure
+cons's own pointer, not by name), so redefining the macro invalidates the
+cached entry. A zero-argument macro call (`(foo)`) has no per-call-site
+cell to key on and is never memoised. The key is weak: when the GC frees
+the underlying argument-spine pair, `gc_free_object()` drops the memo
+entry with it (see docs/GC.md's "Macro expansion memo"); the macro and
+expansion values are strong references, kept alive for as long as the
+entry exists. This assumes macro expansion is a deterministic function of
+the call site's argument forms and the macro binding - a macro whose
+expansion depends on hidden mutable state (a counter, randomness) now
+expands once per call site instead of once per evaluation. Note this is
+plain lexical scoping, not a memo quirk: a `defmacro` nested inside a
+`begin`/`let`/`lambda` body (`begin` itself expands to `((lambda ()
+,@body))`, `std/yas/base.ys`) defines a *local* shadow in that scope,
+not a redefinition of an outer binding a different closure already
+captured - the same as `define` always has.
+
 ### call/cc
 
 Continuations snapshot the evaluator's stack (a chain of `struct

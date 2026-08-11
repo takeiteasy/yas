@@ -661,4 +661,38 @@
   (check ((lambda (x) x) 5) 5)
   (check ((lambda (x) (+ x 1)) 5) 6))
 
+;; #64: a macro call site now caches its expansion instead of re-running
+;; the macro's closure on every evaluation. Pin correctness for exactly
+;; the case this targets - the same source call site evaluated many
+;; times inside a loop body - since `when`/`dotimes` are themselves
+;; `defmacro`s (std/yas/base.ys) whose own control-flow skeleton is now
+;; also cached per call site.
+(define memo-sum 0)
+(dotimes (memo-i 20)
+  (when (> memo-i 10)
+    (set! memo-sum (+ memo-sum memo-i))))
+(test "Macro memo: loop-body macro call sites stay correct across iterations (#64)"
+  (check memo-sum (+ 11 12 13 14 15 16 17 18 19)))
+
+;; Redefining a macro used inside an already-defined function must be
+;; picked up on the function's next call - the memo is keyed on the
+;; macro binding's identity (compared by the closure cons's own pointer,
+;; not by name), and `defmacro` allocates a fresh closure, so a
+;; redefinition naturally misses the old entry rather than needing an
+;; explicit invalidation step. The three steps (define, warm the cache,
+;; redefine) are deliberately kept at top level rather than inside
+;; `test`'s body: `test`/`begin` expand through a `(lambda () ...)`
+;; (std/yas/base.ys), so a `defmacro` nested in there would define a
+;; *local* shadow in that lambda's own frame rather than updating the
+;; global binding `memo-redef-caller`'s closure (captured over the outer/
+;; global env before the shadow exists) actually looks up - unrelated to
+;; #64, just how `define`/`defmacro` scoping already works.
+(defmacro (memo-redef-macro x) (list '+ x 1))
+(define (memo-redef-caller y) (memo-redef-macro y))
+(memo-redef-caller 10) ;; warms the cache for this call site
+(memo-redef-caller 10) ;; still cached
+(defmacro (memo-redef-macro x) (list '+ x 100))
+(test "Macro memo: redefining a macro invalidates its cached call sites (#64)"
+  (check (memo-redef-caller 10) 110))
+
 (run-tests)

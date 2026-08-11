@@ -388,6 +388,198 @@ static struct YasGCHeader *atom_to_header(YasAtom a)
     }
 }
 
+/* ── Macro expansion memo (#64) ──────────────────────────────────────
+ * A source macro call site's expansion is a deterministic function of
+ * its argument forms and its binding, but eval.c used to re-run the
+ * macro's closure and rebuild the expansion from scratch on every single
+ * evaluation of that call site - inside a loop body (nearly all yas
+ * control flow - `when`, `cond`, `let`, `while`, `dotimes`, ... - is a
+ * `defmacro`, see docs/ARCHITECTURE.md), that meant reallocating the
+ * same control-flow skeleton every iteration.
+ *
+ * Open-addressed, keyed on the call form's argument-spine cell identity
+ * (`struct YasPair *`) plus the macro binding's identity - see
+ * eval_do_return() in eval.c for how those are obtained and why they're
+ * stable per call site. Weakly keyed: entries don't keep their key pair
+ * alive, and `YAS_GC_FLAG_MACRO_MEMO_KEY` on the key's YasGCHeader lets
+ * gc_free_object() drop the entry in O(1) when the key is actually swept
+ * (macro_memo_remove() below), rather than this table scanning itself on
+ * every free. Tombstones (`MACRO_MEMO_TOMBSTONE`) mark a removed slot so
+ * open-addressed probing still finds entries past it. */
+struct YasMacroMemoEntry {
+    struct YasPair *key;  /* NULL = empty, MACRO_MEMO_TOMBSTONE = removed */
+    YasAtom macro;        /* macro binding at insertion time, compared by
+                            * value.pair identity - a redefined macro is a
+                            * fresh closure cons, so this naturally
+                            * invalidates a stale hit instead of matching it. */
+    YasAtom expansion;
+};
+
+#define MACRO_MEMO_TOMBSTONE ((struct YasPair *)1)
+
+static struct YasMacroMemoEntry *macro_memo_slots = NULL;
+static size_t macro_memo_capacity = 0;
+static size_t macro_memo_used = 0; /* live entries + tombstones - drives growth,
+                                     * so a table churning inserts/removes at a
+                                     * steady live count still grows and sheds
+                                     * its tombstones instead of degrading. */
+
+static size_t ptr_hash(const void *p)
+{
+    uintptr_t x = (uintptr_t)p;
+    x ^= x >> 33;
+    x *= 0xff51afd7ed558ccdULL;
+    x ^= x >> 33;
+    return (size_t)x;
+}
+
+/* Insert `key`/`macro`/`expansion` into `slots` (already known absent),
+ * used both for a fresh insert and for relocating a live entry during
+ * grow - does not touch macro_memo_used, callers own that. */
+static void macro_memo_insert(struct YasMacroMemoEntry *slots, size_t capacity, struct YasPair *key, YasAtom macro,
+                               YasAtom expansion)
+{
+    size_t mask = capacity - 1;
+    size_t i = ptr_hash(key) & mask;
+    while (slots[i].key && slots[i].key != MACRO_MEMO_TOMBSTONE)
+        i = (i + 1) & mask;
+    slots[i].key = key;
+    slots[i].macro = macro;
+    slots[i].expansion = expansion;
+}
+
+static void macro_memo_grow(void)
+{
+    size_t old_capacity = macro_memo_capacity;
+    struct YasMacroMemoEntry *old_slots = macro_memo_slots;
+
+    macro_memo_capacity = old_capacity ? old_capacity * 2 : 64;
+    macro_memo_slots = calloc(macro_memo_capacity, sizeof(struct YasMacroMemoEntry));
+    macro_memo_used = 0;
+
+    for (size_t i = 0; i < old_capacity; i++) {
+        if (old_slots[i].key && old_slots[i].key != MACRO_MEMO_TOMBSTONE) {
+            macro_memo_insert(macro_memo_slots, macro_memo_capacity, old_slots[i].key, old_slots[i].macro,
+                               old_slots[i].expansion);
+            macro_memo_used++;
+        }
+    }
+    free(old_slots);
+}
+
+int yas_macro_memo_get(YasAtom args_cell, YasAtom macro, YasAtom *expansion)
+{
+    if (macro_memo_capacity == 0 || args_cell.type != YAS_ATOM_TYPE_PAIR)
+        return 0;
+
+    struct YasPair *key = args_cell.value.pair;
+    size_t mask = macro_memo_capacity - 1;
+    size_t i = ptr_hash(key) & mask;
+    while (macro_memo_slots[i].key) {
+        if (macro_memo_slots[i].key == key && macro_memo_slots[i].macro.value.pair == macro.value.pair) {
+            *expansion = macro_memo_slots[i].expansion;
+            return 1;
+        }
+        i = (i + 1) & mask;
+    }
+    return 0;
+}
+
+void yas_macro_memo_put(YasAtom args_cell, YasAtom macro, YasAtom expansion)
+{
+    if (args_cell.type != YAS_ATOM_TYPE_PAIR)
+        return;
+
+    /* Grow (rehashing every live entry, dropping tombstones) at 70% load
+     * before an insert would cross it - same policy as the symbol intern
+     * table above. */
+    if (macro_memo_capacity == 0 || (macro_memo_used + 1) * 10 >= macro_memo_capacity * 7)
+        macro_memo_grow();
+
+    struct YasPair *key = args_cell.value.pair;
+    size_t mask = macro_memo_capacity - 1;
+    size_t i = ptr_hash(key) & mask;
+    long first_tombstone = -1;
+    while (macro_memo_slots[i].key) {
+        if (macro_memo_slots[i].key == key && macro_memo_slots[i].macro.value.pair == macro.value.pair) {
+            /* Same call site, same macro binding - refresh in place
+             * (e.g. re-inserting after a lookup miss raced a grow). */
+            macro_memo_slots[i].expansion = expansion;
+            goto marked;
+        }
+        if (macro_memo_slots[i].key == MACRO_MEMO_TOMBSTONE && first_tombstone < 0)
+            first_tombstone = (long)i;
+        i = (i + 1) & mask;
+    }
+    i = first_tombstone >= 0 ? (size_t)first_tombstone : i;
+    macro_memo_slots[i].key = key;
+    macro_memo_slots[i].macro = macro;
+    macro_memo_slots[i].expansion = expansion;
+    macro_memo_used++;
+
+    {
+        struct YasGCHeader *kh = atom_to_header(args_cell);
+        if (kh)
+            kh->flags |= YAS_GC_FLAG_MACRO_MEMO_KEY;
+    }
+
+marked:
+    /* Mid-cycle insert: `expansion` (and, in principle, `macro`, though
+     * that's already reachable via the live binding) may be pre-existing
+     * WHITE structure this cycle's marking hasn't reached yet, not
+     * necessarily freshly consed BLACK-on-alloc structure - grey it now
+     * so the memo doesn't hold the only live reference to something
+     * still eligible for this cycle's sweep. gc_mark_roots() covers every
+     * live entry on the next full pass (including the atomic pre-sweep
+     * re-mark, see yas_gc_step()'s MARKING case) regardless; this closes
+     * the gap between "inserted" and "next gc_mark_roots() call" for a
+     * cycle already past its own root-marking pass. No-op (besides the
+     * WHITE check inside yas_gc_mark()) outside an active cycle. */
+    if (gc_phase != YAS_GC_IDLE) {
+        yas_gc_mark(macro);
+        yas_gc_mark(expansion);
+    }
+}
+
+/* Called from gc_free_object()'s PAIR case when `obj`'s
+ * YAS_GC_FLAG_MACRO_MEMO_KEY bit is set - `key` is about to be freed (or
+ * recycled into the free-list pool), so drop its memo entry now rather
+ * than leaving a dangling pointer that a future, unrelated pair could
+ * collide with under the same hashed slot. Tombstones instead of
+ * compacting, matching the open-addressing contract every other prober
+ * in this table relies on. */
+static void macro_memo_remove(struct YasPair *key)
+{
+    if (macro_memo_capacity == 0)
+        return;
+
+    size_t mask = macro_memo_capacity - 1;
+    size_t i = ptr_hash(key) & mask;
+    while (macro_memo_slots[i].key) {
+        if (macro_memo_slots[i].key == key) {
+            macro_memo_slots[i].key = MACRO_MEMO_TOMBSTONE;
+            macro_memo_slots[i].macro = yas_nil;
+            macro_memo_slots[i].expansion = yas_nil;
+            return;
+        }
+        i = (i + 1) & mask;
+    }
+}
+
+/* Marks every live entry's `macro` and `expansion` - strong values, weak
+ * key (see the struct comment above): an entry's key is never marked
+ * here, so a key with no other reference dies normally and takes the
+ * entry with it via macro_memo_remove(). */
+static void macro_memo_mark_roots(void)
+{
+    for (size_t i = 0; i < macro_memo_capacity; i++) {
+        if (macro_memo_slots[i].key && macro_memo_slots[i].key != MACRO_MEMO_TOMBSTONE) {
+            yas_gc_mark(macro_memo_slots[i].macro);
+            yas_gc_mark(macro_memo_slots[i].expansion);
+        }
+    }
+}
+
 /* ── Free-list pool (ticket #44) ─────────────────────────────────────
  * gc_alloc() calls calloc()/gc_free_object() calls free() per object -
  * general-purpose malloc bookkeeping/locking overhead that's wasted on
@@ -639,6 +831,7 @@ static void gc_mark_roots(void)
         yas_gc_mark(*gc_roots[i]);
 
     yas_eval_mark_roots();
+    macro_memo_mark_roots();
 }
 
 static void gc_scan_object(struct YasGCHeader *obj)
@@ -731,6 +924,19 @@ static void gc_free_object(struct YasGCHeader *obj, size_t *freed)
     switch ((YasGCObjType)obj->obj_type) {
         case YAS_GC_OBJ_PAIR:
             /* car/cdr are YasAtoms, not owned pointers - nothing extra to free. */
+            if (obj->flags & YAS_GC_FLAG_MACRO_MEMO_KEY) {
+                /* This pair is a live key in the macro expansion memo
+                 * (#64) - drop its entry now, before the free-list pool
+                 * (or a bare free()) can hand this same address out
+                 * again under a fresh identity. gc_alloc()'s memset()
+                 * on reuse already clears `flags`, so a recycled pair
+                 * never re-triggers this; the explicit clear here is
+                 * just so a pooled-but-not-yet-reused header doesn't
+                 * keep stale bits set. */
+                struct Allocation *a = (struct Allocation *)obj;
+                macro_memo_remove(&a->pair);
+                obj->flags &= (unsigned char)~YAS_GC_FLAG_MACRO_MEMO_KEY;
+            }
             break;
         case YAS_GC_OBJ_VECTOR: {
             struct YasVector *v = (struct YasVector *)obj;

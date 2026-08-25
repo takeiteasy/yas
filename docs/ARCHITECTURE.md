@@ -66,8 +66,9 @@ distinct struct types - they are pair chains with a rewritten `type` tag:
 - `make_closure` builds `(env . (args . (docstring . body)))` and sets
   `type = YAS_ATOM_TYPE_CLOSURE`.
 - `defmacro` builds the identical shape and sets `type = YAS_ATOM_TYPE_MACRO`.
-- A continuation is a snapshot of the evaluator's stack pair chain with
-  `type = YAS_ATOM_TYPE_CONTINUATION`.
+- A continuation is a private snapshot of the evaluator's `struct YasFrame`
+  chain with `type = YAS_ATOM_TYPE_CONTINUATION`, cloned again per
+  invocation (see [call/cc](#callcc)).
 
 SIMD `vec2`/`vec3`/`vec4`/`mat4` types select SSE, NEON, or WASM SIMD
 intrinsics at compile time via `yas.h`'s platform detection, falling back
@@ -194,25 +195,36 @@ captured - the same as `define` always has.
 
 ### call/cc
 
-Continuations snapshot the evaluator's stack (a chain of `struct
-YasFrame`s, captured by reference - `YAS_ATOM_TYPE_CONTINUATION` reuses
-the frame's own GC object, just retagged); invoking one just swaps the
-live stack pointer to the saved chain. Because the "stack" is heap data
-rather than an actual call stack, continuations are **re-entrant, not
-one-shot** - unlike many Scheme implementations, a captured continuation
-can be invoked more than once.
+Capturing a continuation snapshots the evaluator's stack: `eval_do_return()`'s
+CALL/CC branch pops its own frame and hands the remaining chain to
+`clone_frame_chain()` (eval.c), which deep-copies every `struct YasFrame`
+(`YAS_ATOM_TYPE_CONTINUATION` reuses the frame's GC object shape, just
+retagged). Invoking a continuation clones that snapshot *again*, swaps the
+live stack pointer to the fresh copy, and re-enters `eval_do_return()` with
+the supplied value as the pending result. Because each invocation runs on
+its own private clone, a resumed computation mutating frame positions in
+place can never perturb any other invocation - continuations are
+**faithfully re-entrant**: every invocation restarts from the exact capture
+point, however far the ordinary (non-continuation) execution path has since
+advanced or unwound, and the same continuation can be invoked any number of
+times.
 
-Frames are **mutable, shared structures**, not persistent/immutable ones:
-invoking a captured continuation resumes with whatever position an
-ancestor frame's `body`/`tail` fields currently hold, not a snapshot of
-their state at capture time - if the *original* (non-continuation)
-execution path has continued running past the capture point before the
-continuation is invoked, the resumed computation observes that later
-position instead. This is a property of the shared-frame representation
-(true of the pre-#40 cons-list frames too, which were mutated in place the
-same way), not something a caller can opt out of - see the "call/cc" test
-block in `suite.ys` for worked examples of what is and isn't safe to
-assert about a resumed continuation's return value.
+Clones deliberately share what standard Scheme shares: environments (so
+`set!`/`define` effects are observed across invocations) and the cons spines
+held in `tail`/`args`/`body`. That sharing is safe because the evaluator
+never mutates an existing spine pair - argument accumulation prepends fresh
+cells (`store_arg`) and position advance only moves field pointers. The one
+historical exception, `eval_do_apply()`'s in-place `yas_list_reverse()` of
+the evaluated-args list, now reverses a `yas_copy_list()` copy instead so it
+cannot scramble an arg spine a snapshot is still referencing (#58).
+
+Cost model: capture and invoke are both O(live stack depth) allocations
+(one `YasFrame` per link), and every application pays one extra cons per
+argument for the copying reverse. Tail-call iteration doesn't involve
+continuations and is unaffected; see docs/BENCHMARKING.md for where this
+shows up. The "call/cc" test block in `suite.ys` and
+`aux/gc_continuation_stress.ys` assert exact resumed values, including
+invocations of chains stashed off the live stack under forced collection.
 
 ### Metamethod dispatch
 
@@ -263,16 +275,17 @@ that holds `YasAtom`s across allocation points:
   explicitly managed via `ffi-close`/`ffi-free`.
 - `yas_gc_mark()` traces `YAS_ATOM_TYPE_CONTINUATION` the same way as a
   control-stack frame (`YAS_GC_OBJ_FRAME` - it shares the same underlying
-  `struct YasFrame` allocation, just retagged), so a continuation
+  `struct YasFrame` allocation shape, just retagged), so a continuation
   reachable only through application state is protected from collection
   like any other live value. `aux/gc_continuation_stress.ys`
-  regression-tests this: it captures a continuation, lets its `call/cc`
-  unwind normally so the continuation is reachable only via a binding
-  (not the live evaluator stack), forces `(gc)` cycles, then invokes it
-  from a later top-level form - on unfixed code this segfaults. It also
-  churns many short-lived continuations across forced cycles, exercising
-  `gc_scan_object()`'s `YAS_GC_OBJ_FRAME` arm on many distinct frame
-  chains, not just the two long-lived ones.
+  regression-tests this: it captures continuations at top level, lets
+  their `call/cc` unwind normally so they are reachable only via bindings
+  (not the live evaluator stack), forces `(gc)` cycles, then invokes them
+  from later top-level forms and asserts the exact resumed values (ticket
+  #58 snapshot semantics) - on unfixed code this segfaults or corrupts.
+  It also churns many short-lived continuations across forced cycles,
+  exercising `gc_scan_object()`'s `YAS_GC_OBJ_FRAME` arm on many distinct
+  frame chains, not just the two long-lived ones.
 
 ## Module system
 

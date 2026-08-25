@@ -323,6 +323,12 @@ Call sites:
   directly instead of going through one of the helpers above.
 - `yas_make_vector()`'s fill value (one barrier call covers every slot,
   since it's the same atom repeated).
+- Control-stack frames: every `YasFrame` field store goes through a
+  barrier - `yas_make_frame()` (`data.c`) barriers its own
+  `parent`/`env`/`tail` initializers, and `eval.c`'s `frame_get()`/
+  `frame_set()` accessors route all later writes (including
+  `clone_frame_chain()`'s per-invocation continuation clones) through
+  `frame_set()`.
 - `read_expr_internal()`'s quote/quasiquote/unquote branches (`read.c`) -
   the recursive parse writes its result through
   `&yas_car(yas_cdr(*result))`, a raw pointer into the freshly-allocated
@@ -600,9 +606,11 @@ explicitly managed via `ffi-close`/`ffi-free`.
   explicit `(gc)`/`(gc-start)` - exercises the mid-builtin collection
   window that could never occur before allocation-triggered stepping.
 - `aux/gc_continuation_stress.ys` - a continuation reachable only via a
-  binding (not the live evaluator stack) survives GC, exercising that
-  `YAS_ATOM_TYPE_CONTINUATION` is traced the same as Pair/Closure/Macro
-  (they share the same underlying allocation).
+  binding (not the live evaluator stack) survives GC and, since ticket
+  #58's snapshot semantics, yields the exact resumed value on invocation -
+  exercising both that `YAS_ATOM_TYPE_CONTINUATION` is traced the same as
+  Pair/Closure/Macro (they share the same underlying allocation) and that
+  cloned chains stay coherent across collection.
 - `aux/gc_incremental_stress.ys` - ordinary interpreted code (closures,
   strings, vectors, hashes, lists) held live across heavy allocation
   churn, exercising many real incremental cycles under normal safe-point

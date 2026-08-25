@@ -139,6 +139,14 @@ noise of a single best-of-3 run, not a regression - the pool changes
 nothing about closure/env allocation shape, only where the backing bytes
 come from.
 
+**Ticket #58 note**: faithful (snapshot-per-invocation) continuations add
+one cons per argument to every application - `eval_do_apply()` now
+reverses a copy of the evaluated-args list instead of rewiring the shared
+spine in place, so continuation snapshots can't be scrambled mid-spine -
+and make capture/invoke O(live stack depth) in frame allocations. The
+table's workloads use no continuations and their arg lists are short; no
+column above has been re-measured for this change.
+
 ## Self-timed scripts (`aux/bench_*.ys`)
 
 For benchmarks that don't need cross-language comparison, use

@@ -91,51 +91,90 @@
 (define *callcc-empty-stack-result* nil)
 (call/cc (lambda (k) (set! *callcc-empty-stack-result* 'reached) (k 1)))
 
+;; Regression (ticket #58): continuations are snapshots. Each repro below
+;; sits at TOP LEVEL deliberately - every top-level form starts with an
+;; empty VM stack, so a captured chain bottoms out in its own form's
+;; frames (the define/set!/if being computed) and a resumed invocation
+;; converges instead of replaying enclosing test-runner continuations.
+;; That replay is standard Scheme - an escaped continuation re-runs
+;; whatever surrounded its capture point - which is exactly why these
+;; can't live inside a `test` body.
+
+;; Resume at the capture point even though the ordinary execution path
+;; went on to finish (+ 100 1) = 101, popping both frames, long before
+;; the continuation is invoked.
+(define *k58-ret* nil)
+(define *v58-ret* (+ 100 (call/cc (lambda (c) (set! *k58-ret* c) 1))))
+(*k58-ret* 5)
+
+;; Multi-shot determinism: three passes over one capture point, driven
+;; from inside a single top-level call - an invocation resumes only the
+;; captured chain (the frames live when call/cc ran), so the loop must
+;; live within it; each invocation restarts identically regardless of
+;; where previous resumed runs left their private frame clones.
+(define *k58-multi* nil)
+(define *multi58-log* nil)
+(define (multi58-pass)
+  (let ((v (call/cc (lambda (c) (set! *k58-multi* c) 0))))
+    (set! *multi58-log* (cons v *multi58-log*))
+    (if (< (length *multi58-log*) 3) (*k58-multi* (+ v 1)) nil)
+    *multi58-log*))
+(multi58-pass)
+
+;; Captured mid-argument-evaluation: the snapshot freezes add3-58's
+;; partially accumulated argument spine; the ordinary path then finishes
+;; the call normally - which, before #58, reversed that very spine in
+;; place under the snapshot's feet.
+(define *k58-mid* nil)
+(define (add3-58 a b c) (+ a (+ b c)))
+(define *v58-mid* (add3-58 1 (call/cc (lambda (c) (set! *k58-mid* c) 2)) 3))
+(*k58-mid* 20)
+
 (test "call/cc"
   (check (call/cc (lambda (k) (k 42))) 42)
   (check (+ 1 (call/cc (lambda (k) (+ 2 (k 3))))) 4)
 
   (check *callcc-empty-stack-result* 'reached)
 
-  (let ((saved-k nil))
-     (call/cc (lambda (k) (set! saved-k k)))
-     (if saved-k
-         (let ((k saved-k))
-           (set! saved-k nil)
-           (k 100))
-         nil)
-     (check t t))
+  ;; Ticket #58 outcome checks for the top-level repros above: each
+  ;; resumed invocation recomputed its capture-point expression with the
+  ;; supplied value, updating the binding the original form defined.
+  (check *v58-ret* 105)             ; normal pass computed 101 first
+  (check *multi58-log* '(2 1 0))    ; three identical restarts, newest first
+  (check *v58-mid* 24)              ; normal pass computed 6 first
 
-  ;; Multi-shot: yas continuations are re-entrant, not one-shot (see
-  ;; docs/ARCHITECTURE.md#callcc) - invoking the same captured
-  ;; continuation a second time must not crash. Frames are mutable,
-  ;; shared structures, not persistent/immutable ones (struct YasFrame,
-  ;; yas.h, is mutated in place by frame_set() the same way the old
-  ;; cons-list frames were mutated in place by yas_list_set()) - so a
-  ;; resumed invocation observes whatever body position the *original*
-  ;; execution path has since advanced a shared ancestor frame to, not a
-  ;; snapshot of the state at capture time. That's a pre-existing
-  ;; property of this implementation (unrelated to ticket #40's frame
-  ;; representation change - the same sharing held for the old cons-list
-  ;; frames), which is why this test and the saved-k one above only
-  ;; check liveness, not a specific resumed return value.
+  ;; Escape + re-entry within one extent: invoking saved-k resumes right
+  ;; after the call/cc that produced it, so the counter forms run once
+  ;; more on the resumed clone before the let converges.
+  (let ((saved-k nil) (n 0))
+     (call/cc (lambda (k) (set! saved-k k)))
+     (set! n (+ n 1))
+     (if (> n 1) (set! saved-k nil) nil)
+     (if saved-k (saved-k 'done) nil)
+     (check n 2))
+
+  ;; Multi-shot within one extent (docs/ARCHITECTURE.md#callcc): invoking
+  ;; k2 re-enters just past its capture point, bumping invocations again;
+  ;; a second invocation would do the same - nothing is consumed.
   (let ((k2 nil) (invocations 0))
     (call/cc (lambda (k) (set! k2 k)))
     (set! invocations (+ invocations 1))
     (if (= invocations 1) (k2 'again) nil)
-    (check t t))
+    (check invocations 2))
 
-  ;; A continuation captured inside a closure body, invoked once more
-  ;; after the closure has already returned normally - exercises a
-  ;; captured frame chain that outlives the call that created it (the
-  ;; pattern aux/gc_continuation_stress.ys exercises under GC pressure).
-  ;; Liveness/crash check only, for the same reason as above.
+  ;; A continuation captured inside a closure body outlives the call that
+  ;; created it - the chain stays reachable through this binding for the
+  ;; rest of the block, so GC must keep marking it (aux/
+  ;; gc_continuation_stress.ys exercises invoking such a stashed chain
+  ;; under forced collection). No invoke here on purpose: this capture
+  ;; point sits inside the check above, and a later invocation would
+  ;; replay that check with the resumed value (standard Scheme escape
+  ;; semantics) - the top-level repros cover escape-and-invoke where the
+  ;; replay converges.
   (define *escaped-k* nil)
   (define (capture-inside-closure)
     (+ 1 (call/cc (lambda (k) (set! *escaped-k* k) 0))))
-  (check (capture-inside-closure) 1)
-  (*escaped-k* 41)
-  (check t t))
+  (check (capture-inside-closure) 1))
 
 (test "Exceptions"
   (check (try

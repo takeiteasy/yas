@@ -1,4 +1,4 @@
-;; Stress/regression test for the YAS_ATOM_TYPE_CONTINUATION GC-tracing fix.
+;; Stress/regression test for continuation GC-tracing and snapshotting.
 ;;
 ;; yas_gc_mark() (src/data.c) must trace a continuation's captured stack -
 ;; a chain of struct YasFrame objects since ticket #40 (previously a chain
@@ -14,44 +14,47 @@
 ;; because the captured frames are still part of the live stack (and
 ;; therefore already marked via the ordinary stack root) when gc() runs.
 ;; The bug only shows up once that extent has unwound *normally* and the
-;; continuation is reachable solely via an environment binding - so this
-;; test captures a continuation, lets its call/cc return normally
-;; (unwinding the live stack), forces GC pressure, and only then invokes
-;; the stashed continuation from an unrelated later form. On unfixed code
-;; this segfaults.
+;; continuation is reachable solely via an environment binding - so each
+;; test below captures a continuation at top level, lets its call/cc
+;; return normally (unwinding the live stack), forces full GC cycles via
+;; the (gc) builtin while the stashed chain is off the live stack, and
+;; only then invokes it from an unrelated later form. On unfixed code this
+;; segfaults.
+;;
+;; Ticket #58: continuations are snapshots cloned per invocation, so these
+;; invocations also assert exact resumed values - the resumed computation
+;; re-enters its capture-point expression (e.g. the value being defined)
+;; with the supplied argument and updates that binding. Each repro sits at
+;; top level deliberately: every top-level form starts with an empty VM
+;; stack, so the captured chain bottoms out in its own form's frames and
+;; the replay converges instead of re-entering enclosing test-runner
+;; continuations (standard Scheme escape semantics).
 ;;
 ;; This file is not part of `make test` / suite.ys - it deliberately
-;; forces full GC cycles via the `(gc)` builtin (see docs/GC.md) between
-;; captures. Run it directly: ./yas aux/gc_continuation_stress.ys
+;; forces full GC cycles between captures. Run it directly:
+;;   ./yas aux/gc_continuation_stress.ys
+;; (it is part of `make stress-test` / `make test-gc-stress`)
 
 (import (yas base) (yas math) (yas test))
 
 (define *k1* nil)
-(define (capture-and-return-normally)
-  (+ 100 (call/cc (lambda (k) (set! *k1* k) 1))))
+(define *v1* (+ 100 (call/cc (lambda (k) (set! *k1* k) 1))))
+(gc) (gc)   ; force a couple of full cycles while *k1* is off the live stack
+(*k1* 999)  ; resumes (+ 100 [_]) with 999 and re-defines *v1*
 
 (test "a continuation stashed off the live stack survives GC, invoked from a later form"
-  ;; capture-and-return-normally() completes and unwinds normally first -
-  ;; *k1* is now reachable only via this top-level binding, not the live
-  ;; evaluator stack.
-  (check (capture-and-return-normally) 101)
-  (gc) (gc)   ; force a couple of full cycles while *k1* is off the live stack
-  ;; Invoking *k1* here must not crash or read freed memory. Multi-shot
-  ;; re-entry from an unrelated later form doesn't flow control back to
-  ;; this call site (see docs/LANGUAGE_REFERENCE.md#callcc) so this is a
-  ;; liveness/crash check, not a return-value check.
-  (*k1* 999)
-  (check t t))
+  ;; The invoke above re-defined *v1* by resuming its capture-point
+  ;; expression; 101 here would mean the resumed frames were corrupted
+  ;; or swept.
+  (check *v1* 1099))
 
 (define *k2* nil)
-(define (capture-second)
-  (* 3 (call/cc (lambda (k) (set! *k2* k) 7))))
+(define *v2* (* 3 (call/cc (lambda (k) (set! *k2* k) 7))))
+(gc) (gc)   ; further pressure, plus prior continuation use
+(*k2* 5)    ; resumes (* 3 [_]) with 5 and re-defines *v2*
 
 (test "a second continuation stays valid after further GC pressure and prior continuation use"
-  (check (capture-second) 21)
-  (gc) (gc)
-  (*k2* 5)
-  (check t t))
+  (check *v2* 15))
 
 ;; Churn loop (ticket #40): capture, drop, and re-invoke a fresh
 ;; continuation many times across forced GC cycles, so
@@ -62,7 +65,8 @@
 ;; (dropping it), and immediately becomes garbage; a missed mark in the
 ;; frame scan arm would show up here as a crash or a wrong sum under
 ;; YAS_GC_STRESS=1, since every iteration's frames become collectible
-;; almost immediately.
+;; almost immediately. Under ticket #58 semantics each invocation also
+;; runs on a fresh clone of the captured chain.
 (define (churn-continuations n)
   (let ((total 0))
     (dotimes (i n)

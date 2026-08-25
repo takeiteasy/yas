@@ -142,12 +142,24 @@ for benchmarking (see [BENCHMARKING.md](BENCHMARKING.md),
 ```scheme
 (call/cc (lambda (k) (k 42)))                    ; => 42
 (+ 1 (call/cc (lambda (k) (+ 2 (k 3)))))            ; => 4, k escapes the (+ 2 ...)
+
+(define k nil)
+(define r (+ 100 (call/cc (lambda (c) (set! k c) 1))))  ; => r is 101
+(k 5)                                                ; => r is now 105: the
+                                                     ;    resume recomputed
+                                                     ;    the capture point
 ```
 
-Continuations are **re-entrant**, not one-shot: a captured continuation
-can be invoked more than once, including after the `call/cc` call that
-created it has already returned (see
-[ARCHITECTURE.md](ARCHITECTURE.md#callcc)).
+Continuations are **faithfully re-entrant**, not one-shot: a captured
+continuation can be invoked any number of times, including after the
+`call/cc` call that created it has already returned, and every invocation
+resumes from the exact capture point with the state it had when captured -
+even if the ordinary execution path has since run further through, or
+returned out of, the frames that were live at capture time. Invoking a
+continuation abandons the current continuation and replaces it with a
+private copy of the captured one, so effects on mutable data (hashes,
+vectors, environments) are shared across invocations but control positions
+never drift. See [ARCHITECTURE.md](ARCHITECTURE.md#callcc).
 
 ## Modules
 

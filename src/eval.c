@@ -310,6 +310,62 @@ static inline void frame_set(YasAtom f, int slot, YasAtom v)
     yas_gc_write_barrier(f, v);
 }
 
+/* Deep-copy a control-stack frame chain (ticket #58). Each link becomes a
+ * fresh struct YasFrame whose six fields are copied verbatim through
+ * frame_get()/frame_set() - so every barriered-store and GC-scan contract
+ * the live stack relies on applies to the copy automatically. The lists
+ * held in tail/args/body are shared, not copied: the evaluator only ever
+ * walks those spines or prepends fresh cells onto args (store_arg below),
+ * never mutates existing pairs - apply-time's former in-place
+ * yas_list_reverse() being the one exception, now a copying reverse for
+ * exactly this reason. Environments are shared too, deliberately:
+ * mutation of an environment is observed across continuation invocations
+ * in standard Scheme.
+ *
+ * GC: the cursors are otherwise-unreachable locals kept live across
+ * further gc_alloc() calls (allocation-triggered stepping may collect at
+ * any yas_make_frame()), so they're rooted for the walk's duration -
+ * docs/GC.md's "accumulator loop" hazard shape. Each fresh frame `f` is
+ * unlinked only between its own yas_make_frame() and the frame_set()s
+ * that follow; none of those allocate, so it needs no root of its own.
+ * Returns yas_nil for an empty/NULL chain (the whole-top-level-form
+ * capture case; see the CONTINUATION-apply branch in eval_do_apply()). */
+static YasAtom clone_frame_chain(YasAtom src)
+{
+    YasAtom dst = yas_nil;  /* clone head - the topmost (newest) frame */
+    YasAtom prev = yas_nil; /* most recently cloned frame */
+
+    if (src.type != YAS_ATOM_TYPE_FRAME || !src.value.frame)
+        return yas_nil;
+
+    yas_gc_push_root(&dst);
+    yas_gc_push_root(&prev);
+    yas_gc_push_root(&src);
+
+    /* Walk the source top-down (head -> parents) and link each clone as
+     * the PREVIOUS clone's parent, mirroring the source's direction:
+     * building the other way (parent = previous clone) would leave the
+     * head's parent NIL and strand every deeper frame. The bottom-most
+     * clone keeps a NIL parent, exactly like the source's bottom. */
+    while (src.type == YAS_ATOM_TYPE_FRAME && src.value.frame) {
+        YasAtom f = make_frame(yas_nil,
+                               frame_get(src, FRAME_ENV),
+                               frame_get(src, FRAME_TAIL));
+        frame_set(f, FRAME_OP, frame_get(src, FRAME_OP));
+        frame_set(f, FRAME_ARGS, frame_get(src, FRAME_ARGS));
+        frame_set(f, FRAME_BODY, frame_get(src, FRAME_BODY));
+        if (yas_nilp(prev))
+            dst = f;
+        else
+            frame_set(prev, FRAME_PARENT, f);
+        prev = f;
+        src = frame_get(src, FRAME_PARENT);
+    }
+
+    yas_gc_pop_roots(3); /* src, prev, dst */
+    return dst;
+}
+
 /* Bounded arity + spine-properness check for a special form's argument
  * list `args` (e.g. yas_cdr(expr)), replacing the O(len) yas_listp(expr)
  * that used to guard every call node up front (#63). Verifies the first
@@ -540,6 +596,13 @@ int eval_do_apply(YasAtom *stack, YasAtom *expr, YasAtom *env, YasAtom *result)
     args = frame_get(*stack, FRAME_ARGS);
 
     if (!yas_nilp(args)) {
+        /* Copy, then reverse the copy: yas_list_reverse() rewires cdrs
+         * in place, which would scramble the shared arg spine of any
+         * continuation snapshot whose frames were captured while this
+         * application was mid-argument-evaluation (ticket #58; see
+         * clone_frame_chain() for why frame-held spines must be
+         * immutable once linked). */
+        args = yas_copy_list(args);
         yas_list_reverse(&args);
         frame_set(*stack, FRAME_ARGS, args);
     }
@@ -667,27 +730,32 @@ int eval_do_apply(YasAtom *stack, YasAtom *expr, YasAtom *env, YasAtom *result)
         *expr = yas_cons(op, args);
         return YAS_ERROR_OK;
     } else if (op.type == YAS_ATOM_TYPE_CONTINUATION) {
-        /* Invoke continuation: replace stack, return value */
+        /* Invoke continuation: replace stack with a fresh clone of the
+         * captured chain, return value */
         if (yas_nilp(args) || !yas_nilp(yas_cdr(args)))
             return YAS_ERROR_ARGS;
 
-        /* Restore the captured stack. A captured continuation's frame
-         * pointer is NULL when call/cc was invoked with nothing left on
-         * the stack below it (e.g. `(call/cc (lambda (k) (k 1)))` as a
-         * whole top-level form) - representable now that FRAME_PARENT is a
-         * real pointer instead of a cons cell that's always non-NULL even
-         * at nil. Restoring to an explicit yas_nil in that case (instead
-         * of a FRAME-tagged atom wrapping NULL) is what makes the
-         * yas_nilp(*stack) check below actually fire - on the old
-         * pair-tagged representation it could not, since
-         * stack->type = YAS_ATOM_TYPE_PAIR unconditionally made yas_nilp()
-         * false even when value.pair was NULL, and eval_do_return() below
-         * would then dereference that NULL. */
+        /* Restore a per-invocation clone of the captured stack (ticket
+         * #58): the continuation holds a private capture-time snapshot,
+         * and each invocation gets its own copy, so a resumed run
+         * advancing frame positions in place can never perturb any
+         * other invocation - or the snapshot itself - making repeated
+         * invocation genuinely re-entrant. The clone's spines/env are
+         * shared with the snapshot (see clone_frame_chain()).
+         *
+         * A captured continuation's frame pointer is NULL when call/cc
+         * was invoked with nothing left on the stack below it (e.g.
+         * `(call/cc (lambda (k) (k 1)))` as a whole top-level form).
+         * Restoring to an explicit yas_nil in that case (instead of a
+         * FRAME-tagged atom wrapping NULL) is what makes the
+         * yas_nilp(*stack) check below actually fire. */
         if (!op.value.frame) {
             *stack = yas_nil;
         } else {
-            stack->type = YAS_ATOM_TYPE_FRAME;
-            stack->value.frame = op.value.frame;
+            YasAtom saved;
+            saved.type = YAS_ATOM_TYPE_FRAME;
+            saved.value.frame = op.value.frame;
+            *stack = clone_frame_chain(saved);
         }
         *result = yas_car(args);
 
@@ -825,19 +893,31 @@ int eval_do_return(YasAtom *stack, YasAtom *expr, YasAtom *env, YasAtom *result)
             YasAtom fn = *result;
             YasAtom cont;
 
-            /* Pop CALL/CC frame and capture remaining stack as
-             * continuation. cont.value.frame aliases *stack's frame
-             * pointer directly - NULL when nothing is left on the stack
-             * (see the CONTINUATION-apply case in eval_do_apply() for
-             * how that's handled on invoke). */
+            /* Pop CALL/CC frame and capture the remaining stack as the
+             * continuation - a *snapshot*: clone_frame_chain() copies
+             * every frame, so positions frozen here can't be perturbed
+             * by the ordinary (non-continuation) execution path going on
+             * to advance or pop the live frames after this point (ticket
+             * #58). NULL when nothing is left on the stack (see the
+             * CONTINUATION-apply case in eval_do_apply() for how that's
+             * handled on invoke). */
             *stack = frame_get(*stack, FRAME_PARENT);
             cont.type = YAS_ATOM_TYPE_CONTINUATION;
-            cont.value.frame = (*stack).value.frame;
+            if (yas_nilp(*stack))
+                cont.value.frame = NULL;
+            else
+                cont.value.frame = clone_frame_chain(*stack).value.frame;
 
-            /* Apply fn to the continuation */
+            /* Apply fn to the continuation. `cont` is otherwise
+             * unreachable across the allocations below - unlike the
+             * pre-#58 alias it shares no structure with the rooted live
+             * stack - so root it until yas_cons() links it into the new
+             * frame's args. */
+            yas_gc_push_root(&cont);
             *stack = make_frame(*stack, *env, yas_nil);
             frame_set(*stack, FRAME_OP, fn);
             frame_set(*stack, FRAME_ARGS, yas_cons(cont, yas_nil));
+            yas_gc_pop_roots(1); /* cont */
             return eval_do_bind(stack, expr, env);
         } else {
             goto store_arg;

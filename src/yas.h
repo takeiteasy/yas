@@ -259,8 +259,10 @@ struct YasEnv {
  * first, same shape as YasEnv above - writes through eval.c's frame_set()
  * helper go through yas_gc_write_barrier() (data.c), since they bypass
  * yas_set_car/yas_set_cdr. YAS_ATOM_TYPE_CONTINUATION reuses this struct
- * unchanged: a continuation *is* a captured frame chain, just retagged (see
- * eval.c's CALL/CC capture/restore). */
+ * unchanged: a continuation *is* a captured frame chain, just retagged -
+ * a private snapshot cloned per invocation, since live frames are mutated
+ * in place as execution advances (see eval.c's clone_frame_chain() and
+ * CALL/CC capture/restore). */
 struct YasFrame {
     struct YasGCHeader gc;
     struct YasAtom parent;

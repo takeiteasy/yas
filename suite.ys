@@ -102,6 +102,24 @@
     (check (counter) 1)
     (check (counter) 2)))
 
+;; Brackets are matched-pair synonyms of parens at the reader level, so
+;; the documented [name default] optional-param lambda lists parse.
+(test "Brackets"
+  (check '[1 2 3] '(1 2 3))
+  (check '(a [b c]) '(a (b c)))
+  (let ((f (lambda (a [b 10]) (list a b))))
+    (check (f 1) '(1 10))
+    (check (f 1 2) '(1 2)))
+  (let ((g (lambda (:kw [v 5]) v)))
+    (check (g :kw 42) 42)
+    (check (g) 5))
+  (check (let ([x 4] [y 5]) (+ x y)) 9)
+  ;; Mismatched or stray delimiters raise
+  (check (try (read-string "(a]") (catch e t)) t)
+  (check (try (read-string "[a)") (catch e t)) t)
+  (check (try (read-string "(a . b ]") (catch e t)) t)
+  (check (try (read-string "]") (catch e t)) t))
+
 (test "Metatables"
   (let ((h (make-hash))
         (mt (make-hash)))

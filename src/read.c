@@ -89,8 +89,8 @@ static int lex(const char *str, const char **start, const char **end, const char
                YasErrorContext *err)
 {
     const char *ws = " \t\n";
-    const char *delim = "(); \t\n\"";
-    const char *prefix = "()'`";
+    const char *delim = "();[] \t\n\"";
+    const char *prefix = "()[]'`";
 
     str += strspn(str, ws);
 
@@ -233,8 +233,8 @@ static int parse_simple(const char *start, const char *end, YasAtom *result, con
     return YAS_ERROR_OK;
 }
 
-static int read_list(const char *start, const char **end, YasAtom *result, const char *source, const char *filename,
-                     YasErrorContext *err)
+static int read_list(const char *start, const char **end, char closer, YasAtom *result, const char *source,
+                     const char *filename, YasErrorContext *err)
 {
     YasAtom p;
 
@@ -260,15 +260,20 @@ static int read_list(const char *start, const char **end, YasAtom *result, const
         if (e) {
             /* If lex failed (likely EOF), provide better error message */
             if (err && e == YAS_ERROR_SYNTAX) {
-                set_error(err, YAS_ERROR_SYNTAX, source, start - 1, filename, "Unterminated list - missing ')'");
+                set_error(err, YAS_ERROR_SYNTAX, source, start - 1, filename, "Unterminated list - missing closing delimiter");
             }
             yas_gc_pop_roots(1);
             return e;
         }
 
-        if (token[0] == ')') {
+        if (token[0] == ')' || token[0] == ']') {
+            if (token[0] == closer) {
+                yas_gc_pop_roots(1);
+                return YAS_ERROR_OK;
+            }
+            set_error(err, YAS_ERROR_SYNTAX, source, token, filename, "Mismatched delimiter");
             yas_gc_pop_roots(1);
-            return YAS_ERROR_OK;
+            return YAS_ERROR_SYNTAX;
         }
 
         if (token[0] == '.' && *end - token == 1) {
@@ -290,14 +295,14 @@ static int read_list(const char *start, const char **end, YasAtom *result, const
              * yas.h's yas_set_car/yas_set_cdr contract). */
             yas_set_cdr(p, item);
 
-            /* Read the closing ')' */
+            /* Read the closing delimiter */
             e = lex(*end, &token, end, source, filename, err);
             if (e) {
-                set_error(err, YAS_ERROR_SYNTAX, source, *end, filename, "Expected ')' after dotted pair");
+                set_error(err, YAS_ERROR_SYNTAX, source, *end, filename, "Expected closing delimiter after dotted pair");
                 yas_gc_pop_roots(1);
                 return e;
             }
-            if (token[0] != ')') {
+            if (token[0] != closer) {
                 set_error(err, YAS_ERROR_SYNTAX, source, token, filename, "Only one expression allowed after '.'");
                 yas_gc_pop_roots(1);
                 return YAS_ERROR_SYNTAX;
@@ -345,10 +350,10 @@ static int read_expr_internal(const char *input, const char **end, YasAtom *resu
     if (e)
         return e;
 
-    if (token[0] == '(') {
-        return read_list(*end, end, result, source, filename, err);
-    } else if (token[0] == ')') {
-        set_error(err, YAS_ERROR_SYNTAX, source, token, filename, "Unexpected ')'");
+    if (token[0] == '(' || token[0] == '[') {
+        return read_list(*end, end, token[0] == '(' ? ')' : ']', result, source, filename, err);
+    } else if (token[0] == ')' || token[0] == ']') {
+        set_error(err, YAS_ERROR_SYNTAX, source, token, filename, "Unexpected closing delimiter");
         return YAS_ERROR_SYNTAX;
     } else if (token[0] == '\'') {
         /* `*result` (the (QUOTE ...) wrapper) is a fresh, otherwise-
@@ -626,7 +631,7 @@ static int read_expr_internal(const char *input, const char **end, YasAtom *resu
     } else if (token[0] == '#' && token[1] == '(') {
         /* Vector literal #(1 2 3) */
         YasAtom list_result;
-        e = read_list(*end, end, &list_result, source, filename, err);
+        e = read_list(*end, end, ')', &list_result, source, filename, err);
         if (e)
             return e;
 
@@ -655,7 +660,7 @@ static int read_expr_internal(const char *input, const char **end, YasAtom *resu
     } else if (token[0] == '#' && strncmp(token, "#vec(", 5) == 0) {
         /* SIMD vector literal #vec(1 2) or #vec(1 2 3) or #vec(1 2 3 4) */
         YasAtom list_result;
-        e = read_list(*end, end, &list_result, source, filename, err);
+        e = read_list(*end, end, ')', &list_result, source, filename, err);
         if (e)
             return e;
 
@@ -698,7 +703,7 @@ static int read_expr_internal(const char *input, const char **end, YasAtom *resu
     } else if (token[0] == '#' && strncmp(token, "#mat(", 5) == 0) {
         /* mat4 literal #mat(m00 m01 ... m33) - 16 column-major floats */
         YasAtom list_result;
-        e = read_list(*end, end, &list_result, source, filename, err);
+        e = read_list(*end, end, ')', &list_result, source, filename, err);
         if (e)
             return e;
 
@@ -736,7 +741,7 @@ static int read_expr_internal(const char *input, const char **end, YasAtom *resu
     } else if (token[0] == '#' && strncmp(token, "#hash(", 6) == 0) {
         /* Hash literal #hash(:key val ...) or #hash(sym val ...) */
         YasAtom list_result;
-        e = read_list(*end, end, &list_result, source, filename, err);
+        e = read_list(*end, end, ')', &list_result, source, filename, err);
         if (e)
             return e;
 

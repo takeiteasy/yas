@@ -85,6 +85,12 @@ Richer than plain Scheme:
 Call keyword arguments as `(f 1 :kw 2)`. `procedure-doc` retrieves a
 function's docstring (`nil` if none).
 
+The reader treats `[` and `]` as matched-pair synonyms of `(` and `)`:
+`[b 10]` reads exactly as `(b 10)`, which is what gives optional-param
+specs their shape. Brackets are legal anywhere a list is (Racket-style
+`(let ([x 1]) ...)` works), print back as `(...)`, and mismatched pairs
+like `(a]` or stray closers are syntax errors.
+
 ## Exceptions
 
 ```scheme

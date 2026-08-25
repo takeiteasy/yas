@@ -75,7 +75,18 @@ typedef enum {
 
 extern YasAtom yas_ctx_exception;   /* the thrown value, when yas_eval_expr returns YAS_ERROR_EXCEPTION */
 int yas_raise_error(const char *type, const char *msg);
+void yas_clear_exception(void);
 ```
+
+`yas_ctx_exception` holds the value of the exception currently
+propagating or being handled - it is set by explicit raises (`throw`,
+`error`, `yas_raise_error()`) and cleared when a `catch` clause takes
+ownership or a consumer reports the error. Treat it as valid only
+immediately after a failing call: once you have read (printed, logged,
+inspected) the value accompanying `YAS_ERROR_EXCEPTION`, call
+`yas_clear_exception()` before evaluating anything else, or a later
+handler with no exception object of its own could be handed your stale
+one.
 
 `YAS_ERROR_SKIP` is reader-internal (see above) - a real evaluation never
 returns it.

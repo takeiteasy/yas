@@ -103,6 +103,17 @@ boundary) - tail calls don't propagate through it, and a continuation
 captured inside a `try` can't be invoked across it (see
 [ARCHITECTURE.md](ARCHITECTURE.md#evaluator)).
 
+The value a `catch` receives always describes that handler's own
+failure. Explicit raises (`throw`, `error`, builtin errors) deliver the
+raised object verbatim (builtins use `(type-error "message")`-shaped
+lists); runtime failures with no explicit exception object - malformed
+spines, arity problems - synthesize a message string such as
+`"Syntax error"` or `"Argument error"`. A handled exception never leaks:
+once a clause matches, the value is delivered to that clause alone, so a
+later, unrelated failure can't inherit it, while an uncaught throw still
+carries its value outward through nested `try`s to whichever handler (or
+the top level) eventually catches it.
+
 ## Exiting
 
 ```scheme

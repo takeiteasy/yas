@@ -342,6 +342,13 @@ int yas_builtin_exit(YasAtom args, YasAtom *result);
 
 int yas_raise_error(const char *type, const char *msg);
 
+/* Reset yas_ctx_exception to nil. Call after consuming a reported error
+ * (printing it, binding it into a handler, etc.) - the global holds the
+ * value of the exception currently propagating or being handled, and a
+ * stale value would otherwise be delivered to a later handler whose own
+ * failure produced no explicit exception object. See docs/EMBEDDING.md. */
+void yas_clear_exception(void);
+
 /* EVALUATOR */
 
 YasAtom yas_env_create(YasAtom parent);

@@ -1103,14 +1103,14 @@ static int eval_vm(YasAtom expr, YasAtom env, YasAtom *result, struct EvalRoot *
                     if (err != YAS_ERROR_OK) {
                         /* Exception thrown or runtime error */
                         if (yas_nilp(yas_ctx_exception)) {
-                            /* Convert code to exception string if not already set.
-                             * Pre-existing gap (not #63/#64, filed as a separate
-                             * ticket): yas_ctx_exception is never reset to nil
-                             * after a CATCH consumes it, so if this branch's
-                             * "not already set" check is false only because an
-                             * *earlier*, already-caught error left a stale value
-                             * here, this CATCH sees that stale exception instead
-                             * of one describing its own failure. */
+                            /* Convert code to exception string if not already
+                             * set. A non-nil yas_ctx_exception here always
+                             * belongs to THIS failure: explicit raises set it
+                             * immediately before returning their error code,
+                             * and matched CATCH clauses clear it once delivered
+                             * (#65), so a stale value from an earlier, already-
+                             * handled error can no longer be picked up by a
+                             * later code-only failure (SYNTAX/ARGS/TYPE). */
                             const char *msg = "Unknown Error";
                             if (err == YAS_ERROR_UNBOUND)
                                 msg = "Symbol not bound";
@@ -1139,6 +1139,13 @@ static int eval_vm(YasAtom expr, YasAtom env, YasAtom *result, struct EvalRoot *
                                 /* (CATCH var_decl . body) */
                                 YasAtom catch_args = yas_cdr(clause);
                                 if (yas_nilp(catch_args)) {
+                                    /* Malformed clause: delivery of the
+                                     * pending exception failed structurally
+                                     * (#65), so drop it - the SYNTAX error
+                                     * leaving this TRY describes itself via
+                                     * the synthesis branch above rather than
+                                     * carrying the abandoned exception. */
+                                    yas_clear_exception();
                                     err = YAS_ERROR_SYNTAX;
                                     break;
                                 }
@@ -1154,16 +1161,21 @@ static int eval_vm(YasAtom expr, YasAtom env, YasAtom *result, struct EvalRoot *
                                     var = var_decl;
                                 } else if (var_decl.type == YAS_ATOM_TYPE_PAIR) {
                                     if (yas_nilp(var_decl) || yas_nilp(yas_cdr(var_decl))) {
+                                        /* Same delivery-abandoned case as
+                                         * the catch_args check above (#65). */
+                                        yas_clear_exception();
                                         err = YAS_ERROR_SYNTAX;
                                         break;
                                     }
                                     var = yas_car(var_decl);
                                     pred = yas_car(yas_cdr(var_decl));
                                     if (var.type != YAS_ATOM_TYPE_SYMBOL) {
+                                        yas_clear_exception();
                                         err = YAS_ERROR_TYPE;
                                         break;
                                     } /* Var must be symbol */
                                 } else {
+                                    yas_clear_exception();
                                     err = YAS_ERROR_SYNTAX;
                                     break;
                                 }
@@ -1205,6 +1217,20 @@ static int eval_vm(YasAtom expr, YasAtom env, YasAtom *result, struct EvalRoot *
                                 }
 
                                 if (match) {
+                                    /* This clause takes ownership of the
+                                     * exception (#65): it was already bound
+                                     * into the rooted catch_env above, so the
+                                     * global can be cleared before the body
+                                     * runs. Clearing here (not at bind time)
+                                     * keeps the value live for later clauses
+                                     * when a predicate declines the match,
+                                     * and clearing before (not after) the
+                                     * body means an error raised by the body
+                                     * - whether a fresh explicit raise or a
+                                     * code-only failure - is what outer
+                                     * handlers see, never this consumed one. */
+                                    yas_clear_exception();
+
                                     /* Execute body. last_res carries the
                                      * previous body form's value across the
                                      * next form's yas_eval_expr() - unrooted

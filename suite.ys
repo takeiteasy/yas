@@ -679,12 +679,9 @@
 ;; consumes another cell (see eval.c's "Evaluator" comment and
 ;; docs/ARCHITECTURE.md). These pin the new behaviour: an improper form
 ;; still always errors and is still caught by TRY/CATCH. (Checking only
-;; that the catch fires, not the exact message: yas_ctx_exception is
-;; never reset after a caught exception - eval.c:988's "if nil, convert
-;; the error code to a message" branch means a later error that never
-;; sets an explicit exception object can pick up a stale message from
-;; an earlier, unrelated catch in the same run. Pre-existing, unrelated
-;; to #63 - filed separately, not fixed here.)
+;; that the catch fires, not the exact message - the exact message for
+;; code-only failures is pinned separately below, since the exception a
+;; handler receives is now always its own failure's.)
 (test "Improper forms: call/special-form spine still errors (#63)"
   (check (try (1 . 2) (catch e 'caught)) 'caught)
   (check (try (if 1 . 2) (catch e 'caught)) 'caught)
@@ -699,6 +696,61 @@
   (check (if 1 'yes 'no) 'yes)
   (check ((lambda (x) x) 5) 5)
   (check ((lambda (x) (+ x 1)) 5) 6))
+
+;; #65: yas_ctx_exception used to survive a caught error, so a later
+;; handler whose own failure produced no explicit exception object
+;; (code-only SYNTAX/ARGS/TYPE failures) was handed the earlier catch's
+;; stale value. A matched CATCH clause now clears the global once it has
+;; bound the value into its own environment. The ticket's repro: an
+;; unbound-symbol catch followed by a syntax-error catch.
+(test "Exceptions: a handled exception never leaks into later catches (#65)"
+  ;; First block installs the rich exception object... (compare the
+  ;; message text only: the `type-error` tag is built via yas_make_sym()
+  ;; in C and stays lowercase - see the lexical-cache unbound-symbol test
+  ;; above for why a quoted list can't match it.)
+  (check (car (cdr (try lex-totally-unbound-symbol (catch e e))))
+         "Symbol not bound: LEX-TOTALLY-UNBOUND-SYMBOL")
+  ;; ...the second must describe its OWN failure, not inherit the first.
+  (check (try (1 . 2) (catch e e)) "Syntax error")
+  ;; Same with a happy-path try in between.
+  (check (try 42 (catch e 'nope)) 42)
+  (check (try (+ 1 . 2) (catch e e)) "Syntax error")
+  ;; An explicit raise is still delivered verbatim, every time.
+  (check (try (error "boom") (catch e e)) "boom")
+  (check (try (throw 'fresh) (catch e e)) 'FRESH))
+
+(test "Exceptions: predicate decline keeps the value for later clauses (#65)"
+  ;; Clearing happens only when a clause MATCHES - a declined predicate
+  ;; must leave the pending exception intact for the next clause.
+  (check (try (throw 'a)
+            (catch (e (lambda (x) nil)) 'declined)
+            (catch (e (lambda (x) (eq? x 'a))) 'a-branch))
+         'A-BRANCH)
+  (check (try (throw 'b)
+            (catch (e (lambda (x) (eq? x 'a))) 'a-branch)
+            (catch (e (lambda (x) (eq? x 'b))) 'b-branch))
+         'B-BRANCH))
+
+(test "Exceptions: uncaught errors still carry their object outward (#65)"
+  ;; The complement of the fix - clearing is consumption, so an uncaught
+  ;; throw crossing nested TRY boundaries must stay intact.
+  (check (try (try (throw 'deep)) (catch e e)) 'DEEP))
+
+(test "Exceptions: errors from inside a catch body replace cleanly (#65)"
+  ;; A body that raises its own explicit exception delivers that one...
+  (check (try (try (throw 'first) (catch e (throw 'second))) (catch e e))
+         'SECOND)
+  ;; ...and a body failing with a code-only error surfaces ITS message,
+  ;; where pre-#65 the outer catch saw the inner consumed exception.
+  (check (try (try (throw 'first) (catch e (1 . 2))) (catch e e))
+         "Syntax error"))
+
+(test "Exceptions: malformed catch clause reports itself, not the pending value (#65)"
+  ;; The clause below has var_decl = ((e) ...) - a list, not a symbol or
+  ;; (sym pred) pair. Delivery of the thrown 'x failed structurally, so
+  ;; the outward error describes the malformation instead of carrying 'x.
+  (check (try (try (throw 'x) (catch ((e) 'bad))) (catch e e))
+         "Type error"))
 
 ;; #64: a macro call site now caches its expansion instead of re-running
 ;; the macro's closure on every evaluation. Pin correctness for exactly

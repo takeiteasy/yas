@@ -635,6 +635,10 @@ YasAtom yas_library_load(YasAtom name_parts)
             default:
                 printf("Error code %d\n", err);
         }
+        /* Reported = consumed (#65) - the load error is swallowed here
+         * (returns yas_nil), so its exception object must not leak into
+         * whatever the caller evaluates next. */
+        yas_clear_exception();
         free(path);
         yas_gc_pop_roots(1);
         return yas_nil;

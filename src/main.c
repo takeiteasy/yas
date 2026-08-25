@@ -78,6 +78,10 @@ int yas_load_file(YasAtom env, const char *path)
                     default:
                         printf("Unknown error %d\n", eval_err);
                 }
+                /* Reported = consumed (#65): drop the exception object so a
+                 * later form's handler can't pick up this one as stale
+                 * state. */
+                yas_clear_exception();
                 printf("  Code: ");
                 yas_print_expr(expr);
                 putchar('\n');
@@ -202,6 +206,9 @@ int main(int argc, char **argv)
                 /* Should not reach here - handled earlier */
                 break;
         }
+        /* Same consumed-at-report rule as yas_load_file above (#65). */
+        if (eval_err)
+            yas_clear_exception();
 
         free(input);
     }

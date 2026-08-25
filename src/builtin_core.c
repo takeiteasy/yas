@@ -23,6 +23,14 @@ int yas_raise_error(const char *type, const char *msg)
     return YAS_ERROR_EXCEPTION;
 }
 
+void yas_clear_exception(void)
+{
+    /* Storing the immediate nil - no allocation, so no root bookkeeping
+     * is needed here; gc_mark_roots() (data.c) marks whatever the
+     * variable currently holds. */
+    yas_ctx_exception = yas_nil;
+}
+
 int yas_builtin_car(YasAtom args, YasAtom *result)
 {
     if (yas_nilp(args) || !yas_nilp(yas_cdr(args)))

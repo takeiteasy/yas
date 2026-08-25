@@ -453,6 +453,18 @@ int eval_do_bind(YasAtom *stack, YasAtom *expr, YasAtom *env)
      * - Rest: . rest
      */
     int in_keywords = 0;
+    /* Keyword matching splices matched :keyword/value pairs out of
+     * `args`, but `args` is not always owned by this frame (#66): a
+     * macro call's FRAME_ARGS is the source form's own argument spine
+     * (aliased by FRAME_TAIL, and the #64 expansion-memo key), a
+     * MACROEXPAND-1 call binds yas_cdr(form) of arbitrary evaluated
+     * data, and APPLY binds the caller's raw argument list. Splicing
+     * any of those corrupts user-visible structure. So the first time
+     * a splice is about to fire, take one private copy (COW) and splice
+     * only that from then on - calls that bind no keywords never pay
+     * for it, and no caller has to know whether its list is safe to
+     * mutate. */
+    int args_copied = 0;
     while (!yas_nilp(arg_names)) {
         /* Rest argument (symbol at end) */
         if (arg_names.type == YAS_ATOM_TYPE_SYMBOL) {
@@ -496,6 +508,33 @@ int eval_do_bind(YasAtom *stack, YasAtom *expr, YasAtom *env)
             }
 
             /* Search for keyword in call args */
+            /* First keyword spec to run against a non-empty args list?
+             * Take one private copy (COW, #66): the search/splice below
+             * removes matched :keyword/value pairs via yas_set_cdr(),
+             * but `args` is not always owned by this frame - a macro
+             * call's FRAME_ARGS is the source form's own argument spine
+             * (aliased by FRAME_TAIL and used as the #64 expansion-memo
+             * key), MACROEXPAND-1 binds yas_cdr(form) of arbitrary
+             * evaluated data, and APPLY binds the caller's raw argument
+             * list. Splicing any of those corrupts user-visible
+             * structure. Calls that bind no keywords never pay for the
+             * copy, and no caller has to know whether its list is safe
+             * to mutate. */
+            if (!args_copied && !yas_nilp(args)) {
+                if (!yas_listp(args))
+                    return YAS_ERROR_SYNTAX;
+                /* Old `args` stays reachable through FRAME_ARGS during
+                 * the copying allocations; the private copy itself is
+                 * rooted across them, then anchored on the frame so
+                 * later keyword iterations' allocating yas_env_define()
+                 * calls can't collect it while only this C local holds
+                 * it. */
+                yas_gc_push_root(&args);
+                args = yas_copy_list(args);
+                yas_gc_pop_roots(1);
+                frame_set(*stack, FRAME_ARGS, args);
+                args_copied = 1;
+            }
             YasAtom found_val = yas_nil;
             int found = 0;
             YasAtom search = args;
@@ -508,15 +547,7 @@ int eval_do_bind(YasAtom *stack, YasAtom *expr, YasAtom *env)
                         return YAS_ERROR_ARGS;
                     found_val = yas_car(yas_cdr(search));
                     found = 1;
-                    /* Remove kw and value from args list. For an
-                     * ordinary closure call `args` is the freshly-built
-                     * evaluated-argument list, safe to splice - but for
-                     * a macro call this splices the *source* call
-                     * form's own argument spine in place (see #64's
-                     * macro-memo comments above for why FRAME_ARGS
-                     * aliases FRAME_TAIL there). Not reachable today
-                     * (no keyword/optional-arg macro exists in
-                     * src/stdlib.h or std/), filed as #66. */
+                    /* Remove kw and value from args list. */
                     if (yas_nilp(prev)) {
                         args = yas_cdr(yas_cdr(search));
                     } else {

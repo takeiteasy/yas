@@ -430,6 +430,24 @@
   (check (make-point 10 20) '(10 20 "black"))
   (check (make-point 10 20 :color "red") '(10 20 "red")))
 
+;; Keyword binding must never mutate an unowned argument spine (#66):
+;; a macro call site binds the source form's own arg spine (the #64
+;; expansion-memo key), MACROEXPAND-1 binds the cdr of arbitrary
+;; evaluated data, and APPLY binds the caller's raw argument list -
+;; eval_do_bind() takes one private copy before splicing matched
+;; :keyword/value pairs out.
+(test "Keyword Args Do Not Mutate Caller Lists"
+  (define (kw-fn :a x :b y) (list x y))
+  (define lst (list :b 2 :a 1))
+  (check (apply kw-fn lst) '(1 2))
+  (check lst '(:B 2 :A 1))
+  (defmacro (kw-mac :a x :b y) (list (quote quote) (list x y)))
+  (define form (quote (kw-mac :b 2 :a 1)))
+  (check (macroexpand-1 form) (quote (quote (1 2))))
+  (check form (quote (kw-mac :B 2 :A 1)))
+  (check (kw-mac :b 2 :a 1) (quote (1 2)))
+  (check (kw-mac :b 2 :a 1) (quote (1 2))))
+
 ;; Format Function
 (import (yas format))
 

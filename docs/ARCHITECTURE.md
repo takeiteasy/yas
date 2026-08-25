@@ -193,6 +193,18 @@ plain lexical scoping, not a memo quirk: a `defmacro` nested inside a
 not a redefinition of an outer binding a different closure already
 captured - the same as `define` always has.
 
+**Argument binding never mutates the caller's lists.** `eval_do_bind()`
+splices matched `:keyword`/value pairs out of `FRAME_ARGS`, but that list
+is not always owned by the frame being bound: a macro call binds the
+source form's own argument spine (the same cell aliased by `FRAME_TAIL`
+and used as the expansion-memo key above), `macroexpand-1` binds
+`yas_cdr(form)` of arbitrary evaluated data, and `apply` binds the
+caller's raw argument list. Before the first keyword match is spliced,
+therefore, `eval_do_bind()` takes one private copy of the remaining
+argument list (`yas_copy_list()`, anchored on `FRAME_ARGS`) and splices
+only that; calls whose parameter lists bind no keywords never copy, and
+no caller needs to know whether its list is safe to mutate in place.
+
 ### call/cc
 
 Capturing a continuation snapshots the evaluator's stack: `eval_do_return()`'s

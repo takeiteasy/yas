@@ -373,17 +373,19 @@ void yas_gc_pop_roots(int n);           /* pop the last n roots (LIFO) */
 int  yas_gc_root_count(void);           /* for push/pop balance asserts */
 ```
 
-Roots live on a **per-thread stack** (`data.c`, ticket #47 milestone 1):
-each thread that pushes gets its own private LIFO, created lazily and
-registered with the collector; `gc_mark_roots()` walks every registered
-stack. This is load-bearing under the interpreter lock (see
-[EMBEDDING.md](EMBEDDING.md), "Threads"): a single shared LIFO would let
-interleaved push/pop windows from different threads pop each other's
-entries - live objects silently unregistered and swept mid-use, stale
-slot pointers left behind. Keep each thread's push/pop windows balanced
-and nested within that thread (the ordinary discipline above already
-does this); `yas_gc_root_count()` reports the *calling thread's* depth,
-so the balance asserts below stay exact per thread.
+Roots live on the bound **context's** stack (`data.c`, ticket #47):
+each context owns one private LIFO, and `gc_mark_roots()` walks exactly
+that stack (plus the evaluator's own chain). The stack used to be a
+single process-global LIFO, which is only correct when every push..pop
+window nests - true single-threaded by construction, but under
+serialized concurrency two threads' windows interleave at call
+granularity, so a plain global count decrement popped OTHER threads'
+entries (live objects silently unregistered -> swept mid-use; stale
+slot pointers left registered -> garbage reads in gc_mark_roots()).
+Scoping the stack to the context removes the sharing entirely. Keep
+each context's push/pop windows balanced and nested (the ordinary
+discipline above already does this); `yas_gc_root_count()` reports the
+bound context's depth, so the balance asserts below stay exact.
 
 `yas_eval_expr()` asserts `yas_gc_root_count()` is unchanged across its
 own call, catching any future unbalanced `push_root`/`pop_roots` pair as

@@ -105,9 +105,7 @@ static int yas_load_file_impl(YasAtom env, const char *path)
 
 int yas_load_file(YasAtom env, const char *path)
 {
-    yas_gil_enter();
     int r = yas_load_file_impl(env, path);
-    yas_gil_leave();
     return r;
 }
 
@@ -117,8 +115,10 @@ int main(int argc, char **argv)
     YasAtom env;
     char *input;
 
-    /* Initialize features before anything else */
-    yas_init_features();
+    /* Create the process's root context and bind it to this thread -
+     * this builds the feature list, the module registry plumbing and
+     * every other per-context structure (ticket #47 milestone 2). */
+    yas_context_create();
 
     env = yas_env_create(yas_nil);
     /* Root the top-level environment for the rest of the process's

@@ -210,9 +210,7 @@ static int yas_builtin_serialize_impl(YasAtom args, YasAtom *result)
 
 int yas_builtin_serialize(YasAtom args, YasAtom *result)
 {
-    yas_gil_enter();
     int r = yas_builtin_serialize_impl(args, result);
-    yas_gil_leave();
     return r;
 }
 
@@ -292,9 +290,7 @@ static int yas_builtin_deserialize_impl(YasAtom args, YasAtom *result)
 
 int yas_builtin_deserialize(YasAtom args, YasAtom *result)
 {
-    yas_gil_enter();
     int r = yas_builtin_deserialize_impl(args, result);
-    yas_gil_leave();
     return r;
 }
 
@@ -328,9 +324,7 @@ static int yas_builtin_read_string_impl(YasAtom args, YasAtom *result)
 
 int yas_builtin_read_string(YasAtom args, YasAtom *result)
 {
-    yas_gil_enter();
     int r = yas_builtin_read_string_impl(args, result);
-    yas_gil_leave();
     return r;
 }
 

@@ -10,9 +10,7 @@ static int yas_builtin_get_search_paths_impl(YasAtom args, YasAtom *result)
 
 int yas_builtin_get_search_paths(YasAtom args, YasAtom *result)
 {
-    yas_gil_enter();
     int r = yas_builtin_get_search_paths_impl(args, result);
-    yas_gil_leave();
     return r;
 }
 
@@ -38,9 +36,7 @@ static int yas_builtin_set_search_paths_impl(YasAtom args, YasAtom *result)
 
 int yas_builtin_set_search_paths(YasAtom args, YasAtom *result)
 {
-    yas_gil_enter();
     int r = yas_builtin_set_search_paths_impl(args, result);
-    yas_gil_leave();
     return r;
 }
 
@@ -59,9 +55,7 @@ static int yas_builtin_add_search_path_impl(YasAtom args, YasAtom *result)
 
 int yas_builtin_add_search_path(YasAtom args, YasAtom *result)
 {
-    yas_gil_enter();
     int r = yas_builtin_add_search_path_impl(args, result);
-    yas_gil_leave();
     return r;
 }
 

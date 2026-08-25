@@ -12,9 +12,7 @@ static int yas_builtin_stringp_impl(YasAtom args, YasAtom *result)
 
 int yas_builtin_stringp(YasAtom args, YasAtom *result)
 {
-    yas_gil_enter();
     int r = yas_builtin_stringp_impl(args, result);
-    yas_gil_leave();
     return r;
 }
 
@@ -33,9 +31,7 @@ static int yas_builtin_string_length_impl(YasAtom args, YasAtom *result)
 
 int yas_builtin_string_length(YasAtom args, YasAtom *result)
 {
-    yas_gil_enter();
     int r = yas_builtin_string_length_impl(args, result);
-    yas_gil_leave();
     return r;
 }
 
@@ -64,9 +60,7 @@ static int yas_builtin_string_ref_impl(YasAtom args, YasAtom *result)
 
 int yas_builtin_string_ref(YasAtom args, YasAtom *result)
 {
-    yas_gil_enter();
     int r = yas_builtin_string_ref_impl(args, result);
-    yas_gil_leave();
     return r;
 }
 
@@ -89,9 +83,7 @@ static int yas_builtin_string_eq_impl(YasAtom args, YasAtom *result)
 
 int yas_builtin_string_eq(YasAtom args, YasAtom *result)
 {
-    yas_gil_enter();
     int r = yas_builtin_string_eq_impl(args, result);
-    yas_gil_leave();
     return r;
 }
 
@@ -112,9 +104,7 @@ static int yas_builtin_string_byte_length_impl(YasAtom args, YasAtom *result)
 
 int yas_builtin_string_byte_length(YasAtom args, YasAtom *result)
 {
-    yas_gil_enter();
     int r = yas_builtin_string_byte_length_impl(args, result);
-    yas_gil_leave();
     return r;
 }
 
@@ -144,9 +134,7 @@ static int yas_builtin_string_append_impl(YasAtom args, YasAtom *result)
 
 int yas_builtin_string_append(YasAtom args, YasAtom *result)
 {
-    yas_gil_enter();
     int r = yas_builtin_string_append_impl(args, result);
-    yas_gil_leave();
     return r;
 }
 
@@ -179,9 +167,7 @@ static int yas_builtin_string_upcase_impl(YasAtom args, YasAtom *result)
 
 int yas_builtin_string_upcase(YasAtom args, YasAtom *result)
 {
-    yas_gil_enter();
     int r = yas_builtin_string_upcase_impl(args, result);
-    yas_gil_leave();
     return r;
 }
 
@@ -214,9 +200,7 @@ static int yas_builtin_string_downcase_impl(YasAtom args, YasAtom *result)
 
 int yas_builtin_string_downcase(YasAtom args, YasAtom *result)
 {
-    yas_gil_enter();
     int r = yas_builtin_string_downcase_impl(args, result);
-    yas_gil_leave();
     return r;
 }
 
@@ -260,9 +244,7 @@ static int yas_builtin_string_capitalize_impl(YasAtom args, YasAtom *result)
 
 int yas_builtin_string_capitalize(YasAtom args, YasAtom *result)
 {
-    yas_gil_enter();
     int r = yas_builtin_string_capitalize_impl(args, result);
-    yas_gil_leave();
     return r;
 }
 
@@ -312,9 +294,7 @@ static int yas_builtin_make_string_impl(YasAtom args, YasAtom *result)
 
 int yas_builtin_make_string(YasAtom args, YasAtom *result)
 {
-    yas_gil_enter();
     int r = yas_builtin_make_string_impl(args, result);
-    yas_gil_leave();
     return r;
 }
 
@@ -367,9 +347,7 @@ static int yas_builtin_substring_impl(YasAtom args, YasAtom *result)
 
 int yas_builtin_substring(YasAtom args, YasAtom *result)
 {
-    yas_gil_enter();
     int r = yas_builtin_substring_impl(args, result);
-    yas_gil_leave();
     return r;
 }
 

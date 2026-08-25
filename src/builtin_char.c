@@ -11,9 +11,7 @@ static int yas_builtin_charp_impl(YasAtom args, YasAtom *result)
 
 int yas_builtin_charp(YasAtom args, YasAtom *result)
 {
-    yas_gil_enter();
     int r = yas_builtin_charp_impl(args, result);
-    yas_gil_leave();
     return r;
 }
 
@@ -32,9 +30,7 @@ static int yas_builtin_char_to_integer_impl(YasAtom args, YasAtom *result)
 
 int yas_builtin_char_to_integer(YasAtom args, YasAtom *result)
 {
-    yas_gil_enter();
     int r = yas_builtin_char_to_integer_impl(args, result);
-    yas_gil_leave();
     return r;
 }
 
@@ -53,9 +49,7 @@ static int yas_builtin_integer_to_char_impl(YasAtom args, YasAtom *result)
 
 int yas_builtin_integer_to_char(YasAtom args, YasAtom *result)
 {
-    yas_gil_enter();
     int r = yas_builtin_integer_to_char_impl(args, result);
-    yas_gil_leave();
     return r;
 }
 
@@ -74,9 +68,7 @@ static int yas_builtin_char_eq_impl(YasAtom args, YasAtom *result)
 
 int yas_builtin_char_eq(YasAtom args, YasAtom *result)
 {
-    yas_gil_enter();
     int r = yas_builtin_char_eq_impl(args, result);
-    yas_gil_leave();
     return r;
 }
 
@@ -95,9 +87,7 @@ static int yas_builtin_char_lt_impl(YasAtom args, YasAtom *result)
 
 int yas_builtin_char_lt(YasAtom args, YasAtom *result)
 {
-    yas_gil_enter();
     int r = yas_builtin_char_lt_impl(args, result);
-    yas_gil_leave();
     return r;
 }
 

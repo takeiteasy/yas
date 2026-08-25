@@ -1,17 +1,18 @@
 # Embedding
 
-There is no `yas_state_t` and no init/destroy pair - all interpreter state
-lives in file-scope globals (symbol/keyword tables, the allocation lists
-the GC sweeps, the module registry, search paths, the current exception).
-Only one yas instance can exist per process; multiple *threads* are
-supported (serialized by an internal lock - see "Threads" below), with
-full per-context isolation planned as #47's second milestone. Embedding
-is a small, fixed sequence, taken from `src/main.c`:
+All interpreter state lives in a `YasContext` (symbol/keyword tables,
+the allocation lists the GC sweeps, the module registry, search paths,
+the current exception) - created with `yas_context_create()` (ticket
+#47). A context owns its heap outright: atoms never cross contexts, and
+interning, `eq?` identity and equality are context-local facts. Each
+thread binds its own context; different contexts run fully in parallel.
+Embedding is a small, fixed sequence, taken from `src/main.c`:
 
 ```c
 #include "yas.h"
 
-yas_init_features();             /* platform/feature list for #+/#- readers */
+yas_context_create();            /* creates AND binds on this thread;
+                                    builds the platform feature list */
 
 YasAtom env = yas_env_create(yas_nil);
 yas_gc_push_root(&env);          /* see GC.md - nothing else references env yet */
@@ -23,6 +24,11 @@ YasAtom ignore;
 yas_module_import(import_args, env, &ignore);
 yas_gc_pop_roots(1);              /* import_args no longer needed; env stays rooted */
 ```
+
+Calling any API other than `yas_context_create()` before a context is
+bound on the calling thread is an error. Destroy a context with
+`yas_context_destroy(ctx)` - it frees the entire heap (closing open
+ports), the intern tables, and every registry.
 
 Alternatively, call `yas_load_all_modules()` to eagerly load every
 native module (C part plus its embedded Lisp layer) without going
@@ -103,42 +109,29 @@ returns it.
 
 ## Threads
 
-Interpreter state is still process-global, so milestone 1 of the
-thread-safety work (#47) puts one internal recursive lock (the "GIL",
-`src/thread.c`) around every public entry point that touches it: eval,
-read, print, every allocator and GC entry, the module registry, the
-sandbox config. Consequences for embedders:
+Milestone 2 of the thread-safety work (#47) scopes all interpreter state
+to `YasContext`. Consequences for embedders:
 
-- **Any documented API is safe to call from any thread.** Calls
-  serialize; there is no parallelism yet (that is #47 milestone 2's
-  per-context isolation). Do not call `yas_gil_enter`/`yas_gil_leave`
-  yourself - nesting is handled internally.
-- **The GC may run on behalf of another thread at any moment**, between
-  your calls - even while your thread executes plain C code. Root
-  *every* `YasAtom` local for its **full lifetime**, not merely across
-  your own next allocating call:
+- **Create and bind one context per thread** (`yas_context_create()`
+  binds on the calling thread; use `yas_context_bind()` to rebind).
+  Contexts share nothing mutable, so threads running different contexts
+  need no locks and really run in parallel.
+- **Never share a context between threads**, and never pass atoms
+  between contexts: a context's heap, interning and identity are its
+  own. There is no cross-context value transfer yet (that is #48,
+  with explicit owned/moved semantics).
+- The old process-global spellings (`yas_ctx_exception`,
+  `yas_current_file_path`, `yas_library_registry`,
+  `yas_global_search_paths`, `yas_global_features`) still compile, but
+  now resolve through the *calling thread's bound context* - using them
+  before a bind is an error.
+- Root stacks are per-context (see [GC.md](GC.md)): push/pop in LIFO
+  order; a context's destroy reclaims its stack.
 
-  ```c
-  YasAtom expr = yas_nil, result = yas_nil;
-  yas_gc_push_root(&expr);
-  yas_gc_push_root(&result);
-  /* read, eval, consume - all with both slots registered */
-  yas_gc_pop_roots(2);
-  ```
-
-  Single-threaded code only needs roots across its *own* allocating
-  calls (nothing else can start a collection); concurrent threads break
-  that assumption, hence the stricter rule above.
-- **Root stacks are per-thread** (see [GC.md](GC.md)): push/pop in LIFO
-  order within a thread; a thread's roots are invisible to other
-  threads' balance accounting by design.
-- The exception slot (`yas_ctx_exception`) and the module registry are
-  process-global, so a value raised in one context of use is observable
-  by another between calls - clear exceptions promptly
-  (`yas_clear_exception()`).
-
-`aux/thread_test.c` (run by `make test` and `make test-gc-stress`) is the
-regression gate for all of this.
+`aux/thread_test.c` (run by `make test` and `make test-gc-stress`) is
+the regression gate: workers create/import/run/destroy their own
+contexts concurrently and assert exact results plus the interning-
+isolation fact.
 
 ## I/O sandbox
 

@@ -35,6 +35,7 @@ not tracked in git.
 | `io.c` | I/O sandbox (allow/deny globs), virtual-filesystem providers, `struct Port`, `slurp()`. |
 | `ffi.c` | libffi bindings, compiled only under `YAS_FFI`. |
 | `utf8.c` | UTF-8 decode/encode/length/indexing. |
+| `context.c` / `context.h` | `struct YasContext` (all per-context state) and the create/destroy/bind lifecycle. `thread.c` holds the (runtime-idle) process lock they take. |
 | `main.c` | REPL and file-loading CLI entry point. |
 
 ## Value representation
@@ -248,23 +249,27 @@ routes hash `~get`/`~set` and `~call`/`~missing` for operator-overloaded
 hashes. **Any code path that calls a `YasBuiltin` function pointer directly
 bypasses this.**
 
-## Interpreter lock
+## Contexts
 
-All mutable interpreter state (GC heap and pacing counters, intern
-tables, both root sources, the exception slot, module registry, search
-paths, sandbox config) is process-global, so `src/thread.c` provides one
-recursive interpreter lock - the milestone-1 GIL from ticket #47. Every
-public entry point that touches that state wraps its body in
-`yas_gil_enter()`/`yas_gil_leave()` via the uniform
-`static ..._impl` + thin-locking-wrapper shape used across `src/*.c`;
-nesting (eval -> builtin -> `yas_cons()`) costs a thread-local depth
-counter bump, and the outermost enter holds the mutex. There is no
-parallelism yet: calls serialize completely. The GC root stack is
-**per-thread** (`data.c`) so interleaved embedder push/pop windows can't
-strip each other's entries; see docs/GC.md's "Root-registration API" and
-docs/EMBEDDING.md's "Threads" for the contracts. Milestone 2 replaces
-all of this with per-context heaps, at which point the lock demotes to
-context create/teardown bookkeeping.
+All mutable interpreter state - the GC heap and its pacing counters,
+the intern tables, both root sources, the exception slot, the module
+registry, search paths, the feature list, the sandbox config, and (under
+`YAS_FFI`) the FFI struct registry - lives in `struct YasContext`
+(`src/context.h`, private layout behind yas.h's opaque handle). The
+bound context is a thread-local pointer (`yas_ctx`); every function
+that used to touch a file-scope global reaches it through that binding
+(most files via one-line `#define` shorthands, so bodies are unchanged
+from the single-context era), and the old embedder-visible externs
+(`yas_ctx_exception` & co.) are macros resolving through it. Atoms
+never cross contexts: interning, `eq?` identity and equality are
+context-local facts by construction. One thread drives one bound
+context at a time; different contexts run fully in parallel with no
+locks anywhere on their hot paths. The only remaining lock
+(`src/thread.c`) guards nothing at runtime - create/destroy take it as
+belt-and-braces around process-wide bookkeeping (ticket #47 milestone
+2; milestone 1's entry-point GIL was removed once the state stopped
+being shared). See docs/EMBEDDING.md's "Threads" for the embedding
+contract and #48 for cross-context value transfer.
 
 ## GC
 

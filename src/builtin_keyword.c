@@ -13,9 +13,7 @@ static int yas_builtin_keywordp_impl(YasAtom args, YasAtom *result)
 
 int yas_builtin_keywordp(YasAtom args, YasAtom *result)
 {
-    yas_gil_enter();
     int r = yas_builtin_keywordp_impl(args, result);
-    yas_gil_leave();
     return r;
 }
 
@@ -33,9 +31,7 @@ static int yas_builtin_keyword_to_string_impl(YasAtom args, YasAtom *result)
 
 int yas_builtin_keyword_to_string(YasAtom args, YasAtom *result)
 {
-    yas_gil_enter();
     int r = yas_builtin_keyword_to_string_impl(args, result);
-    yas_gil_leave();
     return r;
 }
 
@@ -61,9 +57,7 @@ static int yas_builtin_string_to_keyword_impl(YasAtom args, YasAtom *result)
 
 int yas_builtin_string_to_keyword(YasAtom args, YasAtom *result)
 {
-    yas_gil_enter();
     int r = yas_builtin_string_to_keyword_impl(args, result);
-    yas_gil_leave();
     return r;
 }
 

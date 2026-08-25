@@ -26,9 +26,7 @@ static int yas_builtin_open_input_file_impl(YasAtom args, YasAtom *result)
 
 int yas_builtin_open_input_file(YasAtom args, YasAtom *result)
 {
-    yas_gil_enter();
     int r = yas_builtin_open_input_file_impl(args, result);
-    yas_gil_leave();
     return r;
 }
 
@@ -56,9 +54,7 @@ static int yas_builtin_open_output_file_impl(YasAtom args, YasAtom *result)
 
 int yas_builtin_open_output_file(YasAtom args, YasAtom *result)
 {
-    yas_gil_enter();
     int r = yas_builtin_open_output_file_impl(args, result);
-    yas_gil_leave();
     return r;
 }
 
@@ -76,9 +72,7 @@ static int yas_builtin_close_port_impl(YasAtom args, YasAtom *result)
 
 int yas_builtin_close_port(YasAtom args, YasAtom *result)
 {
-    yas_gil_enter();
     int r = yas_builtin_close_port_impl(args, result);
-    yas_gil_leave();
     return r;
 }
 
@@ -94,9 +88,7 @@ static int yas_builtin_portp_impl(YasAtom args, YasAtom *result)
 
 int yas_builtin_portp(YasAtom args, YasAtom *result)
 {
-    yas_gil_enter();
     int r = yas_builtin_portp_impl(args, result);
-    yas_gil_leave();
     return r;
 }
 
@@ -113,9 +105,7 @@ static int yas_builtin_input_portp_impl(YasAtom args, YasAtom *result)
 
 int yas_builtin_input_portp(YasAtom args, YasAtom *result)
 {
-    yas_gil_enter();
     int r = yas_builtin_input_portp_impl(args, result);
-    yas_gil_leave();
     return r;
 }
 
@@ -132,9 +122,7 @@ static int yas_builtin_output_portp_impl(YasAtom args, YasAtom *result)
 
 int yas_builtin_output_portp(YasAtom args, YasAtom *result)
 {
-    yas_gil_enter();
     int r = yas_builtin_output_portp_impl(args, result);
-    yas_gil_leave();
     return r;
 }
 
@@ -151,9 +139,7 @@ static int yas_builtin_port_openp_impl(YasAtom args, YasAtom *result)
 
 int yas_builtin_port_openp(YasAtom args, YasAtom *result)
 {
-    yas_gil_enter();
     int r = yas_builtin_port_openp_impl(args, result);
-    yas_gil_leave();
     return r;
 }
 
@@ -207,9 +193,7 @@ static int yas_builtin_read_char_impl(YasAtom args, YasAtom *result)
 
 int yas_builtin_read_char(YasAtom args, YasAtom *result)
 {
-    yas_gil_enter();
     int r = yas_builtin_read_char_impl(args, result);
-    yas_gil_leave();
     return r;
 }
 
@@ -254,9 +238,7 @@ static int yas_builtin_read_line_impl(YasAtom args, YasAtom *result)
 
 int yas_builtin_read_line(YasAtom args, YasAtom *result)
 {
-    yas_gil_enter();
     int r = yas_builtin_read_line_impl(args, result);
-    yas_gil_leave();
     return r;
 }
 
@@ -298,9 +280,7 @@ static int yas_builtin_read_all_impl(YasAtom args, YasAtom *result)
 
 int yas_builtin_read_all(YasAtom args, YasAtom *result)
 {
-    yas_gil_enter();
     int r = yas_builtin_read_all_impl(args, result);
-    yas_gil_leave();
     return r;
 }
 
@@ -328,9 +308,7 @@ static int yas_builtin_read_byte_impl(YasAtom args, YasAtom *result)
 
 int yas_builtin_read_byte(YasAtom args, YasAtom *result)
 {
-    yas_gil_enter();
     int r = yas_builtin_read_byte_impl(args, result);
-    yas_gil_leave();
     return r;
 }
 
@@ -368,9 +346,7 @@ static int yas_builtin_read_bytes_impl(YasAtom args, YasAtom *result)
 
 int yas_builtin_read_bytes(YasAtom args, YasAtom *result)
 {
-    yas_gil_enter();
     int r = yas_builtin_read_bytes_impl(args, result);
-    yas_gil_leave();
     return r;
 }
 
@@ -399,9 +375,7 @@ static int yas_builtin_write_char_impl(YasAtom args, YasAtom *result)
 
 int yas_builtin_write_char(YasAtom args, YasAtom *result)
 {
-    yas_gil_enter();
     int r = yas_builtin_write_char_impl(args, result);
-    yas_gil_leave();
     return r;
 }
 
@@ -430,9 +404,7 @@ static int yas_builtin_write_string_impl(YasAtom args, YasAtom *result)
 
 int yas_builtin_write_string(YasAtom args, YasAtom *result)
 {
-    yas_gil_enter();
     int r = yas_builtin_write_string_impl(args, result);
-    yas_gil_leave();
     return r;
 }
 
@@ -461,9 +433,7 @@ static int yas_builtin_write_byte_impl(YasAtom args, YasAtom *result)
 
 int yas_builtin_write_byte(YasAtom args, YasAtom *result)
 {
-    yas_gil_enter();
     int r = yas_builtin_write_byte_impl(args, result);
-    yas_gil_leave();
     return r;
 }
 
@@ -492,9 +462,7 @@ static int yas_builtin_write_bytes_impl(YasAtom args, YasAtom *result)
 
 int yas_builtin_write_bytes(YasAtom args, YasAtom *result)
 {
-    yas_gil_enter();
     int r = yas_builtin_write_bytes_impl(args, result);
-    yas_gil_leave();
     return r;
 }
 
@@ -518,9 +486,7 @@ static int yas_builtin_newline_impl(YasAtom args, YasAtom *result)
 
 int yas_builtin_newline(YasAtom args, YasAtom *result)
 {
-    yas_gil_enter();
     int r = yas_builtin_newline_impl(args, result);
-    yas_gil_leave();
     return r;
 }
 
@@ -541,9 +507,7 @@ static int yas_builtin_flush_port_impl(YasAtom args, YasAtom *result)
 
 int yas_builtin_flush_port(YasAtom args, YasAtom *result)
 {
-    yas_gil_enter();
     int r = yas_builtin_flush_port_impl(args, result);
-    yas_gil_leave();
     return r;
 }
 
@@ -566,9 +530,7 @@ static int yas_builtin_file_exists_impl(YasAtom args, YasAtom *result)
 
 int yas_builtin_file_exists(YasAtom args, YasAtom *result)
 {
-    yas_gil_enter();
     int r = yas_builtin_file_exists_impl(args, result);
-    yas_gil_leave();
     return r;
 }
 
@@ -590,9 +552,7 @@ static int yas_builtin_delete_file_impl(YasAtom args, YasAtom *result)
 
 int yas_builtin_delete_file(YasAtom args, YasAtom *result)
 {
-    yas_gil_enter();
     int r = yas_builtin_delete_file_impl(args, result);
-    yas_gil_leave();
     return r;
 }
 
@@ -620,9 +580,7 @@ static int yas_builtin_rename_file_impl(YasAtom args, YasAtom *result)
 
 int yas_builtin_rename_file(YasAtom args, YasAtom *result)
 {
-    yas_gil_enter();
     int r = yas_builtin_rename_file_impl(args, result);
-    yas_gil_leave();
     return r;
 }
 

@@ -1,11 +1,11 @@
 #include "yas.h"
+#include "context.h"
 #include <assert.h>
 #include <stdarg.h>
 #include <stddef.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <pthread.h>
 
 /* ══════════════════════════════════════════════════════════════════
    Unified incremental tricolor mark-sweep GC.
@@ -29,21 +29,31 @@ struct Allocation {
     struct YasPair pair;
 };
 
-typedef enum { YAS_GC_IDLE, YAS_GC_MARKING, YAS_GC_SWEEPING } GCPhase;
+typedef YasGCPhase GCPhase;
 
 #define YAS_GC_INIT_THRESHOLD (256 * 1024) /* bytes */
 #define YAS_GC_STEP_LIMIT 512              /* objects per bounded step */
 
-static struct YasGCHeader *gc_all = NULL;
-static GCPhase gc_phase = YAS_GC_IDLE;
-static size_t gc_allocated = 0;
-static size_t gc_threshold = 0; /* 0 = "not yet initialized", see gc_min_threshold_get() */
-
-static struct YasGCHeader **gc_gray = NULL;
-static int gc_gray_count = 0;
-static int gc_gray_cap = 0;
-
-static struct YasGCHeader *gc_sweep_prev = NULL;
+/* ── Per-context state (ticket #47 milestone 2) ─────────────────────
+ * Everything below used to be file-scope statics; it now lives in
+ * struct YasContext (context.h), reached through the thread-local
+ * `yas_ctx` binding. These shorthands keep the function bodies
+ * byte-identical to the single-context era - the collector reads and
+ * mutates exactly what it always did, just scoped to whichever context
+ * the calling thread has bound. */
+#define gc_all (yas_ctx->gc_all)
+#define gc_phase (yas_ctx->gc_phase)
+#define gc_allocated (yas_ctx->gc_allocated)
+#define gc_threshold (yas_ctx->gc_threshold)
+#define gc_gray (yas_ctx->gc_gray)
+#define gc_gray_count (yas_ctx->gc_gray_count)
+#define gc_gray_cap (yas_ctx->gc_gray_cap)
+#define gc_sweep_prev (yas_ctx->gc_sweep_prev)
+#define gc_debt (yas_ctx->gc_debt)
+#define gc_debt_quantum (yas_ctx->gc_debt_quantum)
+#define gc_stepping (yas_ctx->gc_stepping)
+#define gc_min_threshold (yas_ctx->gc_min_threshold)
+#define gc_stress_bytes (yas_ctx->gc_stress_bytes)
 
 /* ── Allocation-triggered stepping ───────────────────────────────────
  * gc_alloc() (below) paces yas_gc_step() itself instead of relying on
@@ -63,9 +73,6 @@ static struct YasGCHeader *gc_sweep_prev = NULL;
  * marking to outpace allocation. Revisit this comment if either
  * constant changes. */
 #define YAS_GC_DEBT_QUANTUM_DEFAULT (4 * 1024) /* bytes allocated per step */
-static size_t gc_debt = 0;
-static size_t gc_debt_quantum = 0; /* 0 = "not yet read from env" */
-static int gc_stepping = 0;        /* re-entrancy guard, see gc_alloc() */
 
 /* GC_STRESS mode (make test-gc-stress / YAS_GC_STRESS=1) is built on
  * top of the *ordinary* debt-paced yas_gc_step() call below, not a
@@ -93,8 +100,6 @@ static int gc_stepping = 0;        /* re-entrancy guard, see gc_alloc() */
  * YAS_GC_STRESS=<n> is a one-var convenience that sets both the min
  * threshold and the debt quantum to `n` bytes unless either is
  * overridden explicitly via YAS_GC_MIN_THRESHOLD/YAS_GC_DEBT_QUANTUM. */
-static size_t gc_min_threshold = 0; /* 0 = "not yet read from env" */
-static long gc_stress_bytes = -1;   /* -1 = "not yet read from env"; 0 = unset */
 
 static long gc_stress_get(void)
 {
@@ -174,31 +179,15 @@ static void gc_pace(size_t size)
  * `offsetof`. The extra fields (`cache_env`/`cache_slot`/`shadowed`) back
  * the root-frame lookup cache in yas_env_get()/yas_env_set() (ticket #45)
  * - `kw_intern` entries never populate them. */
-struct YasSymbol {
-    struct YasEnv *cache_env; /* last env whose ROOT this resolved in */
-    size_t cache_slot;        /* its slot in that root frame's syms/vals */
-    unsigned char shadowed;   /* ever yas_env_define()'d into a non-root
-                               * frame? Monotone, never cleared - once
-                               * set, yas_env_get()/yas_env_set() always
-                               * take the full parent-chain walk for this
-                               * symbol, which is merely a missed
-                               * optimization, never a wrong answer. */
-    char name[];
-};
-
 static struct YasSymbol *sym_rec(const char *name)
 {
     return (struct YasSymbol *)((char *)name - offsetof(struct YasSymbol, name));
 }
 
-struct YasInternTable {
-    struct YasSymbol **slots; /* NULL = empty slot */
-    size_t capacity;          /* always a power of two */
-    size_t count;
-};
-
-static struct YasInternTable sym_intern = {NULL, 0, 0};
-static struct YasInternTable kw_intern = {NULL, 0, 0};
+/* The tables live in the context (context.h); symbols are context-local
+ * identities. */
+#define sym_intern (yas_ctx->sym_intern)
+#define kw_intern (yas_ctx->kw_intern)
 
 /* Empty-slot sentinel for YasHash's open-addressed index (yas.h) -
  * forward-declared here since yas_make_hash() (needs it to initialize a
@@ -280,104 +269,70 @@ static char *intern_find_or_insert(struct YasInternTable *t, const char *s)
     return rec->name;
 }
 
-/* Root-registration API (see yas.h and docs/GC.md). A stack of pointers
- * to caller-owned YasAtom slots, scanned in gc_mark_roots().
- *
- * ONE STACK PER THREAD (ticket #47 milestone 1): the stack used to be a
- * single process-global LIFO, which is only correct when every
- * push..pop window nests - true single-threaded by construction, but
- * under the GIL two threads' windows interleave at call granularity, so
- * a plain global count decrement popped OTHER threads' entries (live
- * objects silently unregistered -> swept mid-use; stale slot pointers
- * left registered -> garbage reads in gc_mark_roots()). Each thread now
- * owns a private stack; the collector walks every registered stack.
- * Stacks are created lazily on first push from that thread and are
- * never freed (a thread's stack is reused if it pushes again; the
- * process-lifetime registry is bounded by thread count). */
-struct YasRootStack {
-    YasAtom **slots;
-    int count;
-    int cap;
-};
+/* Root-registration API (see yas.h and docs/GC.md). The shadow stack is
+ * owned by the bound CONTEXT (context.h) - the LIFO of the one thread
+ * driving it. Milestone 1 made these stacks per-thread after a shared
+ * global LIFO let interleaved push/pop windows strip other threads'
+ * entries under serialized concurrency (live objects unregistered ->
+ * swept mid-use; stale slot pointers -> garbage in gc_mark_roots());
+ * milestone 2 goes further and scopes them to the context, which also
+ * means destroy() reclaims them with everything else. */
+static void gc_free_object(struct YasGCHeader *obj, size_t *freed);
 
-static YAS_TLS struct YasRootStack *tls_roots = NULL;
-
-static struct YasRootStack **gc_all_stacks = NULL;
-static int gc_stack_count = 0;
-static int gc_stack_cap = 0;
-
-static void roots_register_current(void)
+/* Destroy-path helper (src/context.c): release one heap object plus its
+ * external buffers. Poolable blocks go through the pool like any sweep
+ * and the caller drains the buckets afterwards - same code path as a
+ * normal collection, no special cases. */
+void yas_gc_context_free_object(struct YasGCHeader *obj)
 {
-    if (!tls_roots) {
-        tls_roots = calloc(1, sizeof(struct YasRootStack));
-        if (!tls_roots)
-            return; /* OOM: caller's root is dropped; same contract as below */
-        if (gc_stack_count >= gc_stack_cap) {
-            int new_cap = gc_stack_cap ? gc_stack_cap * 2 : 8;
-            struct YasRootStack **tmp =
-                realloc(gc_all_stacks, (size_t)new_cap * sizeof(struct YasRootStack *));
-            if (!tmp)
-                return; /* OOM: unregistered stack is simply never scanned */
-            gc_all_stacks = tmp;
-            gc_stack_cap = new_cap;
-        }
-        gc_all_stacks[gc_stack_count++] = tls_roots;
-    }
+    size_t freed = 0;
+    gc_free_object(obj, &freed);
 }
 
 static void yas_gc_push_root_impl(YasAtom *slot)
 {
+    struct YasRootStack *st = &yas_ctx->roots;
     if (!slot)
         return;
-    roots_register_current();
-    if (!tls_roots)
-        return;
-    if (tls_roots->count >= tls_roots->cap) {
-        int new_cap = tls_roots->cap ? tls_roots->cap * 2 : 16;
-        YasAtom **tmp = realloc(tls_roots->slots, (size_t)new_cap * sizeof(YasAtom *));
+    if (st->count >= st->cap) {
+        int new_cap = st->cap ? st->cap * 2 : 16;
+        YasAtom **tmp = realloc(st->slots, (size_t)new_cap * sizeof(YasAtom *));
         if (!tmp)
             return; /* OOM: drop the root; caller must keep it reachable another way */
-        tls_roots->slots = tmp;
-        tls_roots->cap = new_cap;
+        st->slots = tmp;
+        st->cap = new_cap;
     }
-    tls_roots->slots[tls_roots->count++] = slot;
+    st->slots[st->count++] = slot;
 }
 
 void yas_gc_push_root(YasAtom *slot)
 {
-    yas_gil_enter();
     yas_gc_push_root_impl(slot);
-    yas_gil_leave();
 }
 
 
 static void yas_gc_pop_roots_impl(int n)
 {
-    if (!tls_roots)
-        return;
-    tls_roots->count -= n;
-    if (tls_roots->count < 0)
-        tls_roots->count = 0;
+    struct YasRootStack *st = &yas_ctx->roots;
+    st->count -= n;
+    if (st->count < 0)
+        st->count = 0;
 }
 
 void yas_gc_pop_roots(int n)
 {
-    yas_gil_enter();
     yas_gc_pop_roots_impl(n);
-    yas_gil_leave();
 }
 
 
 static int yas_gc_root_count_impl(void)
 {
-    return tls_roots ? tls_roots->count : 0;
+    return yas_ctx->roots.count;
 }
 
 int yas_gc_root_count(void)
 {
-    yas_gil_enter();
     int r = yas_gc_root_count_impl();
-    yas_gil_leave();
     return r;
 }
 
@@ -389,9 +344,7 @@ static int yas_gc_phase_impl(void)
 
 int yas_gc_phase(void)
 {
-    yas_gil_enter();
     int r = yas_gc_phase_impl();
-    yas_gil_leave();
     return r;
 }
 
@@ -403,9 +356,7 @@ static size_t yas_gc_allocated_impl(void)
 
 size_t yas_gc_allocated(void)
 {
-    yas_gil_enter();
     size_t r = yas_gc_allocated_impl();
-    yas_gil_leave();
     return r;
 }
 
@@ -494,23 +445,11 @@ static struct YasGCHeader *atom_to_header(YasAtom a)
  * (macro_memo_remove() below), rather than this table scanning itself on
  * every free. Tombstones (`MACRO_MEMO_TOMBSTONE`) mark a removed slot so
  * open-addressed probing still finds entries past it. */
-struct YasMacroMemoEntry {
-    struct YasPair *key;  /* NULL = empty, MACRO_MEMO_TOMBSTONE = removed */
-    YasAtom macro;        /* macro binding at insertion time, compared by
-                            * value.pair identity - a redefined macro is a
-                            * fresh closure cons, so this naturally
-                            * invalidates a stale hit instead of matching it. */
-    YasAtom expansion;
-};
+#define macro_memo_slots (yas_ctx->macro_memo_slots)
+#define macro_memo_capacity (yas_ctx->macro_memo_capacity)
+#define macro_memo_used (yas_ctx->macro_memo_used)
 
 #define MACRO_MEMO_TOMBSTONE ((struct YasPair *)1)
-
-static struct YasMacroMemoEntry *macro_memo_slots = NULL;
-static size_t macro_memo_capacity = 0;
-static size_t macro_memo_used = 0; /* live entries + tombstones - drives growth,
-                                     * so a table churning inserts/removes at a
-                                     * steady live count still grows and sheds
-                                     * its tombstones instead of degrading. */
 
 static size_t ptr_hash(const void *p)
 {
@@ -575,9 +514,7 @@ static int yas_macro_memo_get_impl(YasAtom args_cell, YasAtom macro, YasAtom *ex
 
 int yas_macro_memo_get(YasAtom args_cell, YasAtom macro, YasAtom *expansion)
 {
-    yas_gil_enter();
     int r = yas_macro_memo_get_impl(args_cell, macro, expansion);
-    yas_gil_leave();
     return r;
 }
 
@@ -640,9 +577,7 @@ marked:
 
 void yas_macro_memo_put(YasAtom args_cell, YasAtom macro, YasAtom expansion)
 {
-    yas_gil_enter();
     yas_macro_memo_put_impl(args_cell, macro, expansion);
-    yas_gil_leave();
 }
 
 
@@ -712,12 +647,12 @@ static void macro_memo_mark_roots(void)
 #define YAS_GC_POOL_TRIM_HIGH_WATER 128        /* only trim a bucket comfortably above normal churn */
 #define YAS_GC_POOL_TRIM_MAX YAS_GC_STEP_LIMIT /* bound trim work to one step's worth, per cycle end */
 
-static struct YasGCHeader *gc_pool[YAS_GC_OBJ_COUNT];
-static int gc_pool_count[YAS_GC_OBJ_COUNT];
+#define gc_pool (yas_ctx->gc_pool)
+#define gc_pool_count (yas_ctx->gc_pool_count)
 /* Blocks pushed onto each bucket since the last gc_pool_trim() call - see
  * gc_pool_trim()'s comment for how this drives actual draining instead of
  * just capping at the high-water mark. */
-static int gc_pool_puts_since_trim[YAS_GC_OBJ_COUNT];
+#define gc_pool_puts_since_trim (yas_ctx->gc_pool_puts_since_trim)
 
 static int gc_obj_type_poolable(YasGCObjType type)
 {
@@ -889,9 +824,7 @@ static void yas_gc_write_barrier_impl(YasAtom container, YasAtom child)
 
 void yas_gc_write_barrier(YasAtom container, YasAtom child)
 {
-    yas_gil_enter();
     yas_gc_write_barrier_impl(container, child);
-    yas_gil_leave();
 }
 
 
@@ -903,9 +836,7 @@ static void yas_set_car_impl(YasAtom p, YasAtom v)
 
 void yas_set_car(YasAtom p, YasAtom v)
 {
-    yas_gil_enter();
     yas_set_car_impl(p, v);
-    yas_gil_leave();
 }
 
 
@@ -917,9 +848,7 @@ static void yas_set_cdr_impl(YasAtom p, YasAtom v)
 
 void yas_set_cdr(YasAtom p, YasAtom v)
 {
-    yas_gil_enter();
     yas_set_cdr_impl(p, v);
-    yas_gil_leave();
 }
 
 
@@ -951,9 +880,7 @@ static void yas_gc_mark_impl(YasAtom root)
 
 void yas_gc_mark(YasAtom root)
 {
-    yas_gil_enter();
     yas_gc_mark_impl(root);
-    yas_gil_leave();
 }
 
 
@@ -964,11 +891,10 @@ static void gc_mark_roots(void)
     yas_gc_mark(yas_global_features);
     yas_gc_mark(yas_ctx_exception);
 
-    /* Every registered thread's private root stack. Callers of this
-     * function always hold the interpreter lock (collection only ever
-     * runs inside a locked region), so stacks cannot mutate mid-walk. */
-    for (int s = 0; s < gc_stack_count; s++) {
-        struct YasRootStack *st = gc_all_stacks[s];
+    /* The bound context's shadow root stack. Collection only ever runs
+     * on the context's owning thread, so it cannot mutate mid-walk. */
+    {
+        struct YasRootStack *st = &yas_ctx->roots;
         for (int i = 0; i < st->count; i++)
             yas_gc_mark_impl(*st->slots[i]);
     }
@@ -1255,9 +1181,7 @@ static void yas_gc_start_impl(void)
 
 void yas_gc_start(void)
 {
-    yas_gil_enter();
     yas_gc_start_impl();
-    yas_gil_leave();
 }
 
 
@@ -1319,9 +1243,7 @@ static void yas_gc_step_impl(void)
 
 void yas_gc_step(void)
 {
-    yas_gil_enter();
     yas_gc_step_impl();
-    yas_gil_leave();
 }
 
 
@@ -1340,9 +1262,7 @@ static void yas_gc_impl(void)
 
 void yas_gc(void)
 {
-    yas_gil_enter();
     yas_gc_impl();
-    yas_gil_leave();
 }
 
 
@@ -1364,9 +1284,7 @@ static YasAtom yas_cons_impl(YasAtom car_val, YasAtom cdr_val)
 
 YasAtom yas_cons(YasAtom car_val, YasAtom cdr_val)
 {
-    yas_gil_enter();
     YasAtom r = yas_cons_impl(car_val, cdr_val);
-    yas_gil_leave();
     return r;
 }
 
@@ -1400,9 +1318,7 @@ static YasAtom yas_make_frame_impl(YasAtom parent, YasAtom env, YasAtom tail)
 
 YasAtom yas_make_frame(YasAtom parent, YasAtom env, YasAtom tail)
 {
-    yas_gil_enter();
     YasAtom r = yas_make_frame_impl(parent, env, tail);
-    yas_gil_leave();
     return r;
 }
 
@@ -1425,9 +1341,7 @@ static YasAtom yas_make_sym_impl(const char *s)
 
 YasAtom yas_make_sym(const char *s)
 {
-    yas_gil_enter();
     YasAtom r = yas_make_sym_impl(s);
-    yas_gil_leave();
     return r;
 }
 
@@ -1442,9 +1356,7 @@ static YasAtom yas_make_keyword_impl(const char *s)
 
 YasAtom yas_make_keyword(const char *s)
 {
-    yas_gil_enter();
     YasAtom r = yas_make_keyword_impl(s);
-    yas_gil_leave();
     return r;
 }
 
@@ -1486,9 +1398,7 @@ static YasAtom yas_make_string_impl(const char *s)
 
 YasAtom yas_make_string(const char *s)
 {
-    yas_gil_enter();
     YasAtom r = yas_make_string_impl(s);
-    yas_gil_leave();
     return r;
 }
 
@@ -1507,9 +1417,7 @@ static YasAtom yas_make_string_n_impl(const char *s, size_t len)
 
 YasAtom yas_make_string_n(const char *s, size_t len)
 {
-    yas_gil_enter();
     YasAtom r = yas_make_string_n_impl(s, len);
-    yas_gil_leave();
     return r;
 }
 
@@ -1555,9 +1463,7 @@ static YasAtom yas_make_vector_impl(size_t size, YasAtom fill)
 
 YasAtom yas_make_vector(size_t size, YasAtom fill)
 {
-    yas_gil_enter();
     YasAtom r = yas_make_vector_impl(size, fill);
-    yas_gil_leave();
     return r;
 }
 
@@ -1590,9 +1496,7 @@ static YasAtom yas_make_hash_impl(void)
 
 YasAtom yas_make_hash(void)
 {
-    yas_gil_enter();
     YasAtom r = yas_make_hash_impl();
-    yas_gil_leave();
     return r;
 }
 
@@ -1691,9 +1595,7 @@ static YasAtom yas_env_create_impl(YasAtom parent)
 
 YasAtom yas_env_create(YasAtom parent)
 {
-    yas_gil_enter();
     YasAtom r = yas_env_create_impl(parent);
-    yas_gil_leave();
     return r;
 }
 
@@ -1733,9 +1635,7 @@ static int yas_env_define_impl(YasAtom env, YasAtom symbol, YasAtom value)
 
 int yas_env_define(YasAtom env, YasAtom symbol, YasAtom value)
 {
-    yas_gil_enter();
     int r = yas_env_define_impl(env, symbol, value);
-    yas_gil_leave();
     return r;
 }
 
@@ -1784,9 +1684,7 @@ static int yas_env_get_impl(YasAtom env, YasAtom symbol, YasAtom *result)
 
 int yas_env_get(YasAtom env, YasAtom symbol, YasAtom *result)
 {
-    yas_gil_enter();
     int r = yas_env_get_impl(env, symbol, result);
-    yas_gil_leave();
     return r;
 }
 
@@ -1829,9 +1727,7 @@ static int yas_env_set_impl(YasAtom env, YasAtom symbol, YasAtom value)
 
 int yas_env_set(YasAtom env, YasAtom symbol, YasAtom value)
 {
-    yas_gil_enter();
     int r = yas_env_set_impl(env, symbol, value);
-    yas_gil_leave();
     return r;
 }
 
@@ -1859,9 +1755,7 @@ static YasAtom yas_env_keys_impl(YasAtom env)
 
 YasAtom yas_env_keys(YasAtom env)
 {
-    yas_gil_enter();
     YasAtom r = yas_env_keys_impl(env);
-    yas_gil_leave();
     return r;
 }
 
@@ -1874,9 +1768,7 @@ static YasAtom yas_vector_ref_impl(YasAtom vec, size_t index)
 
 YasAtom yas_vector_ref(YasAtom vec, size_t index)
 {
-    yas_gil_enter();
     YasAtom r = yas_vector_ref_impl(vec, index);
-    yas_gil_leave();
     return r;
 }
 
@@ -1889,9 +1781,7 @@ static void yas_vector_set_impl(YasAtom vec, size_t index, YasAtom value)
 
 void yas_vector_set(YasAtom vec, size_t index, YasAtom value)
 {
-    yas_gil_enter();
     yas_vector_set_impl(vec, index, value);
-    yas_gil_leave();
 }
 
 
@@ -1902,9 +1792,7 @@ static size_t yas_vector_length_impl(YasAtom vec)
 
 size_t yas_vector_length(YasAtom vec)
 {
-    yas_gil_enter();
     size_t r = yas_vector_length_impl(vec);
-    yas_gil_leave();
     return r;
 }
 
@@ -2011,9 +1899,7 @@ static YasAtom yas_hash_ref_impl(YasAtom hash, YasAtom key, YasAtom default_val)
 
 YasAtom yas_hash_ref(YasAtom hash, YasAtom key, YasAtom default_val)
 {
-    yas_gil_enter();
     YasAtom r = yas_hash_ref_impl(hash, key, default_val);
-    yas_gil_leave();
     return r;
 }
 
@@ -2057,9 +1943,7 @@ static void yas_hash_set_impl(YasAtom hash, YasAtom key, YasAtom value)
 
 void yas_hash_set(YasAtom hash, YasAtom key, YasAtom value)
 {
-    yas_gil_enter();
     yas_hash_set_impl(hash, key, value);
-    yas_gil_leave();
 }
 
 
@@ -2090,9 +1974,7 @@ static int yas_hash_remove_impl(YasAtom hash, YasAtom key)
 
 int yas_hash_remove(YasAtom hash, YasAtom key)
 {
-    yas_gil_enter();
     int r = yas_hash_remove_impl(hash, key);
-    yas_gil_leave();
     return r;
 }
 
@@ -2104,9 +1986,7 @@ static size_t yas_hash_size_impl(YasAtom hash)
 
 size_t yas_hash_size(YasAtom hash)
 {
-    yas_gil_enter();
     size_t r = yas_hash_size_impl(hash);
-    yas_gil_leave();
     return r;
 }
 
@@ -2137,9 +2017,7 @@ static YasAtom yas_get_metamethod_impl(YasAtom hash, const char *name)
 
 YasAtom yas_get_metamethod(YasAtom hash, const char *name)
 {
-    yas_gil_enter();
     YasAtom r = yas_get_metamethod_impl(hash, name);
-    yas_gil_leave();
     return r;
 }
 
@@ -2151,9 +2029,7 @@ static int yas_has_metamethod_impl(YasAtom hash, const char *name)
 
 int yas_has_metamethod(YasAtom hash, const char *name)
 {
-    yas_gil_enter();
     int r = yas_has_metamethod_impl(hash, name);
-    yas_gil_leave();
     return r;
 }
 
@@ -2170,9 +2046,7 @@ static int yas_listp_impl(YasAtom expr)
 
 int yas_listp(YasAtom expr)
 {
-    yas_gil_enter();
     int r = yas_listp_impl(expr);
-    yas_gil_leave();
     return r;
 }
 
@@ -2209,9 +2083,7 @@ static YasAtom yas_copy_list_impl(YasAtom list)
 
 YasAtom yas_copy_list(YasAtom list)
 {
-    yas_gil_enter();
     YasAtom r = yas_copy_list_impl(list);
-    yas_gil_leave();
     return r;
 }
 
@@ -2247,11 +2119,9 @@ YasAtom yas_list_create(int n, ...)
 {
     va_list ap;
     YasAtom r;
-    yas_gil_enter();
     va_start(ap, n);
     r = yas_list_create_v(n, ap);
     va_end(ap);
-    yas_gil_leave();
     return r;
 }
 
@@ -2264,9 +2134,7 @@ static YasAtom yas_list_get_impl(YasAtom list, int k)
 
 YasAtom yas_list_get(YasAtom list, int k)
 {
-    yas_gil_enter();
     YasAtom r = yas_list_get_impl(list, k);
-    yas_gil_leave();
     return r;
 }
 
@@ -2280,9 +2148,7 @@ static void yas_list_set_impl(YasAtom list, int k, YasAtom value)
 
 void yas_list_set(YasAtom list, int k, YasAtom value)
 {
-    yas_gil_enter();
     yas_list_set_impl(list, k, value);
-    yas_gil_leave();
 }
 
 
@@ -2300,9 +2166,7 @@ static void yas_list_reverse_impl(YasAtom *list)
 
 void yas_list_reverse(YasAtom *list)
 {
-    yas_gil_enter();
     yas_list_reverse_impl(list);
-    yas_gil_leave();
 }
 
 
@@ -2325,9 +2189,7 @@ static YasAtom yas_make_port_impl(void *handle, const char *path, int is_input, 
 
 YasAtom yas_make_port(void *handle, const char *path, int is_input, int is_binary, int provider_id)
 {
-    yas_gil_enter();
     YasAtom r = yas_make_port_impl(handle, path, is_input, is_binary, provider_id);
-    yas_gil_leave();
     return r;
 }
 
@@ -2344,9 +2206,7 @@ static struct YasFFIFunction * yas_gc_alloc_ffi_function_impl(void)
 
 struct YasFFIFunction * yas_gc_alloc_ffi_function(void)
 {
-    yas_gil_enter();
     struct YasFFIFunction * r = yas_gc_alloc_ffi_function_impl();
-    yas_gil_leave();
     return r;
 }
 
@@ -2358,9 +2218,7 @@ static YasFFIStructInstance * yas_gc_alloc_ffi_struct_impl(void)
 
 YasFFIStructInstance * yas_gc_alloc_ffi_struct(void)
 {
-    yas_gil_enter();
     YasFFIStructInstance * r = yas_gc_alloc_ffi_struct_impl();
-    yas_gil_leave();
     return r;
 }
 
@@ -2388,9 +2246,7 @@ static YasAtom yas_make_bytevector_impl(size_t size)
 
 YasAtom yas_make_bytevector(size_t size)
 {
-    yas_gil_enter();
     YasAtom r = yas_make_bytevector_impl(size);
-    yas_gil_leave();
     return r;
 }
 
@@ -2415,9 +2271,7 @@ static YasAtom yas_make_bytevector_from_data_impl(const unsigned char *data, siz
 
 YasAtom yas_make_bytevector_from_data(const unsigned char *data, size_t size)
 {
-    yas_gil_enter();
     YasAtom r = yas_make_bytevector_from_data_impl(data, size);
-    yas_gil_leave();
     return r;
 }
 
@@ -2429,9 +2283,7 @@ static unsigned char yas_bytevector_ref_impl(YasAtom bv, size_t index)
 
 unsigned char yas_bytevector_ref(YasAtom bv, size_t index)
 {
-    yas_gil_enter();
     unsigned char r = yas_bytevector_ref_impl(bv, index);
-    yas_gil_leave();
     return r;
 }
 
@@ -2443,9 +2295,7 @@ static void yas_bytevector_set_impl(YasAtom bv, size_t index, unsigned char valu
 
 void yas_bytevector_set(YasAtom bv, size_t index, unsigned char value)
 {
-    yas_gil_enter();
     yas_bytevector_set_impl(bv, index, value);
-    yas_gil_leave();
 }
 
 
@@ -2456,9 +2306,7 @@ static size_t yas_bytevector_length_impl(YasAtom bv)
 
 size_t yas_bytevector_length(YasAtom bv)
 {
-    yas_gil_enter();
     size_t r = yas_bytevector_length_impl(bv);
-    yas_gil_leave();
     return r;
 }
 
@@ -2499,9 +2347,7 @@ static YasAtom yas_make_vec2_impl(float x, float y)
 
 YasAtom yas_make_vec2(float x, float y)
 {
-    yas_gil_enter();
     YasAtom r = yas_make_vec2_impl(x, y);
-    yas_gil_leave();
     return r;
 }
 
@@ -2529,9 +2375,7 @@ static YasAtom yas_make_vec3_impl(float x, float y, float z)
 
 YasAtom yas_make_vec3(float x, float y, float z)
 {
-    yas_gil_enter();
     YasAtom r = yas_make_vec3_impl(x, y, z);
-    yas_gil_leave();
     return r;
 }
 
@@ -2559,9 +2403,7 @@ static YasAtom yas_make_vec4_impl(float x, float y, float z, float w)
 
 YasAtom yas_make_vec4(float x, float y, float z, float w)
 {
-    yas_gil_enter();
     YasAtom r = yas_make_vec4_impl(x, y, z, w);
-    yas_gil_leave();
     return r;
 }
 
@@ -2594,9 +2436,7 @@ static YasAtom yas_make_mat4_identity_impl(void)
 
 YasAtom yas_make_mat4_identity(void)
 {
-    yas_gil_enter();
     YasAtom r = yas_make_mat4_identity_impl();
-    yas_gil_leave();
     return r;
 }
 
@@ -2625,9 +2465,7 @@ static YasAtom yas_make_mat4_from_floats_impl(const float *values)
 
 YasAtom yas_make_mat4_from_floats(const float *values)
 {
-    yas_gil_enter();
     YasAtom r = yas_make_mat4_from_floats_impl(values);
-    yas_gil_leave();
     return r;
 }
 
@@ -2635,8 +2473,6 @@ YasAtom yas_make_mat4_from_floats(const float *values)
 /* ============================================================
  * GLOBAL FEATURES SYSTEM
  * ============================================================ */
-
-YasAtom yas_global_features = {YAS_ATOM_TYPE_NIL};
 
 static void yas_init_features_impl(void)
 {
@@ -2677,9 +2513,7 @@ static void yas_init_features_impl(void)
 
 void yas_init_features(void)
 {
-    yas_gil_enter();
     yas_init_features_impl();
-    yas_gil_leave();
 }
 
 
@@ -2697,9 +2531,7 @@ static int yas_has_feature_impl(const char *name)
 
 int yas_has_feature(const char *name)
 {
-    yas_gil_enter();
     int r = yas_has_feature_impl(name);
-    yas_gil_leave();
     return r;
 }
 
@@ -2755,9 +2587,7 @@ static int yas_eval_feature_expr_impl(YasAtom expr)
 
 int yas_eval_feature_expr(YasAtom expr)
 {
-    yas_gil_enter();
     int r = yas_eval_feature_expr_impl(expr);
-    yas_gil_leave();
     return r;
 }
 

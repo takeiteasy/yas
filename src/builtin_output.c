@@ -37,9 +37,7 @@ static int yas_builtin_tostring_impl(YasAtom args, YasAtom *result)
 
 int yas_builtin_tostring(YasAtom args, YasAtom *result)
 {
-    yas_gil_enter();
     int r = yas_builtin_tostring_impl(args, result);
-    yas_gil_leave();
     return r;
 }
 

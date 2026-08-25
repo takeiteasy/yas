@@ -195,9 +195,7 @@ static int yas_builtin_add_impl(YasAtom args, YasAtom *result)
 
 int yas_builtin_add(YasAtom args, YasAtom *result)
 {
-    yas_gil_enter();
     int r = yas_builtin_add_impl(args, result);
-    yas_gil_leave();
     return r;
 }
 
@@ -264,9 +262,7 @@ static int yas_builtin_subtract_impl(YasAtom args, YasAtom *result)
 
 int yas_builtin_subtract(YasAtom args, YasAtom *result)
 {
-    yas_gil_enter();
     int r = yas_builtin_subtract_impl(args, result);
-    yas_gil_leave();
     return r;
 }
 
@@ -349,9 +345,7 @@ static int yas_builtin_multiply_impl(YasAtom args, YasAtom *result)
 
 int yas_builtin_multiply(YasAtom args, YasAtom *result)
 {
-    yas_gil_enter();
     int r = yas_builtin_multiply_impl(args, result);
-    yas_gil_leave();
     return r;
 }
 
@@ -424,9 +418,7 @@ static int yas_builtin_divide_impl(YasAtom args, YasAtom *result)
 
 int yas_builtin_divide(YasAtom args, YasAtom *result)
 {
-    yas_gil_enter();
     int r = yas_builtin_divide_impl(args, result);
-    yas_gil_leave();
     return r;
 }
 
@@ -460,9 +452,7 @@ static int yas_builtin_numeq_impl(YasAtom args, YasAtom *result)
 
 int yas_builtin_numeq(YasAtom args, YasAtom *result)
 {
-    yas_gil_enter();
     int r = yas_builtin_numeq_impl(args, result);
-    yas_gil_leave();
     return r;
 }
 
@@ -500,9 +490,7 @@ static int yas_builtin_less_impl(YasAtom args, YasAtom *result)
 
 int yas_builtin_less(YasAtom args, YasAtom *result)
 {
-    yas_gil_enter();
     int r = yas_builtin_less_impl(args, result);
-    yas_gil_leave();
     return r;
 }
 
@@ -518,9 +506,7 @@ static int yas_builtin_floatp_impl(YasAtom args, YasAtom *result)
 
 int yas_builtin_floatp(YasAtom args, YasAtom *result)
 {
-    yas_gil_enter();
     int r = yas_builtin_floatp_impl(args, result);
-    yas_gil_leave();
     return r;
 }
 
@@ -535,9 +521,7 @@ static int yas_builtin_integerp_impl(YasAtom args, YasAtom *result)
 
 int yas_builtin_integerp(YasAtom args, YasAtom *result)
 {
-    yas_gil_enter();
     int r = yas_builtin_integerp_impl(args, result);
-    yas_gil_leave();
     return r;
 }
 
@@ -575,9 +559,7 @@ static int yas_builtin_vec2p_impl(YasAtom args, YasAtom *result)
 
 int yas_builtin_vec2p(YasAtom args, YasAtom *result)
 {
-    yas_gil_enter();
     int r = yas_builtin_vec2p_impl(args, result);
-    yas_gil_leave();
     return r;
 }
 
@@ -592,9 +574,7 @@ static int yas_builtin_vec3p_impl(YasAtom args, YasAtom *result)
 
 int yas_builtin_vec3p(YasAtom args, YasAtom *result)
 {
-    yas_gil_enter();
     int r = yas_builtin_vec3p_impl(args, result);
-    yas_gil_leave();
     return r;
 }
 
@@ -609,9 +589,7 @@ static int yas_builtin_vec4p_impl(YasAtom args, YasAtom *result)
 
 int yas_builtin_vec4p(YasAtom args, YasAtom *result)
 {
-    yas_gil_enter();
     int r = yas_builtin_vec4p_impl(args, result);
-    yas_gil_leave();
     return r;
 }
 
@@ -626,9 +604,7 @@ static int yas_builtin_mat4p_impl(YasAtom args, YasAtom *result)
 
 int yas_builtin_mat4p(YasAtom args, YasAtom *result)
 {
-    yas_gil_enter();
     int r = yas_builtin_mat4p_impl(args, result);
-    yas_gil_leave();
     return r;
 }
 
@@ -662,9 +638,7 @@ static int yas_builtin_vec2_impl(YasAtom args, YasAtom *result)
 
 int yas_builtin_vec2(YasAtom args, YasAtom *result)
 {
-    yas_gil_enter();
     int r = yas_builtin_vec2_impl(args, result);
-    yas_gil_leave();
     return r;
 }
 
@@ -701,9 +675,7 @@ static int yas_builtin_vec3_impl(YasAtom args, YasAtom *result)
 
 int yas_builtin_vec3(YasAtom args, YasAtom *result)
 {
-    yas_gil_enter();
     int r = yas_builtin_vec3_impl(args, result);
-    yas_gil_leave();
     return r;
 }
 
@@ -748,9 +720,7 @@ static int yas_builtin_vec4_impl(YasAtom args, YasAtom *result)
 
 int yas_builtin_vec4(YasAtom args, YasAtom *result)
 {
-    yas_gil_enter();
     int r = yas_builtin_vec4_impl(args, result);
-    yas_gil_leave();
     return r;
 }
 
@@ -765,9 +735,7 @@ static int yas_builtin_mat4_identity_impl(YasAtom args, YasAtom *result)
 
 int yas_builtin_mat4_identity(YasAtom args, YasAtom *result)
 {
-    yas_gil_enter();
     int r = yas_builtin_mat4_identity_impl(args, result);
-    yas_gil_leave();
     return r;
 }
 
@@ -786,9 +754,7 @@ static int yas_builtin_vec_x_impl(YasAtom args, YasAtom *result)
 
 int yas_builtin_vec_x(YasAtom args, YasAtom *result)
 {
-    yas_gil_enter();
     int r = yas_builtin_vec_x_impl(args, result);
-    yas_gil_leave();
     return r;
 }
 
@@ -806,9 +772,7 @@ static int yas_builtin_vec_y_impl(YasAtom args, YasAtom *result)
 
 int yas_builtin_vec_y(YasAtom args, YasAtom *result)
 {
-    yas_gil_enter();
     int r = yas_builtin_vec_y_impl(args, result);
-    yas_gil_leave();
     return r;
 }
 
@@ -826,9 +790,7 @@ static int yas_builtin_vec_z_impl(YasAtom args, YasAtom *result)
 
 int yas_builtin_vec_z(YasAtom args, YasAtom *result)
 {
-    yas_gil_enter();
     int r = yas_builtin_vec_z_impl(args, result);
-    yas_gil_leave();
     return r;
 }
 
@@ -846,9 +808,7 @@ static int yas_builtin_vec_w_impl(YasAtom args, YasAtom *result)
 
 int yas_builtin_vec_w(YasAtom args, YasAtom *result)
 {
-    yas_gil_enter();
     int r = yas_builtin_vec_w_impl(args, result);
-    yas_gil_leave();
     return r;
 }
 
@@ -876,9 +836,7 @@ static int yas_builtin_vec_ref_impl(YasAtom args, YasAtom *result)
 
 int yas_builtin_vec_ref(YasAtom args, YasAtom *result)
 {
-    yas_gil_enter();
     int r = yas_builtin_vec_ref_impl(args, result);
-    yas_gil_leave();
     return r;
 }
 
@@ -930,9 +888,7 @@ static int yas_builtin_vec_set_impl(YasAtom args, YasAtom *result)
 
 int yas_builtin_vec_set(YasAtom args, YasAtom *result)
 {
-    yas_gil_enter();
     int r = yas_builtin_vec_set_impl(args, result);
-    yas_gil_leave();
     return r;
 }
 
@@ -983,9 +939,7 @@ static int yas_builtin_mat4_multiply_impl(YasAtom args, YasAtom *result)
 
 int yas_builtin_mat4_multiply(YasAtom args, YasAtom *result)
 {
-    yas_gil_enter();
     int r = yas_builtin_mat4_multiply_impl(args, result);
-    yas_gil_leave();
     return r;
 }
 
@@ -1013,9 +967,7 @@ static int yas_builtin_mat4_impl(YasAtom args, YasAtom *result)
 
 int yas_builtin_mat4(YasAtom args, YasAtom *result)
 {
-    yas_gil_enter();
     int r = yas_builtin_mat4_impl(args, result);
-    yas_gil_leave();
     return r;
 }
 
@@ -1059,9 +1011,7 @@ static int yas_builtin_mat4_transpose_impl(YasAtom args, YasAtom *result)
 
 int yas_builtin_mat4_transpose(YasAtom args, YasAtom *result)
 {
-    yas_gil_enter();
     int r = yas_builtin_mat4_transpose_impl(args, result);
-    yas_gil_leave();
     return r;
 }
 
@@ -1142,9 +1092,7 @@ static int yas_builtin_mat4_inverse_impl(YasAtom args, YasAtom *result)
 
 int yas_builtin_mat4_inverse(YasAtom args, YasAtom *result)
 {
-    yas_gil_enter();
     int r = yas_builtin_mat4_inverse_impl(args, result);
-    yas_gil_leave();
     return r;
 }
 
@@ -1212,9 +1160,7 @@ static int yas_builtin_number_to_string_impl(YasAtom args, YasAtom *result)
 
 int yas_builtin_number_to_string(YasAtom args, YasAtom *result)
 {
-    yas_gil_enter();
     int r = yas_builtin_number_to_string_impl(args, result);
-    yas_gil_leave();
     return r;
 }
 

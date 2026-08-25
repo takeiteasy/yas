@@ -10,9 +10,7 @@ static int yas_builtin_vectorp_impl(YasAtom args, YasAtom *result)
 
 int yas_builtin_vectorp(YasAtom args, YasAtom *result)
 {
-    yas_gil_enter();
     int r = yas_builtin_vectorp_impl(args, result);
-    yas_gil_leave();
     return r;
 }
 
@@ -31,9 +29,7 @@ static int yas_builtin_vector_length_impl(YasAtom args, YasAtom *result)
 
 int yas_builtin_vector_length(YasAtom args, YasAtom *result)
 {
-    yas_gil_enter();
     int r = yas_builtin_vector_length_impl(args, result);
-    yas_gil_leave();
     return r;
 }
 
@@ -64,9 +60,7 @@ static int yas_builtin_vector_append_impl(YasAtom args, YasAtom *result)
 
 int yas_builtin_vector_append(YasAtom args, YasAtom *result)
 {
-    yas_gil_enter();
     int r = yas_builtin_vector_append_impl(args, result);
-    yas_gil_leave();
     return r;
 }
 
@@ -94,9 +88,7 @@ static int yas_builtin_make_vector_impl(YasAtom args, YasAtom *result)
 
 int yas_builtin_make_vector(YasAtom args, YasAtom *result)
 {
-    yas_gil_enter();
     int r = yas_builtin_make_vector_impl(args, result);
-    yas_gil_leave();
     return r;
 }
 
@@ -121,9 +113,7 @@ static int yas_builtin_vector_ref_impl(YasAtom args, YasAtom *result)
 
 int yas_builtin_vector_ref(YasAtom args, YasAtom *result)
 {
-    yas_gil_enter();
     int r = yas_builtin_vector_ref_impl(args, result);
-    yas_gil_leave();
     return r;
 }
 
@@ -151,9 +141,7 @@ static int yas_builtin_vector_set_impl(YasAtom args, YasAtom *result)
 
 int yas_builtin_vector_set(YasAtom args, YasAtom *result)
 {
-    yas_gil_enter();
     int r = yas_builtin_vector_set_impl(args, result);
-    yas_gil_leave();
     return r;
 }
 

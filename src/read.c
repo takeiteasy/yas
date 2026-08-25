@@ -81,9 +81,7 @@ static void yas_error_print_impl(YasErrorContext *err)
 
 void yas_error_print(YasErrorContext *err)
 {
-    yas_gil_enter();
     yas_error_print_impl(err);
-    yas_gil_leave();
 }
 
 
@@ -871,9 +869,7 @@ static int yas_read_expr_impl(const char *input, const char **end, YasAtom *resu
 
 int yas_read_expr(const char *input, const char **end, YasAtom *result, YasErrorContext *err)
 {
-    yas_gil_enter();
     int r = yas_read_expr_impl(input, end, result, err);
-    yas_gil_leave();
     return r;
 }
 

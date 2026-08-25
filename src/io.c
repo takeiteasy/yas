@@ -1,4 +1,5 @@
 #include "yas.h"
+#include "context.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -30,9 +31,7 @@ static char * yas_slurp_impl(const char *path)
 
 char * yas_slurp(const char *path)
 {
-    yas_gil_enter();
     char * r = yas_slurp_impl(path);
-    yas_gil_leave();
     return r;
 }
 
@@ -49,9 +48,8 @@ static int denied_count = 0;
 
 /* Virtual filesystem providers */
 #define MAX_PROVIDERS 16
-static YasIOProvider *providers[MAX_PROVIDERS];
-static int provider_count = 0;
-
+#define providers (yas_ctx->providers)
+#define provider_count (yas_ctx->provider_count)
 static void yas_io_sandbox_init_impl(YasIOSandboxMode mode)
 {
     sandbox_mode = mode;
@@ -59,9 +57,7 @@ static void yas_io_sandbox_init_impl(YasIOSandboxMode mode)
 
 void yas_io_sandbox_init(YasIOSandboxMode mode)
 {
-    yas_gil_enter();
     yas_io_sandbox_init_impl(mode);
-    yas_gil_leave();
 }
 
 
@@ -72,9 +68,7 @@ static YasIOSandboxMode yas_io_sandbox_get_mode_impl(void)
 
 YasIOSandboxMode yas_io_sandbox_get_mode(void)
 {
-    yas_gil_enter();
     YasIOSandboxMode r = yas_io_sandbox_get_mode_impl();
-    yas_gil_leave();
     return r;
 }
 
@@ -88,9 +82,7 @@ static void yas_io_sandbox_allow_path_impl(const char *pattern)
 
 void yas_io_sandbox_allow_path(const char *pattern)
 {
-    yas_gil_enter();
     yas_io_sandbox_allow_path_impl(pattern);
-    yas_gil_leave();
 }
 
 
@@ -103,9 +95,7 @@ static void yas_io_sandbox_deny_path_impl(const char *pattern)
 
 void yas_io_sandbox_deny_path(const char *pattern)
 {
-    yas_gil_enter();
     yas_io_sandbox_deny_path_impl(pattern);
-    yas_gil_leave();
 }
 
 
@@ -116,9 +106,7 @@ static void yas_io_sandbox_set_default_impl(int allow)
 
 void yas_io_sandbox_set_default(int allow)
 {
-    yas_gil_enter();
     yas_io_sandbox_set_default_impl(allow);
-    yas_gil_leave();
 }
 
 
@@ -129,9 +117,7 @@ static int yas_io_sandbox_get_default_impl(void)
 
 int yas_io_sandbox_get_default(void)
 {
-    yas_gil_enter();
     int r = yas_io_sandbox_get_default_impl();
-    yas_gil_leave();
     return r;
 }
 
@@ -153,9 +139,7 @@ static void yas_io_sandbox_clear_impl(void)
 
 void yas_io_sandbox_clear(void)
 {
-    yas_gil_enter();
     yas_io_sandbox_clear_impl();
-    yas_gil_leave();
 }
 
 
@@ -198,9 +182,7 @@ static int yas_io_sandbox_check_path_impl(const char *path, int writing)
 
 int yas_io_sandbox_check_path(const char *path, int writing)
 {
-    yas_gil_enter();
     int r = yas_io_sandbox_check_path_impl(path, writing);
-    yas_gil_leave();
     return r;
 }
 
@@ -215,9 +197,7 @@ static int yas_io_register_provider_impl(YasIOProvider *provider)
 
 int yas_io_register_provider(YasIOProvider *provider)
 {
-    yas_gil_enter();
     int r = yas_io_register_provider_impl(provider);
-    yas_gil_leave();
     return r;
 }
 
@@ -238,9 +218,7 @@ static void yas_io_unregister_provider_impl(const char *prefix)
 
 void yas_io_unregister_provider(const char *prefix)
 {
-    yas_gil_enter();
     yas_io_unregister_provider_impl(prefix);
-    yas_gil_leave();
 }
 
 
@@ -281,9 +259,7 @@ static void yas_port_close_impl(YasAtom port)
 
 void yas_port_close(YasAtom port)
 {
-    yas_gil_enter();
     yas_port_close_impl(port);
-    yas_gil_leave();
 }
 
 
@@ -320,9 +296,7 @@ static YasAtom yas_io_open_file_impl(const char *path, int is_input, int is_bina
 
 YasAtom yas_io_open_file(const char *path, int is_input, int is_binary)
 {
-    yas_gil_enter();
     YasAtom r = yas_io_open_file_impl(path, is_input, is_binary);
-    yas_gil_leave();
     return r;
 }
 
@@ -342,9 +316,7 @@ static long yas_port_read_impl(struct YasPort *p, void *buf, size_t n)
 
 long yas_port_read(struct YasPort *p, void *buf, size_t n)
 {
-    yas_gil_enter();
     long r = yas_port_read_impl(p, buf, n);
-    yas_gil_leave();
     return r;
 }
 
@@ -366,9 +338,7 @@ static int yas_port_getc_impl(struct YasPort *p)
 
 int yas_port_getc(struct YasPort *p)
 {
-    yas_gil_enter();
     int r = yas_port_getc_impl(p);
-    yas_gil_leave();
     return r;
 }
 
@@ -388,9 +358,7 @@ static long yas_port_write_impl(struct YasPort *p, const void *buf, size_t n)
 
 long yas_port_write(struct YasPort *p, const void *buf, size_t n)
 {
-    yas_gil_enter();
     long r = yas_port_write_impl(p, buf, n);
-    yas_gil_leave();
     return r;
 }
 
@@ -404,9 +372,7 @@ static void yas_port_flush_impl(struct YasPort *p)
 
 void yas_port_flush(struct YasPort *p)
 {
-    yas_gil_enter();
     yas_port_flush_impl(p);
-    yas_gil_leave();
 }
 
 
@@ -440,9 +406,7 @@ static int yas_io_file_exists_impl(const char *path)
 
 int yas_io_file_exists(const char *path)
 {
-    yas_gil_enter();
     int r = yas_io_file_exists_impl(path);
-    yas_gil_leave();
     return r;
 }
 

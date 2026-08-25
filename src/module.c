@@ -57,10 +57,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-YasAtom yas_library_registry = {YAS_ATOM_TYPE_NIL};
 
-/* Search paths - modifiable at runtime via add-search-path! etc. */
-YasAtom yas_global_search_paths = {YAS_ATOM_TYPE_NIL};
 
 #define MODULE_STATE_LOADING "LOADING"
 #define MODULE_STATE_READY "READY"
@@ -173,9 +170,7 @@ static YasAtom yas_define_native_module_impl(const char *name_str, YasAtom paren
 
 YasAtom yas_define_native_module(const char *name_str, YasAtom parent_env, YasAtom *out_env)
 {
-    yas_gil_enter();
     YasAtom r = yas_define_native_module_impl(name_str, parent_env, out_env);
-    yas_gil_leave();
     return r;
 }
 
@@ -232,9 +227,7 @@ static void yas_load_base_library_impl(YasAtom parent_env)
 
 void yas_load_base_library(YasAtom parent_env)
 {
-    yas_gil_enter();
     yas_load_base_library_impl(parent_env);
-    yas_gil_leave();
 }
 
 
@@ -263,9 +256,7 @@ static void yas_load_hash_library_impl(YasAtom parent_env)
 
 void yas_load_hash_library(YasAtom parent_env)
 {
-    yas_gil_enter();
     yas_load_hash_library_impl(parent_env);
-    yas_gil_leave();
 }
 
 
@@ -285,9 +276,7 @@ static void yas_load_vector_library_impl(YasAtom parent_env)
 
 void yas_load_vector_library(YasAtom parent_env)
 {
-    yas_gil_enter();
     yas_load_vector_library_impl(parent_env);
-    yas_gil_leave();
 }
 
 
@@ -327,9 +316,7 @@ static void yas_load_text_library_impl(YasAtom parent_env)
 
 void yas_load_text_library(YasAtom parent_env)
 {
-    yas_gil_enter();
     yas_load_text_library_impl(parent_env);
-    yas_gil_leave();
 }
 
 
@@ -376,9 +363,7 @@ static void yas_load_io_library_impl(YasAtom parent_env)
 
 void yas_load_io_library(YasAtom parent_env)
 {
-    yas_gil_enter();
     yas_load_io_library_impl(parent_env);
-    yas_gil_leave();
 }
 
 
@@ -410,9 +395,7 @@ static void yas_load_math_library_impl(YasAtom parent_env)
 
 void yas_load_math_library(YasAtom parent_env)
 {
-    yas_gil_enter();
     yas_load_math_library_impl(parent_env);
-    yas_gil_leave();
 }
 
 
@@ -444,9 +427,7 @@ static void yas_load_ffi_library_impl(YasAtom parent_env)
 
 void yas_load_ffi_library(YasAtom parent_env)
 {
-    yas_gil_enter();
     yas_load_ffi_library_impl(parent_env);
-    yas_gil_leave();
 }
 
 #endif
@@ -508,9 +489,7 @@ static void yas_load_all_modules_impl(void)
 
 void yas_load_all_modules(void)
 {
-    yas_gil_enter();
     yas_load_all_modules_impl();
-    yas_gil_leave();
 }
 
 
@@ -1035,9 +1014,7 @@ static int yas_module_import_impl(YasAtom args, YasAtom env, YasAtom *result)
 
 int yas_module_import(YasAtom args, YasAtom env, YasAtom *result)
 {
-    yas_gil_enter();
     int r = yas_module_import_impl(args, env, result);
-    yas_gil_leave();
     return r;
 }
 

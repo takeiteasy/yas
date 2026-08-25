@@ -23,9 +23,7 @@ static int yas_builtin_make_bytevector_impl(YasAtom args, YasAtom *result)
 
 int yas_builtin_make_bytevector(YasAtom args, YasAtom *result)
 {
-    yas_gil_enter();
     int r = yas_builtin_make_bytevector_impl(args, result);
-    yas_gil_leave();
     return r;
 }
 
@@ -41,9 +39,7 @@ static int yas_builtin_bytevectorp_impl(YasAtom args, YasAtom *result)
 
 int yas_builtin_bytevectorp(YasAtom args, YasAtom *result)
 {
-    yas_gil_enter();
     int r = yas_builtin_bytevectorp_impl(args, result);
-    yas_gil_leave();
     return r;
 }
 
@@ -60,9 +56,7 @@ static int yas_builtin_bytevector_length_impl(YasAtom args, YasAtom *result)
 
 int yas_builtin_bytevector_length(YasAtom args, YasAtom *result)
 {
-    yas_gil_enter();
     int r = yas_builtin_bytevector_length_impl(args, result);
-    yas_gil_leave();
     return r;
 }
 
@@ -90,9 +84,7 @@ static int yas_builtin_bytevector_u8_ref_impl(YasAtom args, YasAtom *result)
 
 int yas_builtin_bytevector_u8_ref(YasAtom args, YasAtom *result)
 {
-    yas_gil_enter();
     int r = yas_builtin_bytevector_u8_ref_impl(args, result);
-    yas_gil_leave();
     return r;
 }
 
@@ -125,9 +117,7 @@ static int yas_builtin_bytevector_u8_set_impl(YasAtom args, YasAtom *result)
 
 int yas_builtin_bytevector_u8_set(YasAtom args, YasAtom *result)
 {
-    yas_gil_enter();
     int r = yas_builtin_bytevector_u8_set_impl(args, result);
-    yas_gil_leave();
     return r;
 }
 
@@ -146,9 +136,7 @@ static int yas_builtin_bytevector_to_string_impl(YasAtom args, YasAtom *result)
 
 int yas_builtin_bytevector_to_string(YasAtom args, YasAtom *result)
 {
-    yas_gil_enter();
     int r = yas_builtin_bytevector_to_string_impl(args, result);
-    yas_gil_leave();
     return r;
 }
 
@@ -167,9 +155,7 @@ static int yas_builtin_string_to_bytevector_impl(YasAtom args, YasAtom *result)
 
 int yas_builtin_string_to_bytevector(YasAtom args, YasAtom *result)
 {
-    yas_gil_enter();
     int r = yas_builtin_string_to_bytevector_impl(args, result);
-    yas_gil_leave();
     return r;
 }
 
@@ -226,9 +212,7 @@ static int yas_builtin_string_to_bytes_impl(YasAtom args, YasAtom *result)
 
 int yas_builtin_string_to_bytes(YasAtom args, YasAtom *result)
 {
-    yas_gil_enter();
     int r = yas_builtin_string_to_bytes_impl(args, result);
-    yas_gil_leave();
     return r;
 }
 
@@ -280,9 +264,7 @@ static int yas_builtin_bytes_to_string_impl(YasAtom args, YasAtom *result)
 
 int yas_builtin_bytes_to_string(YasAtom args, YasAtom *result)
 {
-    yas_gil_enter();
     int r = yas_builtin_bytes_to_string_impl(args, result);
-    yas_gil_leave();
     return r;
 }
 

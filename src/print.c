@@ -201,9 +201,7 @@ static void yas_print_expr_impl(YasAtom atom)
 
 void yas_print_expr(YasAtom atom)
 {
-    yas_gil_enter();
     yas_print_expr_impl(atom);
-    yas_gil_leave();
 }
 
 
@@ -426,9 +424,7 @@ static char * yas_sprint_expr_impl(YasAtom atom)
 
 char * yas_sprint_expr(YasAtom atom)
 {
-    yas_gil_enter();
     char * r = yas_sprint_expr_impl(atom);
-    yas_gil_leave();
     return r;
 }
 

@@ -10,9 +10,7 @@ static int yas_builtin_hashp_impl(YasAtom args, YasAtom *result)
 
 int yas_builtin_hashp(YasAtom args, YasAtom *result)
 {
-    yas_gil_enter();
     int r = yas_builtin_hashp_impl(args, result);
-    yas_gil_leave();
     return r;
 }
 
@@ -31,9 +29,7 @@ static int yas_builtin_hash_length_impl(YasAtom args, YasAtom *result)
 
 int yas_builtin_hash_length(YasAtom args, YasAtom *result)
 {
-    yas_gil_enter();
     int r = yas_builtin_hash_length_impl(args, result);
-    yas_gil_leave();
     return r;
 }
 
@@ -61,9 +57,7 @@ static int yas_builtin_hash_join_impl(YasAtom args, YasAtom *result)
 
 int yas_builtin_hash_join(YasAtom args, YasAtom *result)
 {
-    yas_gil_enter();
     int r = yas_builtin_hash_join_impl(args, result);
-    yas_gil_leave();
     return r;
 }
 
@@ -80,9 +74,7 @@ static int yas_builtin_make_hash_impl(YasAtom args, YasAtom *result)
 
 int yas_builtin_make_hash(YasAtom args, YasAtom *result)
 {
-    yas_gil_enter();
     int r = yas_builtin_make_hash_impl(args, result);
-    yas_gil_leave();
     return r;
 }
 
@@ -111,9 +103,7 @@ static int yas_builtin_hash_ref_impl(YasAtom args, YasAtom *result)
 
 int yas_builtin_hash_ref(YasAtom args, YasAtom *result)
 {
-    yas_gil_enter();
     int r = yas_builtin_hash_ref_impl(args, result);
-    yas_gil_leave();
     return r;
 }
 
@@ -138,9 +128,7 @@ static int yas_builtin_hash_set_impl(YasAtom args, YasAtom *result)
 
 int yas_builtin_hash_set(YasAtom args, YasAtom *result)
 {
-    yas_gil_enter();
     int r = yas_builtin_hash_set_impl(args, result);
-    yas_gil_leave();
     return r;
 }
 
@@ -162,9 +150,7 @@ static int yas_builtin_hash_remove_impl(YasAtom args, YasAtom *result)
 
 int yas_builtin_hash_remove(YasAtom args, YasAtom *result)
 {
-    yas_gil_enter();
     int r = yas_builtin_hash_remove_impl(args, result);
-    yas_gil_leave();
     return r;
 }
 
@@ -191,9 +177,7 @@ static int yas_builtin_hash_keys_impl(YasAtom args, YasAtom *result)
 
 int yas_builtin_hash_keys(YasAtom args, YasAtom *result)
 {
-    yas_gil_enter();
     int r = yas_builtin_hash_keys_impl(args, result);
-    yas_gil_leave();
     return r;
 }
 
@@ -226,9 +210,7 @@ static int yas_builtin_set_metatable_impl(YasAtom args, YasAtom *result)
 
 int yas_builtin_set_metatable(YasAtom args, YasAtom *result)
 {
-    yas_gil_enter();
     int r = yas_builtin_set_metatable_impl(args, result);
-    yas_gil_leave();
     return r;
 }
 
@@ -255,9 +237,7 @@ static int yas_builtin_get_metatable_impl(YasAtom args, YasAtom *result)
 
 int yas_builtin_get_metatable(YasAtom args, YasAtom *result)
 {
-    yas_gil_enter();
     int r = yas_builtin_get_metatable_impl(args, result);
-    yas_gil_leave();
     return r;
 }
 

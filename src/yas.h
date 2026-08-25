@@ -25,6 +25,47 @@
 void yas_gil_enter(void);
 void yas_gil_leave(void);
 
+/* ── Contexts (ticket #47 milestone 2) ───────────────────────────────
+ * A context owns everything mutable: its heap and collector, intern
+ * tables, root stack, evaluator state (exception, current file), the
+ * module registry, search paths, feature list, sandbox config, and FFI
+ * struct registry. Atoms never cross contexts - interning, identity
+ * (eq?) and equality are context-local facts. One thread drives one
+ * bound context at a time; different contexts run fully in parallel.
+ *
+ * Lifecycle: create() binds the context on the calling thread; use
+ * bind() to switch threads' bindings. destroy() frees the entire heap
+ * (closing open ports) and every registry; a context being destroyed
+ * must not be bound elsewhere. */
+typedef struct YasContext YasContext;
+typedef struct YasAtom YasAtom;
+
+YasContext *yas_context_create(void);      /* creates AND binds */
+void yas_context_destroy(YasContext *ctx); /* frees everything; unbinds if current */
+void yas_context_bind(YasContext *ctx);    /* make ctx current on this thread */
+YasContext *yas_context_current(void);     /* NULL before first bind */
+
+/* Backwards-compatible spellings of per-context state: these used to be
+ * process-global externs; they now resolve through the calling thread's
+ * bound context (NULL before the first bind - using them then is an
+ * error). Still lvalues, so existing reads AND writes compile. */
+YasAtom *yas_context_exception(void);
+const char **yas_context_current_file_path_slot(void);
+YasAtom *yas_context_library_registry_slot(void);
+YasAtom *yas_context_search_paths_slot(void);
+YasAtom *yas_context_features_slot(void);
+#ifdef YAS_FFI
+struct YasFFIStructType **yas_context_ffi_registry_slot(void);
+
+#define yas_ffi_struct_registry (*yas_context_ffi_registry_slot())
+#endif
+
+#define yas_ctx_exception (*yas_context_exception())
+#define yas_current_file_path (*yas_context_current_file_path_slot())
+#define yas_library_registry (*yas_context_library_registry_slot())
+#define yas_global_search_paths (*yas_context_search_paths_slot())
+#define yas_global_features (*yas_context_features_slot())
+
 typedef enum {
     YAS_ERROR_OK = 0,
     YAS_ERROR_SYNTAX,
@@ -329,8 +370,6 @@ struct YasMat4Alloc {
     yas_mat4_t m;
 };
 
-typedef struct YasAtom YasAtom;
-
 #define yas_car(p) ((p).value.pair->atom[0])
 #define yas_cdr(p) ((p).value.pair->atom[1])
 #define yas_nilp(atom) ((atom).type == YAS_ATOM_TYPE_NIL)
@@ -355,7 +394,6 @@ void yas_print_expr(YasAtom atom);
 char *yas_sprint_expr(YasAtom atom);
 
 /* Exceptions */
-extern YasAtom yas_ctx_exception;
 
 int yas_builtin_throw(YasAtom args, YasAtom *result);
 int yas_builtin_error(YasAtom args, YasAtom *result);
@@ -544,11 +582,8 @@ int yas_builtin_tostring(YasAtom args, YasAtom *result);
 char *yas_slurp(const char *path);
 
 /* Include tracking for relative paths */
-extern const char *yas_current_file_path;
 
 /* Global features list for platform/feature detection */
-extern YasAtom yas_global_features;
-extern YasAtom yas_global_search_paths;
 void yas_init_features(void);
 int yas_has_feature(const char *name);
 int yas_eval_feature_expr(YasAtom expr);
@@ -557,7 +592,6 @@ int yas_eval_feature_expr(YasAtom expr);
  * Module envs chain to yas/base's env as their parent (the shared
  * builtins layer); `parent_env` on the loaders below is that frame, or
  * NIL when defining a fresh root like yas/base itself. */
-extern YasAtom yas_library_registry;
 void yas_load_all_modules(void);
 void yas_load_base_library(YasAtom parent_env);
 void yas_load_hash_library(YasAtom parent_env);
@@ -779,7 +813,6 @@ typedef struct YasFFIStructInstance {
 } YasFFIStructInstance;
 
 /* Global struct type registry */
-extern YasFFIStructType *yas_ffi_struct_registry;
 
 /* Struct type lookup */
 YasFFIStructType *yas_ffi_lookup_struct_type(const char *name);
@@ -841,10 +874,5 @@ int yas_builtin_ffi_struct_set(YasAtom args, YasAtom *result);
 void yas_load_ffi_library(YasAtom parent_env);
 
 #endif /* YAS_FFI */
-
-/* Global roots for GC */
-extern YasAtom yas_library_registry;
-extern YasAtom yas_global_search_paths;
-extern YasAtom yas_global_features;
 
 #endif /* YAS_H */

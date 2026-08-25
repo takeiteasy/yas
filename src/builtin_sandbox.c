@@ -14,9 +14,7 @@ static int yas_builtin_io_sandbox_allow_impl(YasAtom args, YasAtom *result)
 
 int yas_builtin_io_sandbox_allow(YasAtom args, YasAtom *result)
 {
-    yas_gil_enter();
     int r = yas_builtin_io_sandbox_allow_impl(args, result);
-    yas_gil_leave();
     return r;
 }
 
@@ -34,9 +32,7 @@ static int yas_builtin_io_sandbox_deny_impl(YasAtom args, YasAtom *result)
 
 int yas_builtin_io_sandbox_deny(YasAtom args, YasAtom *result)
 {
-    yas_gil_enter();
     int r = yas_builtin_io_sandbox_deny_impl(args, result);
-    yas_gil_leave();
     return r;
 }
 
@@ -91,9 +87,7 @@ static int yas_builtin_io_sandbox_mode_impl(YasAtom args, YasAtom *result)
 
 int yas_builtin_io_sandbox_mode(YasAtom args, YasAtom *result)
 {
-    yas_gil_enter();
     int r = yas_builtin_io_sandbox_mode_impl(args, result);
-    yas_gil_leave();
     return r;
 }
 

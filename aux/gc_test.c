@@ -488,6 +488,12 @@ static void test_pool_does_not_inflate_live_bytes(void)
 
 int main(void)
 {
+	/* Embedding contract since per-context isolation (#47 milestone 2):
+	 * create (and bind) a context before touching ANY other API. */
+	if (!yas_context_create()) {
+		fprintf(stderr, "failed to create context\n");
+		return 1;
+	}
 	test_root_protection();
 	test_root_balance();
 	test_write_barrier_during_marking();

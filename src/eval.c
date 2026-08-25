@@ -1,4 +1,5 @@
 #include "yas.h"
+#include "context.h"
 #include <assert.h>
 #include <string.h>
 #include <stdio.h>
@@ -6,24 +7,10 @@
 
 /* Forward declaration */
 
-struct EvalRoot {
-    YasAtom *expr;
-    YasAtom *env;
-    YasAtom *stack;
-    /* eval_vm()'s output slot. A builtin/native caller re-entering the
-     * evaluator (yas_eval_expr() from TRY/CATCH/FINALLY/INCLUDE, etc.)
-     * routinely holds the *previous* nested call's result live across
-     * the *next* one - unrooted otherwise, since nothing but this
-     * struct can see a plain C `YasAtom result` local. Rooting it here
-     * closes that whole class at once instead of requiring every call
-     * site to push/pop its own result slot. Must be nulled-out (yas_nil)
-     * by eval_vm() before this root is installed - callers pass
-     * uninitialized storage. */
-    YasAtom *result;
-    struct EvalRoot *prev;
-};
-
-static struct EvalRoot *eval_roots = NULL;
+/* The EvalRoot chain lives in the bound context (context.h) - LIFO
+ * windows of the thread driving it, so no cross-thread interleaving is
+ * possible by construction. */
+#define eval_roots (yas_ctx->eval_roots)
 static int eval_vm(YasAtom expr, YasAtom env, YasAtom *result, struct EvalRoot *root);
 
 /* Called from data.c's gc_mark_roots() - the live evaluator's roots are
@@ -46,9 +33,7 @@ static void yas_eval_mark_roots_impl(void)
 
 void yas_eval_mark_roots(void)
 {
-    yas_gil_enter();
     yas_eval_mark_roots_impl();
-    yas_gil_leave();
 }
 
 
@@ -63,10 +48,8 @@ static int eval_do_apply(YasAtom *stack, YasAtom *expr, YasAtom *env, YasAtom *r
  * GC-internal statics, which aren't visible outside data.c. See
  * docs/ARCHITECTURE.md's "Environments" section. */
 
-YasAtom yas_ctx_exception = {YAS_ATOM_TYPE_NIL};
 
 /* Current file being evaluated (for relative include paths) */
-const char *yas_current_file_path = NULL;
 
 /* Resolve a path relative to the current file */
 static char *resolve_include_path(const char *include_path)
@@ -179,9 +162,7 @@ static int yas_eval_source_impl(const char *text, const char *path, YasAtom env,
 
 int yas_eval_source(const char *text, const char *path, YasAtom env, YasAtom *result)
 {
-    yas_gil_enter();
     int r = yas_eval_source_impl(text, path, env, result);
-    yas_gil_leave();
     return r;
 }
 
@@ -206,9 +187,7 @@ static int yas_eval_file_impl(const char *path, YasAtom env, YasAtom *result, in
 
 int yas_eval_file(const char *path, YasAtom env, YasAtom *result, int case_insensitive)
 {
-    yas_gil_enter();
     int r = yas_eval_file_impl(path, env, result, case_insensitive);
-    yas_gil_leave();
     return r;
 }
 
@@ -1047,9 +1026,7 @@ static int yas_eval_expr_impl(YasAtom expr, YasAtom env, YasAtom *result)
 
 int yas_eval_expr(YasAtom expr, YasAtom env, YasAtom *result)
 {
-    yas_gil_enter();
     int r = yas_eval_expr_impl(expr, env, result);
-    yas_gil_leave();
     return r;
 }
 

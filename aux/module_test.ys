@@ -141,6 +141,51 @@
 (ok (string=? local-marker "beside-script")
     "the importing file's directory is searched first")
 
+;; --- set! on an inherited name stays module-local ---------------------
+;;
+;; Module envs chain to the ONE SHARED yas/base frame, but yas_env_set()
+;; treats the module frame as terminal: a set! on an inherited name
+;; shadows it into the module's own frame instead of writing through to
+;; base (which every module would have felt). The shadow IS module-
+;; public - it lives in the module's own frame, so importers of THIS
+;; module receive it - but the shared layer and sibling modules stay
+;; untouched.
+
+(write-file "modtest_setmod.ys"
+            (string-append
+              "(define (rebind) (set! map (lambda (f xs) (quote hijacked))))\n"
+              "(rebind)\n"
+              "(define (inside) (map car (quote ((1) (2)))))\n"
+              "(define (make-counter)\n"
+              "  (let ((n 0)) (lambda () (set! n (+ n 1)) n)))\n"))
+(write-file "modtest_cleanmod.ys"
+            "(define (clean-probe) (map car (quote ((3) (4)))))\n")
+
+(import modtest_cleanmod)
+(ok (equal? (clean-probe) '(3 4))
+    "pristine module sees untouched shared bindings")
+
+(import modtest_setmod)
+(ok (eq? (inside) 'hijacked)
+    "set! on an inherited name shadows within its own module")
+(ok (equal? (clean-probe) '(3 4))
+    "the shadow does not leak into sibling modules")
+
+(define setmod-counter (make-counter))
+(setmod-counter)
+(ok (eq? (setmod-counter) 2)
+    "closure set! across non-boundary frames still mutates the owner")
+
+(ok (raises? (lambda () (set! modtest-unbound-anywhere 1) nil))
+    "set! on a name bound nowhere still raises")
+
+;; The shadow lives in the offender's own frame, so importing it copies
+;; the rebinding over this script's flat copy - Python-style: rebinding
+;; a builtin in your module makes it your module's public name. Keep
+;; last in the file: this replaces MAP for everything after.
+(ok (eq? (map car '((1))) 'hijacked)
+    "an imported module's shadow counts as part of its public surface")
+
 ;; --- cleanup ----------------------------------------------------------
 
 (delete-file "yas_modtest_a.ys")
@@ -152,6 +197,8 @@
 (delete-file "modtest_prefix.ys")
 (delete-file "modtest_rename.ys")
 (delete-file "modtest_e.ys")
+(delete-file "modtest_setmod.ys")
+(delete-file "modtest_cleanmod.ys")
 (delete-file "modtest_sp.ys")
 (when sp-lib-written (delete-file "lib/modtest_sp.ys"))
 (delete-file "aux/modtest_local.ys")

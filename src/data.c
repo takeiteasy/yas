@@ -1692,8 +1692,18 @@ int yas_env_get(YasAtom env, YasAtom symbol, YasAtom *result)
 static int yas_env_set_impl(YasAtom env, YasAtom symbol, YasAtom value)
 {
     struct YasSymbol *s = sym_rec(symbol.value.symbol);
-    if (!s->shadowed) {
-        struct YasEnv *r = env.value.env->root;
+    struct YasEnv *start = env.value.env;
+
+    /* Root-frame fast path (ticket #45), gated for module boundaries:
+     * an unshadowed symbol lives at the chain's root alone - but for a
+     * module env that root is the ONE SHARED yas/base frame, and a
+     * plain write-through would publish the mutation to every module in
+     * the process. Only take the fast write when the caller is the root
+     * itself, or the root is nobody's shared layer (top-level script
+     * envs, which flat-copy base); anything else falls through to the
+     * boundary-aware walk below. */
+    if (!s->shadowed && (start == start->root || !start->root->module_boundary)) {
+        struct YasEnv *r = start->root;
         if (s->cache_env == r && s->cache_slot < r->capacity &&
             r->syms[s->cache_slot].value.symbol == symbol.value.symbol) {
             r->vals[s->cache_slot] = value;
@@ -1710,7 +1720,7 @@ static int yas_env_set_impl(YasAtom env, YasAtom symbol, YasAtom value)
         return YAS_ERROR_OK;
     }
 
-    struct YasEnv *e = env.value.env;
+    struct YasEnv *e = start;
     for (;;) {
         size_t slot = env_probe(e, symbol);
         if (!yas_nilp(e->syms[slot])) {
@@ -1718,6 +1728,23 @@ static int yas_env_set_impl(YasAtom env, YasAtom symbol, YasAtom value)
             e->vals[slot] = value;
             yas_gc_write_barrier(eatom, value);
             return YAS_ERROR_OK;
+        }
+        if (e->module_boundary) {
+            /* Terminal frame for set!: the name wasn't owned here, so
+             * it is inherited from the shared layer behind this frame -
+             * shadow-copy the new value into THIS frame instead of
+             * writing through (the old behavior corrupted base for every
+             * module at once). A name bound nowhere on the far side
+             * keeps raising UNBOUND, so set! never becomes definition. */
+            if (!yas_nilp(e->parent)) {
+                struct YasEnv *b = e->parent.value.env;
+                size_t bslot = env_probe(b, symbol);
+                if (!yas_nilp(b->syms[bslot])) {
+                    YasAtom eatom = {.type = YAS_ATOM_TYPE_ENV, .value.env = e};
+                    return yas_env_define_impl(eatom, symbol, value);
+                }
+            }
+            return YAS_ERROR_UNBOUND;
         }
         if (yas_nilp(e->parent))
             return YAS_ERROR_UNBOUND;

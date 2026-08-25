@@ -224,6 +224,15 @@ shared builtins layer behind all modules), but those inherited names are
 *not* re-exported: importing your module copies only what your file
 itself defines, so import order can never change what an importer gets.
 
+`set!` respects that boundary. Inside a module it can only mutate
+bindings owned by the module itself or by enclosing scopes (closures,
+`let`s); an inherited name is shadowed in the module's own frame
+instead, leaving the shared layer untouched for every other module.
+Since the shadow lives in the module's own frame it *is* part of the
+module's public surface - rebinding `map` in your module makes your
+`map` the one importers receive (Python's "module globals are your
+namespace" rule). `set!` on a name bound nowhere still raises.
+
 Imports copy each public binding directly into the importing environment
 - there's no namespace object at runtime, so `m/sqrt` (from a `prefix`
 import) is just an ordinary symbol, not a member access. A name collision

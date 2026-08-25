@@ -139,7 +139,7 @@ concrete shapes found repeatedly:
   that survives only as an argument-evaluation-order artifact until `f`
   itself is called, and `f`'s own `gc_alloc()` can step the GC before
   linking that temporary in (`yas_env_define()`'s binding cons,
-  `yas_library_load()`'s default search-path construction, `read.c`'s
+  `ensure_search_paths()`'s search-path construction (`module.c`), `read.c`'s
   quote-wrapper construction and string-interpolation parts list, and
   others) - fixed by naming and rooting each intermediate value instead
   of nesting the expressions.
@@ -416,7 +416,7 @@ should account for the new, lazier contract.
 
 ### A worked example: the bug this API exists to prevent
 
-While porting this collector, `yas_library_load()` (`module.c`) turned up
+While porting this collector, `load_module()` (`module.c`) turned up
 a real instance of exactly the hazard #4 describes. It computes a lookup
 key:
 
@@ -425,40 +425,40 @@ YasAtom key = yas_make_string(key_str);
 YasAtom lib = yas_hash_ref(yas_library_registry, key, yas_nil);
 ```
 
-then, for a pure-Lisp library, evaluates the library's source (which may
-itself load further nested libraries - e.g. `(yas test)`'s own
-`define-library` imports `(yas math)`, `(yas vector)`, `(yas text)`) before
-using `key` *again* to re-fetch the now-populated entry. `key` was never
+then loads a module whose body can itself load further nested modules -
+e.g. `yas/test`'s top-level `(import yas/math)` and friends - before
+re-consulting `key` for registry operations. `key` was never
 stored anywhere - purely a local lookup value - so with the incremental
 collector's much lower, byte-based threshold, it was possible for a GC
 cycle to run to completion during the nested load, freeing `key`'s
 string. A later allocation (another library's name string) then reused
 that exact memory address, and the post-load re-lookup compared `key`
 against the registry using bytes that now spelled a *different* library's
-name - silently returning the wrong library instead of erroring. The fix
-is a single `yas_gc_push_root(&key)` for the function's duration. `main.c`
-has two similar top-level cases (the REPL/CLI's top-level environment and
-its initial `(import (yas base))` argument list), both now rooted the same
-way.
+name - silently returning the wrong module instead of erroring. The fix
+is a single `yas_gc_push_root(&key)` for the function's duration (still
+present in `load_module()` today). `main.c` has a similar top-level case
+(the REPL/CLI's import-argument list), rooted the same way.
 
 The rest of the audit this motivated turned up the same shape in a few
 more places, all fixed with the same pattern:
 
 - `yas_eval_source()`'s own `env` parameter and `result` output slot
-  (`eval.c`) - for every `module.c` caller, `env` is a bare
-  `yas_env_create(yas_nil)` temporary that nothing else references, and
-  the loop's `*result` holds the previous top-level form's value live
-  across the next form's evaluation. This is the highest-frequency
-  instance: it runs on every library load.
+  (`eval.c`) - the loop's `*result` holds the previous top-level form's
+  value live across the next form's evaluation, and an embedder calling
+  `yas_eval_source()` directly may pass an env nothing else references.
+  This runs on every module load (see aux/gc_test.c's
+  test_eval_source_roots_fresh_env for the C-level pin).
 - The `TRY`/`CATCH` clause's bound-exception environment (`catch_env`,
   `eval_vm()` in `eval.c`) - a fresh `yas_env_create(env)` with nothing
   pointing back at it, rooted for the duration of the predicate check and
   the catch body, popped on every exit from the clause (matched, not
   matched, or a predicate error).
-- `yas_library_load()`'s pure-Lisp-library branch (`module.c`) - unlike
-  the file-load branch, `lib` isn't inserted into `yas_library_registry`
-  before evaluating the library's source, so it's unreachable across that
-  eval until re-fetched afterward.
+- The old pure-Lisp-library branch of `yas_library_load()`: its record
+  wasn't registered before evaluating the body, unlike the file branch -
+  unreachable across the eval until re-fetched. The rewritten
+  `load_module()` registers every record (in LOADING state) before the
+  body evaluates, which closes this class structurally; see "Module
+  system" in ARCHITECTURE.md.
 
 ### Callers not affected
 
@@ -553,7 +553,7 @@ explicitly managed via `ffi-close`/`ffi-free`.
   during MARKING and during SWEEPING specifically, a million-element list
   to confirm `yas_gc_mark()`'s non-recursive marker doesn't overflow the
   C stack the way the old recursive one could, `yas_eval_source()`'s
-  fresh-`env` rooting (a source string that imports `(yas base)`, forces
+  fresh-`env` rooting (a source string that imports `yas/base`, forces
   a collection with `(gc)`, then `define`s into that same env - only
   reachable from C, since the vulnerable env only ever exists on the
   `yas_library_load()` path), and three cases specific to allocation-

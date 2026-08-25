@@ -83,7 +83,9 @@ libyas: $(libyas)
 test: yas
 	@./yas suite.ys; \
 	status=$$?; \
-	if [ $$status -ne 0 ]; then \
+	./yas aux/module_test.ys; \
+	status2=$$?; \
+	if [ $$status -ne 0 ] || [ $$status2 -ne 0 ]; then \
 		echo "make test: FAILED"; \
 		exit 1; \
 	fi; \
@@ -143,6 +145,8 @@ bench: yas
 test-gc-stress: yas $(libyas)
 	@echo "=== suite.ys (YAS_GC_STRESS=1) ==="
 	@YAS_GC_STRESS=1 ./yas suite.ys || exit 1
+	@echo "=== aux/module_test.ys (YAS_GC_STRESS=1) ==="
+	@YAS_GC_STRESS=1 ./yas aux/module_test.ys || exit 1
 	@for f in aux/*_stress.ys; do \
 		echo "=== $$f (YAS_GC_STRESS=1) ==="; \
 		YAS_GC_STRESS=1 ./yas $$f || exit 1; \

@@ -1,7 +1,7 @@
 # Architecture
 
 yas is a tree-walking (explicit-stack) interpreter: tagged-union values, a
-mark-sweep GC, and an R7RS-ish module system layered over a small C core.
+mark-sweep GC, and a file-based module system layered over a small C core.
 This document is the map for anyone changing the interpreter itself; see
 [EMBEDDING.md](EMBEDDING.md) for the C embedding API.
 
@@ -30,7 +30,7 @@ not tracked in git.
 | `builtin_serialize.c` | `serialize`/`deserialize`/`read-string` and their helpers. |
 | `builtin_output.c` | `print` and `->string`. |
 | `builtin_searchpath.c` | `get-search-paths`, `set-search-paths!`, `add-search-path!`. |
-| `module.c` | Library registry, native module registration, `import`/`define-library`, stdlib loading. |
+| `module.c` | Module registry, native module registration, `import` handling, stdlib loading. |
 | `print.c` | `print_expr` (stdout) and `sprint_expr` (two-pass string rendering). |
 | `io.c` | I/O sandbox (allow/deny globs), virtual-filesystem providers, `struct Port`, `slurp()`. |
 | `ffi.c` | libffi bindings, compiled only under `YAS_FFI`. |
@@ -116,7 +116,7 @@ fields (`parent`, `env`, `op`, `tail`/pending-args, `args`/evaluated-args,
 `eval_vm()` and are therefore unshadowable by any binding: `QUOTE`,
 `DEFINE`, `LAMBDA`, `IF`, `TRY` (parses `CATCH`/`FINALLY` inline),
 `DEFMACRO`, `APPLY`, `SET!`, `MACROEXPAND-1`, `CALL/CC`, `INCLUDE`/
-`INCLUDE-CI`, `DEFINE-LIBRARY`, `IMPORT`.
+`INCLUDE-CI`, `IMPORT`.
 
 Everything else familiar from Scheme - `begin`, `let`, `let*`, `cond`,
 `and`, `or`, `when`, `unless`, `quasiquote`, `while`, `dotimes`, `dolist`,
@@ -149,8 +149,8 @@ max)` - an O(1)-per-call, bounded structural + arity check (`max < 0` means
 that actually consumes another cell of a call's argument spine
 (`eval_do_return()`'s per-argument advance, `eval_do_exec()`'s per-form body
 walk, `eval_do_bind()`'s argument binding, the `TRY`/`INCLUDE` clause loops,
-`yas_module_import()`/`yas_module_define_library()`'s top-level decl
-walks) checks the cell it's about to read is a pair before reading it.
+`yas_module_import()`'s import-set walk) checks the cell it's about to read
+is a pair before reading it.
 `apply`'s runtime argument list (arbitrary caller-supplied data, not a
 source form) still gets a `yas_listp()` walk in `eval_do_apply()` - there
 is no later per-cell consumption point to push that check down to.
@@ -301,36 +301,55 @@ that holds `YasAtom`s across allocation points:
 
 ## Module system
 
-`yas_library_registry` (`module.c`) is a `YasHash` keyed by strings like
-`"yas/base"` (built from `(yas base)` via `yas_library_name_to_string()`,
-which lowercases and slash-joins) - an O(1) amortized lookup (see
-"Hashes" below), so resolving an already-loaded library doesn't get
-slower as more libraries load. A library record is itself a `YasHash`
-holding `*name*`, `*env*` (a fresh top-level environment), and
-`*exports*` (external-symbol -> internal-symbol).
+The module system is file-based: **a module is a file**, evaluated once
+into its own environment. There are no declaration wrappers (`define-library`
+is gone) and no export lists - a module's public surface is exactly the
+top-level bindings of its own frame, minus `_`-prefixed names.
 
-`yas_library_load()` resolves a name in order:
+`yas_library_registry` (`module.c`) is a `YasHash` keyed by lowercased
+module-name strings like `"yas/base"` - an O(1) amortized lookup (see
+"Hashes" below), so resolving an already-loaded module doesn't get slower
+as more modules load. A record is itself a `YasHash` holding:
+
+- `*NAME*` - canonical key string
+- `*STATE*` - `LOADING` while the body evaluates, `READY` afterwards; a
+  registry hit on a `LOADING` record is a circular import (a hard error,
+  and failed loads unregister their placeholder so a retry starts fresh)
+- `*PATH*` - source path, or `"<builtin>"`/nil for embedded/native modules
+- `*ENV*` - the module environment
+
+Every module env chains to `yas/base`'s env as its **parent** - one
+shared builtins layer behind all modules. Module code sees base's
+bindings by ordinary parent-chain fallthrough, but imports enumerate the
+module's own frame only (frame-exact `yas_env_keys()`), so base is never
+re-exported through an importing module and import order elsewhere can't
+change what an importer receives.
+
+`load_module()` resolves a name in order:
 
 1. Already registered -> return it.
 2. Matches a native module (`yas/base`, `yas/hash`, `yas/vector`,
    `yas/text`, `yas/io`, `yas/math`, and `yas/ffi` under `YAS_FFI`) -> run
    its C loader, then layer the same key's embedded `.ys` source (if any)
-   on top via `yas_eval_source()`. This is how e.g. `yas/base` gets `CAR`
-   through `APPEND` from C and `map`/`cond`/`let`/`for` from
-   `base.ys` in the same namespace.
+   directly into the same env via `yas_eval_source()`. This is how e.g.
+   `yas/base` gets `CAR` through `APPEND` from C and `map`/`cond`/`let`/
+   `for` from `base.ys` in one namespace, with no self-registration
+   trickery between the halves.
 3. A pure-Lisp stdlib entry (`yas/format` has no C loader) ->
    `yas_eval_source()` the embedded source directly.
-4. Filesystem: search `yas_global_search_paths` (default `("./lib" ".")`)
-   for `<dir>/<lib/path>.ys`, resolve with `realpath`, `yas_eval_file()` it.
+4. Filesystem: try the importing file's directory first, then
+   `yas_global_search_paths` (default `("./lib" ".")`), for
+   `<dir>/<name>.ys`; resolve with `realpath`, `yas_eval_file()` it.
 
-`yas_module_import()` supports `(only ...)`, `(except ...)`, `(prefix ... p)`,
-and `(rename ... (old new))`; otherwise it copies every export into the
-importing environment via `yas_env_define()`. **Imports are flat copies -
-there is no namespace object at runtime.**
+Embedded/native modules always beat same-named files on disk.
 
-`yas_module_define_library()` handles `(export ...)` (with `(rename int
-ext)`), `(import ...)` into the library's own environment, `(begin ...)`
-evaluated in that environment, and `(include "file")`.
+`yas_module_import()` supports `(only ...)`, `(except ...)`,
+`(prefix ... p)`, and `(rename ... (old new))`, composable to any depth;
+the base case copies every public binding into the importing environment
+via `yas_env_define()`. **Imports are flat copies - there is no namespace
+object at runtime.** All module errors (not found, circular import,
+malformed import set) raise `module-error` exceptions rather than
+printing.
 
 ## Environments
 
@@ -423,7 +442,7 @@ is no longer a GC-stepping trigger for every token the reader produces
 ## Arithmetic: interpreter vs. `yas/base`
 
 Without any import, `+`/`-`/`*`/`/` are `yas_builtin_add`/etc.,
-straightforward C arithmetic. **After `(import (yas base))`**,
+straightforward C arithmetic. **After the automatic `yas/base` import**,
 `std/yas/base.ys` rebinds them:
 
 ```scheme

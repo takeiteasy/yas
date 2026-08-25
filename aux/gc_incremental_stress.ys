@@ -16,7 +16,10 @@
 ;; full GC cycles, so it's slower than the regular suite. Run directly:
 ;; ./yas aux/gc_incremental_stress.ys
 
-(import (yas base) (yas hash) (yas vector) (yas text) (yas test))
+(import yas/hash)
+(import yas/vector)
+(import yas/text)
+(import yas/test)
 
 (define held-string (make-string 32 #\x))
 (define held-vector (make-vector 10 0))

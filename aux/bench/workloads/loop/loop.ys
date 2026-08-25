@@ -1,9 +1,9 @@
 ;; Tail-recursive accumulator loop vs. non-tail recursive descent - same
 ;; total work (summing 1..N), different call shape, so a TCO gap (or lack
 ;; of one) shows up in the timing rather than needing separate `while` and
-;; recursive workloads. No explicit (import (yas base)) - `+ - =` here are
-;; (yas base)'s variadic closures, same as fib.ys/alloc.ys (see their
-;; comments) - main.c imports base unconditionally.
+;; recursive workloads. No explicit import - `+ - =` here are
+;; yas/base's variadic closures, same as fib.ys/alloc.ys (see their
+;; comments) - startup auto-imports yas/base.
 ;;
 ;; NON-TAIL_N is kept small (800), well under CPython's default recursion
 ;; limit of 1000, since the non-tail variant is real per-language

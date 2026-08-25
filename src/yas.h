@@ -355,6 +355,7 @@ YasAtom yas_env_create(YasAtom parent);
 int yas_env_define(YasAtom env, YasAtom symbol, YasAtom value);
 int yas_env_get(YasAtom env, YasAtom symbol, YasAtom *result);
 int yas_env_set(YasAtom env, YasAtom symbol, YasAtom value);
+YasAtom yas_env_keys(YasAtom env); /* all bindings in this frame, as a list */
 int yas_eval_expr(YasAtom expr, YasAtom env, YasAtom *result);
 
 /* DATA */
@@ -531,22 +532,23 @@ void yas_init_features(void);
 int yas_has_feature(const char *name);
 int yas_eval_feature_expr(YasAtom expr);
 
-/* Module system */
+/* Module system (file-based - a module is a file; see module.c).
+ * Module envs chain to yas/base's env as their parent (the shared
+ * builtins layer); `parent_env` on the loaders below is that frame, or
+ * NIL when defining a fresh root like yas/base itself. */
 extern YasAtom yas_library_registry;
 void yas_load_all_modules(void);
-void yas_load_base_library(void);
-void yas_load_hash_library(void);
-void yas_load_vector_library(void);
-void yas_load_text_library(void);
-void yas_load_io_library(void);
-void yas_load_math_library(void);
-YasAtom yas_define_native_module(const char *name_str, YasAtom *out_env, YasAtom *out_exports);
-YasAtom yas_library_load(YasAtom name_parts);
-char *yas_library_name_to_string(YasAtom name_parts);
+void yas_load_base_library(YasAtom parent_env);
+void yas_load_hash_library(YasAtom parent_env);
+void yas_load_vector_library(YasAtom parent_env);
+void yas_load_text_library(YasAtom parent_env);
+void yas_load_io_library(YasAtom parent_env);
+void yas_load_math_library(YasAtom parent_env);
+void ensure_registry(void);
+YasAtom yas_define_native_module(const char *name_str, YasAtom parent_env, YasAtom *out_env);
 
 /* Module special forms */
-int yas_module_define_library(YasAtom args, YasAtom *result);
-int yas_module_import(YasAtom args, YasAtom env, YasAtom *result); /* File loading */
+int yas_module_import(YasAtom args, YasAtom env, YasAtom *result);
 int yas_eval_file(const char *path, YasAtom env, YasAtom *result, int case_insensitive);
 int yas_eval_source(const char *text, const char *path, YasAtom env, YasAtom *result);
 int yas_load_file(YasAtom env, const char *path);
@@ -815,7 +817,7 @@ int yas_builtin_ffi_struct_ref(YasAtom args, YasAtom *result);
 int yas_builtin_ffi_struct_set(YasAtom args, YasAtom *result);
 
 /* FFI module loader */
-void yas_load_ffi_library(void);
+void yas_load_ffi_library(YasAtom parent_env);
 
 #endif /* YAS_FFI */
 

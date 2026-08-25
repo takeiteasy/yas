@@ -1,206 +1,180 @@
-(define-library (yas math)
-  (import (yas base))
-  (export 
-    ;; Constants
-    *pi* *tau* *e*
-    ;; Vector predicates and constructors
-    vec2? vec3? vec4? mat4?
-    vec2 vec3 vec4 mat4
-    mat4-identity
-    mat4* mat4-inverse mat4-transpose
-    ;; Component accessors
-    vec-x vec-y vec-z vec-w vec-ref vec-set!
-    ;; Vector operations
-    vec-dot vec-cross vec-length vec-normalize
-    vec-lerp vec-distance
-    ;; Scalar math
-    radians->degrees degrees->radians
-    sqrt abs floor ceil round
-    sin cos tan asin acos atan atan2
-    pow exp log clamp
-    
-    ;; Numeric Utilities
-    gcd lcm min max negative? odd? positive? quotient remainder zero? modulo even? number?
-    
-    ;; Matrix operations
-    mat4-translate mat4-scale mat4-rotate-x mat4-rotate-y mat4-rotate-z
-    ;; Projections
-    mat4-ortho mat4-perspective mat4-look-at)
-  (begin
-    ;; Constants
-    (define *pi* 3.141592653589793)
-    (define *tau* 6.283185307179586)
-    (define *e* 2.718281828459045)
-    
-    ;; Radians/Degrees conversion
-    (define (radians->degrees deg) (* deg (/ *pi* 180.0)))
-    (define (degrees->radians rad) (* rad (/ 180.0 *pi*)))
-    
-    ;; Vector operations (using builtins where available)
-    (define (vec-dot a b)
-      "Compute dot product of two vectors"
-      (let ((ax (vec-x a)) (ay (vec-y a))
-            (bx (vec-x b)) (by (vec-y b)))
-        (if (vec2? a)
-            (+ (* ax bx) (* ay by))
-            (if (vec3? a)
-                (+ (* ax bx) (* ay by) (* (vec-z a) (vec-z b)))
-                (+ (* ax bx) (* ay by) (* (vec-z a) (vec-z b)) (* (vec-w a) (vec-w b)))))))
-    
-    (define (vec-cross a b)
-      "Compute cross product of two vec3s"
-      (vec3 (- (* (vec-y a) (vec-z b)) (* (vec-z a) (vec-y b)))
-            (- (* (vec-z a) (vec-x b)) (* (vec-x a) (vec-z b)))
-            (- (* (vec-x a) (vec-y b)) (* (vec-y a) (vec-x b)))))
-    
-    (define (vec-length v)
-      "Compute length/magnitude of a vector"
-      (sqrt (vec-dot v v)))
-    
-    (define (vec-normalize v)
-      "Normalize a vector to unit length"
-      (let ((len (vec-length v)))
-        (if (= len 0) v 
-            (let ((inv (/ 1.0 len)))
-              (if (vec2? v)
-                  (vec2 (* (vec-x v) inv) (* (vec-y v) inv))
-                  (if (vec3? v)
-                      (vec3 (* (vec-x v) inv) (* (vec-y v) inv) (* (vec-z v) inv))
-                      (vec4 (* (vec-x v) inv) (* (vec-y v) inv) (* (vec-z v) inv) (* (vec-w v) inv))))))))
-    
-    (define (vec-lerp a b t)
-      "Linear interpolation between two vectors"
-      (+ a (* (- b a) t)))
-    
-    (define (vec-distance a b)
-      "Distance between two points"
-      (vec-length (- a b)))
-    
-    ;; Scalar math (Scheme-style wrappers)
-    (define (clamp x lo hi)
-      "Clamp a value between lo and hi"
-      (min hi (max lo x)))
-    
-    ;; Placeholder math functions - these would need C builtins for efficiency
-    ;; For now, use Taylor series approximations or scheme implementations
-    
-    (define (sqrt x)
-      "Square root using Newton-Raphson"
-      (if (= x 0) 0
-          (let loop ((guess 1.0) (n 10))
-            (if (= n 0) guess
-                (loop (* 0.5 (+ guess (/ x guess))) (- n 1))))))
-    
-    (define (abs x) (if (< x 0) (- x) x))
-    
-    (define (even? x) (= (modulo x 2) 0))
+;; yas/math - scalar/vector math layered over the C builtins.
+;; Base is provided automatically in every module env.
 
-    (define (gcd . xs)
-      (define (gcd-inner a b) (if (zero? b) a (gcd-inner b (remainder a b))))
-      (abs (foldl gcd-inner 0 xs)))
+;; Constants
+(define *pi* 3.141592653589793)
+(define *tau* 6.283185307179586)
+(define *e* 2.718281828459045)
 
-    (define (lcm . xs)
-      (if xs (/ (abs (apply * xs)) (apply gcd xs)) 1))
+;; Radians/Degrees conversion
+(define (radians->degrees deg) (* deg (/ *pi* 180.0)))
+(define (degrees->radians rad) (* rad (/ 180.0 *pi*)))
 
-    (define (max x . xs) (foldl (lambda (a b) (if (> a b) a b)) x xs))
-    (define (min x . xs) (foldl (lambda (a b) (if (< a b) a b)) x xs))
-    (define (negative? x) (< x 0))
-    (define (odd? x) (= (modulo x 2) 1))
-    (define (positive? x) (> x 0))
-    (define (quotient a b) (/ a b))
-    (define (remainder a b) (- a (* b (quotient a b))))
-    (define (zero? x) (= x 0))
-    (define (modulo a b) (remainder a b))
-    
-    (define (floor x) 
-      "Floor (integer part)"
-      (if (< x 0)
-          (- (- x (- x (quotient (- x) 1))))
-          (quotient x 1)))
-    
-    (define (ceil x) (- 0 (floor (- 0 x))))
-    
-    (define (round x) (floor (+ x 0.5)))
-    
-    ;; number? predicate using builtin integer? and float?
-    (define (number? x)
-      "Check if x is a number (integer or float)"
-      (or (integer? x) (float? x)))
-    
-    ;; Trigonometric functions (Taylor series approximations)
-    (define (sin x)
-      "Sine using Taylor series"
-      (let ((x (- x (* (floor (/ x *tau*)) *tau*)))) ; Normalize to [0, 2*pi*)
-        (let loop ((term x) (sum x) (n 1))
-          (if (> n 10) sum
-              (let ((next (* (- term) (/ (* x x) (* (+ (* 2 n) 1) (* 2 n))))))
-                (loop next (+ sum next) (+ n 1)))))))
-    
-    (define (cos x) (sin (+ x (/ *pi* 2))))
-    (define (tan x) (/ (sin x) (cos x)))
-    
-    ;; Inverse trig would need more complex implementations
-    (define (asin x) nil)  ; Placeholder
-    (define (acos x) nil)  ; Placeholder
-    (define (atan x) nil)  ; Placeholder
-    (define (atan2 y x) nil)  ; Placeholder
-    
-    (define (pow base exp)
-      "Power function (integer exponent only)"
-      (if (= exp 0) 1
-          (if (< exp 0) (/ 1 (pow base (- exp)))
-              (* base (pow base (- exp 1))))))
-    
-    (define (exp x) (pow *e* (round x)))  ; Approximation
-    (define (log x) nil)  ; Placeholder
-    
-    ;; Matrix operations
-    (define (mat4-translate tx ty tz)
-      "Create translation matrix"
-      (mat4 1 0 0 0  0 1 0 0  0 0 1 0  tx ty tz 1))
-    
-    (define (mat4-scale sx sy sz)
-      "Create scale matrix"
-      (mat4 sx 0 0 0  0 sy 0 0  0 0 sz 0  0 0 0 1))
-    
-    (define (mat4-rotate-x angle)
-      "Create X rotation matrix (angle in radians)"
-      (let ((c (cos angle)) (s (sin angle)))
-        (mat4 1 0 0 0  0 c s 0  0 (- s) c 0  0 0 0 1)))
-    
-    (define (mat4-rotate-y angle)
-      "Create Y rotation matrix (angle in radians)"
-      (let ((c (cos angle)) (s (sin angle)))
-        (mat4 c 0 (- s) 0  0 1 0 0  s 0 c 0  0 0 0 1)))
-    
-    (define (mat4-rotate-z angle)
-      "Create Z rotation matrix (angle in radians)"
-      (let ((c (cos angle)) (s (sin angle)))
-        (mat4 c s 0 0  (- s) c 0 0  0 0 1 0  0 0 0 1)))
-    
-    ;; Projection matrices
-    (define (mat4-ortho left right bottom top near far)
-      "Create orthographic projection matrix"
-      (let ((rl (/ 2.0 (- right left)))
-            (tb (/ 2.0 (- top bottom)))
-            (fn (/ -2.0 (- far near)))
-            (tx (/ (- (+ right left)) (- right left)))
-            (ty (/ (- (+ top bottom)) (- top bottom)))
-            (tz (/ (- (+ far near)) (- far near))))
-        (mat4 rl 0 0 0  0 tb 0 0  0 0 fn 0  tx ty tz 1)))
-    
-    (define (mat4-perspective fov aspect near far)
-      "Create perspective projection matrix"
-      (let* ((f (/ 1.0 (tan (/ fov 2))))
-             (nf (/ 1.0 (- near far))))
-        (mat4 (/ f aspect) 0 0 0  0 f 0 0  0 0 (* (+ far near) nf) -1  0 0 (* 2 far near nf) 0)))
-    
-    (define (mat4-look-at eye center up)
-      "Create view matrix looking from eye toward center"
-      (let* ((f (vec-normalize (- center eye)))
-             (s (vec-normalize (vec-cross f up)))
-             (u (vec-cross s f)))
-        (mat4 (vec-x s) (vec-x u) (- (vec-x f)) 0
-             (vec-y s) (vec-y u) (- (vec-y f)) 0
-             (vec-z s) (vec-z u) (- (vec-z f)) 0
-             (- (vec-dot s eye)) (- (vec-dot u eye)) (vec-dot f eye) 1)))))
+;; Vector operations (using builtins where available)
+(define (vec-dot a b)
+  "Compute dot product of two vectors"
+  (let ((ax (vec-x a)) (ay (vec-y a))
+        (bx (vec-x b)) (by (vec-y b)))
+    (if (vec2? a)
+        (+ (* ax bx) (* ay by))
+        (if (vec3? a)
+            (+ (* ax bx) (* ay by) (* (vec-z a) (vec-z b)))
+            (+ (* ax bx) (* ay by) (* (vec-z a) (vec-z b)) (* (vec-w a) (vec-w b)))))))
+
+(define (vec-cross a b)
+  "Compute cross product of two vec3s"
+  (vec3 (- (* (vec-y a) (vec-z b)) (* (vec-z a) (vec-y b)))
+        (- (* (vec-z a) (vec-x b)) (* (vec-x a) (vec-z b)))
+        (- (* (vec-x a) (vec-y b)) (* (vec-y a) (vec-x b)))))
+
+(define (vec-length v)
+  "Compute length/magnitude of a vector"
+  (sqrt (vec-dot v v)))
+
+(define (vec-normalize v)
+  "Normalize a vector to unit length"
+  (let ((len (vec-length v)))
+    (if (= len 0) v 
+        (let ((inv (/ 1.0 len)))
+          (if (vec2? v)
+              (vec2 (* (vec-x v) inv) (* (vec-y v) inv))
+              (if (vec3? v)
+                  (vec3 (* (vec-x v) inv) (* (vec-y v) inv) (* (vec-z v) inv))
+                  (vec4 (* (vec-x v) inv) (* (vec-y v) inv) (* (vec-z v) inv) (* (vec-w v) inv))))))))
+
+(define (vec-lerp a b t)
+  "Linear interpolation between two vectors"
+  (+ a (* (- b a) t)))
+
+(define (vec-distance a b)
+  "Distance between two points"
+  (vec-length (- a b)))
+
+;; Scalar math (Scheme-style wrappers)
+(define (clamp x lo hi)
+  "Clamp a value between lo and hi"
+  (min hi (max lo x)))
+
+;; Placeholder math functions - these would need C builtins for efficiency
+;; For now, use Taylor series approximations or scheme implementations
+
+(define (sqrt x)
+  "Square root using Newton-Raphson"
+  (if (= x 0) 0
+      (let loop ((guess 1.0) (n 10))
+        (if (= n 0) guess
+            (loop (* 0.5 (+ guess (/ x guess))) (- n 1))))))
+
+(define (abs x) (if (< x 0) (- x) x))
+
+(define (even? x) (= (modulo x 2) 0))
+
+(define (gcd . xs)
+  (define (gcd-inner a b) (if (zero? b) a (gcd-inner b (remainder a b))))
+  (abs (foldl gcd-inner 0 xs)))
+
+(define (lcm . xs)
+  (if xs (/ (abs (apply * xs)) (apply gcd xs)) 1))
+
+(define (max x . xs) (foldl (lambda (a b) (if (> a b) a b)) x xs))
+(define (min x . xs) (foldl (lambda (a b) (if (< a b) a b)) x xs))
+(define (negative? x) (< x 0))
+(define (odd? x) (= (modulo x 2) 1))
+(define (positive? x) (> x 0))
+(define (quotient a b) (/ a b))
+(define (remainder a b) (- a (* b (quotient a b))))
+(define (zero? x) (= x 0))
+(define (modulo a b) (remainder a b))
+
+(define (floor x) 
+  "Floor (integer part)"
+  (if (< x 0)
+      (- (- x (- x (quotient (- x) 1))))
+      (quotient x 1)))
+
+(define (ceil x) (- 0 (floor (- 0 x))))
+
+(define (round x) (floor (+ x 0.5)))
+
+;; number? predicate using builtin integer? and float?
+(define (number? x)
+  "Check if x is a number (integer or float)"
+  (or (integer? x) (float? x)))
+
+;; Trigonometric functions (Taylor series approximations)
+(define (sin x)
+  "Sine using Taylor series"
+  (let ((x (- x (* (floor (/ x *tau*)) *tau*)))) ; Normalize to [0, 2*pi*)
+    (let loop ((term x) (sum x) (n 1))
+      (if (> n 10) sum
+          (let ((next (* (- term) (/ (* x x) (* (+ (* 2 n) 1) (* 2 n))))))
+            (loop next (+ sum next) (+ n 1)))))))
+
+(define (cos x) (sin (+ x (/ *pi* 2))))
+(define (tan x) (/ (sin x) (cos x)))
+
+;; Inverse trig would need more complex implementations
+(define (asin x) nil)  ; Placeholder
+(define (acos x) nil)  ; Placeholder
+(define (atan x) nil)  ; Placeholder
+(define (atan2 y x) nil)  ; Placeholder
+
+(define (pow base exp)
+  "Power function (integer exponent only)"
+  (if (= exp 0) 1
+      (if (< exp 0) (/ 1 (pow base (- exp)))
+          (* base (pow base (- exp 1))))))
+
+(define (exp x) (pow *e* (round x)))  ; Approximation
+(define (log x) nil)  ; Placeholder
+
+;; Matrix operations
+(define (mat4-translate tx ty tz)
+  "Create translation matrix"
+  (mat4 1 0 0 0  0 1 0 0  0 0 1 0  tx ty tz 1))
+
+(define (mat4-scale sx sy sz)
+  "Create scale matrix"
+  (mat4 sx 0 0 0  0 sy 0 0  0 0 sz 0  0 0 0 1))
+
+(define (mat4-rotate-x angle)
+  "Create X rotation matrix (angle in radians)"
+  (let ((c (cos angle)) (s (sin angle)))
+    (mat4 1 0 0 0  0 c s 0  0 (- s) c 0  0 0 0 1)))
+
+(define (mat4-rotate-y angle)
+  "Create Y rotation matrix (angle in radians)"
+  (let ((c (cos angle)) (s (sin angle)))
+    (mat4 c 0 (- s) 0  0 1 0 0  s 0 c 0  0 0 0 1)))
+
+(define (mat4-rotate-z angle)
+  "Create Z rotation matrix (angle in radians)"
+  (let ((c (cos angle)) (s (sin angle)))
+    (mat4 c s 0 0  (- s) c 0 0  0 0 1 0  0 0 0 1)))
+
+;; Projection matrices
+(define (mat4-ortho left right bottom top near far)
+  "Create orthographic projection matrix"
+  (let ((rl (/ 2.0 (- right left)))
+        (tb (/ 2.0 (- top bottom)))
+        (fn (/ -2.0 (- far near)))
+        (tx (/ (- (+ right left)) (- right left)))
+        (ty (/ (- (+ top bottom)) (- top bottom)))
+        (tz (/ (- (+ far near)) (- far near))))
+    (mat4 rl 0 0 0  0 tb 0 0  0 0 fn 0  tx ty tz 1)))
+
+(define (mat4-perspective fov aspect near far)
+  "Create perspective projection matrix"
+  (let* ((f (/ 1.0 (tan (/ fov 2))))
+         (nf (/ 1.0 (- near far))))
+    (mat4 (/ f aspect) 0 0 0  0 f 0 0  0 0 (* (+ far near) nf) -1  0 0 (* 2 far near nf) 0)))
+
+(define (mat4-look-at eye center up)
+  "Create view matrix looking from eye toward center"
+  (let* ((f (vec-normalize (- center eye)))
+         (s (vec-normalize (vec-cross f up)))
+         (u (vec-cross s f)))
+    (mat4 (vec-x s) (vec-x u) (- (vec-x f)) 0
+         (vec-y s) (vec-y u) (- (vec-y f)) 0
+         (vec-z s) (vec-z u) (- (vec-z f)) 0
+         (- (vec-dot s eye)) (- (vec-dot u eye)) (vec-dot f eye) 1)))

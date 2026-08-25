@@ -1,8 +1,8 @@
 ;; Hash-table-heavy workload for aux/bench/bench.py (docs/BENCHMARKING.md) -
 ;; insert/lookup/remove churn, as opposed to fib's call/arith weight or
-;; alloc's cons-cell weight. Needs (import (yas hash)) -
-;; MAKE-HASH/HASH-SET!/HASH-REF/HASH-REMOVE!/HASH-LENGTH are (yas hash)
-;; builtins, not auto-imported like (yas base) - see CLAUDE.md and
+;; alloc's cons-cell weight. Needs an explicit import of yas/hash -
+;; MAKE-HASH/HASH-SET!/HASH-REF/HASH-REMOVE!/HASH-LENGTH are yas/hash
+;; builtins, not auto-imported like yas/base - see CLAUDE.md and
 ;; docs/BENCHMARKING.md's note on this (same caveat as string.ys).
 ;;
 ;; Inserts N integer keys 0..N-1 (value i*i), removes every odd key, then
@@ -14,7 +14,7 @@
 ;; table's own key order (HASH-KEYS et al.) - iteration order isn't the
 ;; same across yas/Python/Ruby/Lua hashes, so a workload built on it would
 ;; be non-portable rather than slow.
-(import (yas hash))
+(import yas/hash)
 
 (define (fill! h n i)
   (if (= i n)

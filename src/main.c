@@ -14,6 +14,11 @@ int yas_load_file(YasAtom env, const char *path)
 
     text = yas_slurp(path);
     if (text) {
+        /* Track the running file so relative module resolution
+         * (importer-directory rule) and error messages work, exactly as
+         * yas_eval_source() does for nested sources. */
+        const char *saved_path = yas_current_file_path;
+        yas_current_file_path = path;
         const char *p = text;
         YasAtom expr;
         YasErrorContext err = {0};
@@ -42,7 +47,6 @@ int yas_load_file(YasAtom env, const char *path)
             YasError eval_err = yas_eval_expr(expr, env, &result);
             if (eval_err) {
                 had_error = 1;
-                extern const char *yas_current_file_path;
                 printf("Error evaluating expression");
                 if (yas_current_file_path) {
                     printf(" in %s", yas_current_file_path);
@@ -90,6 +94,7 @@ int yas_load_file(YasAtom env, const char *path)
              * top-level result - scripts print explicitly if they want
              * output. */
         }
+        yas_current_file_path = saved_path;
         free(text);
     } else {
         had_error = 1;
@@ -108,27 +113,20 @@ int main(int argc, char **argv)
 
     env = yas_env_create(yas_nil);
     /* Root the top-level environment for the rest of the process's
-     * lifetime: unlike a library's own env (reachable via
-     * yas_library_registry once registered), nothing else references
-     * this one, and importing (yas base) below evaluates real library
-     * forms - allocating enough to legitimately trigger a GC cycle -
-     * before `env` ever gets any bindings of its own. Without this, an
-     * early collection frees the pair out from under it. See yas.h's
-     * yas_gc_push_root()/docs/EMBEDDING.md. */
+     * lifetime: nothing else references it, and importing yas/base below
+     * evaluates real module code - allocating enough to legitimately
+     * trigger a GC cycle - before `env` ever gets any bindings of its
+     * own. Without this, an early collection frees the pair out from
+     * under it. See yas.h's yas_gc_push_root()/docs/EMBEDDING.md. */
     yas_gc_push_root(&env);
 
-    /* Import (yas base) */
-    YasAtom yas_base = yas_list_create(2, yas_make_sym("YAS"), yas_make_sym("BASE"));
-    /* `yas_base` is a fresh, otherwise-unreachable local held across the
-     * further allocating yas_list_create(1, yas_base) call right below -
-     * root it for that one call. */
-    yas_gc_push_root(&yas_base);
-    YasAtom import_args = yas_list_create(1, yas_base);
-    yas_gc_pop_roots(1); /* yas_base */
+    /* Import yas/base - the builtins layer every top-level env starts
+     * with (module envs get theirs as a parent frame; see module.c). */
+    YasAtom import_args = yas_list_create(1, yas_make_sym("YAS/BASE"));
     YasAtom ignore;
-    /* Same reasoning as `env` above: import_args is a fresh, otherwise-
-     * unreachable list that yas_module_import walks across the same
-     * allocating library-load call. */
+    /* import_args is a fresh, otherwise-unreachable list that
+     * yas_module_import walks across the same allocating module-load
+     * call. */
     yas_gc_push_root(&import_args);
     yas_module_import(import_args, env, &ignore);
     yas_gc_pop_roots(1);

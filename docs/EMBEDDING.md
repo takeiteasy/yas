@@ -14,14 +14,17 @@ yas_init_features();             /* platform/feature list for #+/#- readers */
 YasAtom env = yas_env_create(yas_nil);
 yas_gc_push_root(&env);          /* see GC.md - nothing else references env yet */
 
-/* Most programs will want (yas base) - car/cdr/define/lambda/etc: */
-YasAtom yas_base = yas_list_create(2, yas_make_sym("YAS"), yas_make_sym("BASE"));
-YasAtom import_args = yas_list_create(1, yas_base);
+/* Most programs will want yas/base - car/cdr/define/lambda/etc: */
+YasAtom import_args = yas_list_create(1, yas_make_sym("YAS/BASE"));
 yas_gc_push_root(&import_args);
 YasAtom ignore;
 yas_module_import(import_args, env, &ignore);
 yas_gc_pop_roots(1);              /* import_args no longer needed; env stays rooted */
 ```
+
+Alternatively, call `yas_load_all_modules()` to eagerly load every
+native module (C part plus its embedded Lisp layer) without going
+through `import`.
 
 ## Evaluating code
 
@@ -61,9 +64,14 @@ to.
 
 To expose a whole native module (like the built-in `yas/hash`, `yas/io`,
 etc.), see `yas_define_native_module()` and the `yas_load_*_library()`
-functions in `module.c` for the pattern: create an environment,
-`yas_env_define()` each export into it, register the export names in a
-`YasHash`, and add an entry to `native_modules[]`.
+functions in `module.c` for the pattern: call
+`yas_define_native_module(name, parent_env, &env)` to register a module
+record and get its environment (pass the `yas/base` module env as
+`parent_env` so its bindings are visible to your module's users, or NIL
+for a fresh root), then `yas_env_define()` each binding into it - no
+separate export table is needed; a module's surface is simply what its
+environment frame holds. Add an entry to `native_modules[]` with your
+loader function.
 
 ## Error handling
 
@@ -125,7 +133,7 @@ yas_gc_pop_roots(1);      /* if/when env is no longer needed */
 ```
 
 `main.c` does exactly this for its own top-level `env` and the argument
-list passed to the initial `(import (yas base))` - see
+list passed to the initial `yas/base` import - see
 [GC.md](GC.md#a-worked-example-the-bug-this-api-exists-to-prevent) for
 the bug this fixed. If you don't root a value and don't otherwise keep it
 reachable, don't assume it survives past the next allocating call - re-derive it from `env` instead of caching it.

@@ -1561,6 +1561,27 @@ int yas_env_set(YasAtom env, YasAtom symbol, YasAtom value)
     }
 }
 
+/* Collect every symbol bound in this exact frame (not the parent chain)
+ * into a freshly consed list. The module system's import uses this to
+ * enumerate a module's public surface; nothing else should rely on slot
+ * ordering. The accumulator grows through one yas_cons() per binding -
+ * the standard accumulator-loop hazard (docs/GC.md) - so it stays rooted
+ * for the whole walk; each slot's symbol is fetched before the cons that
+ * might step the collector. */
+YasAtom yas_env_keys(YasAtom env)
+{
+    struct YasEnv *e = env.value.env;
+    YasAtom acc = yas_nil;
+    yas_gc_push_root(&acc);
+    for (size_t i = 0; i < e->capacity; i++) {
+        if (yas_nilp(e->syms[i]))
+            continue;
+        acc = yas_cons(e->syms[i], acc);
+    }
+    yas_gc_pop_roots(1); /* acc */
+    return acc;
+}
+
 /* Vector operations */
 YasAtom yas_vector_ref(YasAtom vec, size_t index)
 {
@@ -1825,7 +1846,7 @@ YasAtom yas_list_create(int n, ...)
      * push covers every reassignment - yas_gc_push_root() tracks the
      * slot's address, not a snapshot). This is not hypothetical: two
      * items are already enough to reproduce a real use-after-free here
-     * (main.c's own top-level (yas base) import, at process startup
+     * (main.c's own top-level yas/base import, at process startup
      * before the heap is large enough for bounded stepping to make this
      * astronomically unlikely instead of merely unlikely). */
     yas_gc_push_root(&list);

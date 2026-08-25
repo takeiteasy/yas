@@ -63,12 +63,12 @@ subtracted from a workload's total (subtracting two noisy wall-clock
 measurements would invent precision, not add it).
 
 **`string`/`hash`/`array` need an explicit `(import ...)`**, unlike
-`fib`/`alloc`/`loop`/`closure`. `main.c` only auto-imports `(yas base)`
-into every top-level environment (see `CLAUDE.md`) - `(yas text)`,
-`(yas hash)`, and `(yas vector)` are separate native modules, so those
+`fib`/`alloc`/`loop`/`closure`. Startup only auto-imports `yas/base`
+into every top-level environment - `yas/text`,
+`yas/hash`, and `yas/vector` are separate native modules, so those
 three workloads' numbers also include evaluating the relevant slice of
 `std/yas/text.ys`/`hash.ys`/`vector.ys` at import time, the same caveat
-`(yas base)` gets below. That's still the representative case for real
+`yas/base` gets below. That's still the representative case for real
 `./yas` usage of those features, just not a raw-C-primitive number.
 
 **`string-ref`/`string-length` are UTF-8 and walk the string, O(n) per
@@ -85,10 +85,10 @@ for `fib(24)`, for no source change). To compare optimization levels,
 rebuild between runs: `make clean && make OPT=<level> && make bench` -
 there's no opt-level sweep inside `bench.py` itself.
 
-**The yas numbers include `(yas base)`.** `main.c` imports `(yas base)`
+**The yas numbers include `yas/base`.** Startup imports `yas/base`
 into every top-level environment unconditionally (see `CLAUDE.md`), so
 even though the workload `.ys` files have no explicit `(import ...)`,
-`+ - * /` there are still `(yas base)`'s variadic closures over the C
+`+ - * /` there are still `yas/base`'s variadic closures over the C
 primitives, not the primitives directly. That's deliberate: ordinary
 `./yas` usage always has base loaded, so this is the representative
 number, not a raw-VM one.

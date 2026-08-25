@@ -1,0 +1,161 @@
+;; Functional tests for the file-based module system - companion to
+;; suite.ys (which only covers the shipped modules incidentally). Run as
+;; part of `make test`. Covers what suite.ys can't reach from the
+;; embedded stdlib alone: filesystem resolution and its ordering,
+;; load-once caching, the underscore-private convention, all four import
+;; combinators, circular-import detection, and retry-after-failure.
+;;
+;; Self-contained: writes throwaway module files into the process CWD
+;; (and one into this script's own directory, to prove importer-relative
+;; resolution) and deletes them again at the end. No mkdir builtin
+;; exists (io tickets), so no nested-directory cases here - those follow
+;; from the same fopen-per-candidate path as these.
+;;
+;; Embedded/native-beats-disk shadowing is structural (the registry,
+;; native table and stdlib table are all consulted before any filesystem
+;; probe) and needs nested directories to exercise against shipped
+;; modules, so it has no case here by construction.
+
+(import yas/io)
+
+(define *module-test-fails* 0)
+(define (ok cond msg)
+  (if cond
+      (print "  [PASS]" msg)
+      (begin
+        (set! *module-test-fails* (+ *module-test-fails* 1))
+        (print "  [FAIL]" msg))))
+
+;; True iff calling thunk raises. Probe thunks must end in `nil` so a
+;; non-raising call yields a falsey value instead of a false pass.
+(define (raises? thunk)
+  (try (thunk) (catch e t)))
+
+(print "Module system tests")
+
+;; --- fixtures ---------------------------------------------------------
+
+(write-file "yas_modtest_a.ys"
+            (string-append
+              "(define pub-value 42)\n"
+              "(define _secret \"hidden\")\n"
+              "(define (pub-fn x) (* x 2))\n"
+              "(define *load-count* 0)\n"
+              "(set! *load-count* (+ *load-count* 1))\n"))
+
+(write-file "modtest_b.ys"
+            (string-append
+              "(import yas_modtest_a)\n"
+              "(define b-sees-pub pub-value)\n"
+              "(define b-load-count *load-count*)\n"))
+
+(write-file "modtest_c.ys" "(import modtest_d)\n(define c-marker 1)\n")
+(write-file "modtest_d.ys" "(import modtest_c)\n(define d-marker 2)\n")
+
+;; One tiny module per selection combinator, keeping each probe
+;; namespace clean (a name bound by an earlier import can't prove
+;; absence later).
+(write-file "modtest_only.ys"    "(define c1 1)\n(define c2 2)\n")
+(write-file "modtest_except.ys"  "(define x1 1)\n(define x2 2)\n")
+(write-file "modtest_prefix.ys"  "(define val 7)\n")
+(write-file "modtest_rename.ys"  "(define orig 9)\n")
+
+;; Search-path ordering fixture: defaults are ("./lib" "."), so when the
+;; lib/ copy can be written (directory exists), it must win over the
+;; identical-named local one.
+(write-file "modtest_sp.ys" "(define which \"local\")\n")
+(define sp-lib-written
+  (try (begin (write-file "lib/modtest_sp.ys" "(define which \"lib\")\n") t)
+       (catch e nil)))
+
+;; Importer-relative fixture: written next to THIS script and nowhere
+;; else on any search path, so it is resolvable only through the
+;; importer-directory rule.
+(write-file "aux/modtest_local.ys" "(define local-marker \"beside-script\")\n")
+
+;; --- default flat copy + underscore privacy ---------------------------
+
+(import yas_modtest_a)
+
+(ok (eq? pub-value 42) "flat copy binds public names")
+(ok (eq? (pub-fn 21) 42) "flat copy binds functions")
+(ok (raises? (lambda () _secret nil)) "underscore names are not exported")
+(ok (eq? *load-count* 1) "module body ran exactly once so far")
+
+;; --- caching: re-import must not re-run the body ----------------------
+
+(import yas_modtest_a)
+(ok (eq? *load-count* 1) "re-import does not re-evaluate the module body")
+
+(import modtest_b)
+(ok (and (eq? b-sees-pub 42) (eq? b-load-count 1))
+    "an importing module sees the same cached instance")
+
+;; --- import combinators ----------------------------------------------
+
+(import (only modtest_only c1))
+(ok (eq? c1 1) "only copies selected names")
+(ok (raises? (lambda () c2 nil)) "only leaves unselected names unbound")
+
+(import (except modtest_except x1))
+(ok (eq? x2 2) "except keeps the rest")
+(ok (raises? (lambda () x1 nil)) "except drops the named ones")
+
+(import (prefix modtest_prefix p-))
+(ok (eq? p-val 7) "prefix renames everything under the prefix")
+(ok (raises? (lambda () val nil)) "prefixed import leaves bare names unbound")
+
+(import (rename modtest_rename (orig renamed)))
+(ok (eq? renamed 9) "rename binds under the new name")
+(ok (raises? (lambda () orig nil)) "renamed-away originals stay unbound")
+
+;; Composition: select one name out of a prefixed view.
+(import (only (prefix yas_modtest_a m-) m-pub-value))
+(ok (eq? m-pub-value 42) "combinators compose (only over prefix)")
+
+;; --- circular imports are a hard error, not silent partials ----------
+
+(ok (raises? (lambda () (import modtest_c) nil))
+    "circular import raises a module-error")
+(ok (raises? (lambda () c-marker nil))
+    "the failed cycle left no partially-loaded bindings behind")
+
+;; A module whose body fails for a NON-cyclic reason is unregistered, so
+;; fixing the file and re-importing retries it from scratch.
+(write-file "modtest_e.ys" "(define e-val undefined-thing)\n")
+(ok (raises? (lambda () (import modtest_e) nil))
+    "a body error propagates to the importer")
+(ok (raises? (lambda () e-val nil))
+    "the failed body left no bindings behind")
+(write-file "modtest_e.ys" "(define e-val 99)\n")
+(import modtest_e)
+(ok (eq? e-val 99) "retry after a body error succeeds")
+
+;; --- filesystem resolution -------------------------------------------
+
+(when sp-lib-written
+  (import modtest_sp)
+  (ok (eq? which "lib") "search paths resolve in order (./lib before .)"))
+
+(import modtest_local)
+(ok (string=? local-marker "beside-script")
+    "the importing file's directory is searched first")
+
+;; --- cleanup ----------------------------------------------------------
+
+(delete-file "yas_modtest_a.ys")
+(delete-file "modtest_b.ys")
+(delete-file "modtest_c.ys")
+(delete-file "modtest_d.ys")
+(delete-file "modtest_only.ys")
+(delete-file "modtest_except.ys")
+(delete-file "modtest_prefix.ys")
+(delete-file "modtest_rename.ys")
+(delete-file "modtest_e.ys")
+(delete-file "modtest_sp.ys")
+(when sp-lib-written (delete-file "lib/modtest_sp.ys"))
+(delete-file "aux/modtest_local.ys")
+
+(if (> *module-test-fails* 0)
+    (begin (print "MODULE TESTS FAILED:" *module-test-fails*) (exit 1))
+    (print "ALL MODULE TESTS PASSED"))

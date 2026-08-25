@@ -59,14 +59,14 @@ matters):
 | `(defmacro (name args...) body...)` | |
 | `(apply proc args-list)` | |
 | `(set! name value)` | |
-| `(macroexpand-1 form)` | expand one step; `(yas base)`'s `macroexpand` loops this to a fixed point |
+| `(macroexpand-1 form)` | expand one step; `yas/base`'s `macroexpand` loops this to a fixed point |
 | `(call/cc (lambda (k) ...))` | see [call/cc](#callcc) |
 | `(include "file")`, `(include-ci "file")` | textual inclusion |
-| `(define-library (name...) ...)`, `(import ...)` | see [Modules](#modules) |
+| `(import ...)` | see [Modules](#modules) |
 
 Everything else that reads like syntax - `begin`, `let`, `let*`, `cond`,
 `and`, `or`, `when`, `unless`, `quasiquote`, `while`, `dotimes`, `dolist`,
-`for`, `assert` - is a `defmacro` in `(yas base)`, expanded at evaluation
+`for`, `assert` - is a `defmacro` in `yas/base`, expanded at evaluation
 time, not compiled separately. They behave like special forms in practice
 but can in principle be shadowed or redefined, unlike the ones above.
 
@@ -127,7 +127,7 @@ as its own synthesized message.
 
 `exit` maps directly to C's `exit()` - it terminates the process
 immediately (no unwinding of `try`/`finally`). Useful for CLI scripts and
-test runners (`(yas test)`'s `run-tests` calls it) that need to set a
+test runners (`yas/test`'s `run-tests` calls it) that need to set a
 process exit code.
 
 ## GC
@@ -178,55 +178,77 @@ never drift. See [ARCHITECTURE.md](ARCHITECTURE.md#callcc).
 
 ## Modules
 
-Import one or more libraries:
+A module is a file: its top-level forms evaluate exactly once, into the
+module's own environment, and importing copies that environment's public
+bindings into yours. There are no declaration wrappers and no export
+lists - everything a module defines at top level is public, and names
+starting with `_` stay private.
+
+Import one or more modules:
 
 ```scheme
-(import (yas base) (yas math))
-(import (only (yas math) sqrt abs))
-(import (except (yas base) map))
-(import (prefix (yas math) m/))          ; m/sqrt, m/abs, ...
-(import (rename (yas math) (sqrt square-root)))
+(import yas/math)
+(import yas/base mylib/util)             ; several at once
+(import (only yas/math sqrt abs))
+(import (except yas/base map))
+(import (prefix yas/math m/))            ; m/sqrt, m/abs, ...
+(import (rename yas/base (car first)))
 ```
 
-Define your own:
+The four selection forms compose arbitrarily - they operate on the
+binding map their inner set resolves to - so e.g.
+`(only (prefix yas/math m/) m/sqrt)` is legal.
+
+Write your own by creating `mylib/util.ys`:
 
 ```scheme
-(define-library (my lib)
-  (export greet)
-  (import (yas base))
-  (begin
-    (define (greet name) (print "hi" name))))
+;; mylib/util.ys - just code, no wrapper
+(define _internal-helper ...)   ; underscore = private
+(define (greet name) (print "hi" name))
 ```
 
-Imports copy each exported binding directly into the importing
-environment - there's no namespace object at runtime, so `m/sqrt` (from a
-`prefix` import) is just an ordinary symbol, not a member access.
+Module names map to paths: `mylib/util` resolves to
+`<search-dir>/mylib/util.ys`, searching the importing file's directory
+first, then the global search paths (`./lib` and `.` by default,
+adjustable with `add-search-path!`). Modules load once per process;
+re-imports return the cached instance.
+
+Every module sees `yas/base`'s bindings without importing them (one
+shared builtins layer behind all modules), but those inherited names are
+*not* re-exported: importing your module copies only what your file
+itself defines, so import order can never change what an importer gets.
+
+Imports copy each public binding directly into the importing environment
+- there's no namespace object at runtime, so `m/sqrt` (from a `prefix`
+import) is just an ordinary symbol, not a member access. A name collision
+is resolved by whichever import ran last; use `prefix`, `rename`, or
+`only` to avoid collisions deliberately.
 
 ### Standard modules
 
-- **`(yas base)`** - `car cdr cons eq? pair? procedure? float? string?
+- **`yas/base`** - `car cdr cons eq? pair? procedure? float? string?
   length append throw error print t caar/cadr/.../cdddr foldl foldr list
   unary-map map quasiquote and begin cond let let* or unless when assert
   + - * / = < <= > >= for-each list-ref list-tail reverse list? not null?
   macroexpand dotimes dolist while for equal? *features*`
-- **`(yas hash)`** - `make-hash hash-ref hash-set! hash-remove!
+- **`yas/hash`** - `make-hash hash-ref hash-set! hash-remove!
   hash-length hash-join hash-keys hash? hash-update! alist->hash
   hash->alist hash-for-each hash-map hash-merge set-metatable!
   get-metatable callable? serialize deserialize`
-- **`(yas vector)`** - `make-vector vector-ref vector-set! vector-length
+- **`yas/vector`** - `make-vector vector-ref vector-set! vector-length
   vector-append vector? vector-map vector-for-each vector->list
   list->vector vector-fold`
-- **`(yas text)`** - `string? string-length string-ref string=?
+- **`yas/text`** - `string? string-length string-ref string=?
   string-append string-byte-length ->string number->string string-upcase
   string-downcase string-capitalize make-string substring keyword?
   keyword->string string->keyword`
-- **`(yas io)`** - `open-input-file open-output-file close-port port?
+- **`yas/io`** - `open-input-file open-output-file close-port port?
   input-port? output-port? port-open? read-char read-line read-all
   read-byte read-bytes write-char write-string write-byte write-bytes
   newline flush-port file-exists? delete-file rename-file copy-file
   path-join path-dirname path-basename path-extension make-bytevector
   bytevector? bytevector-length bytevector-u8-ref bytevector-u8-set!`
-- **`(yas math)`** - `*pi* *tau* *e* vec2?/vec3?/vec4?/mat4? vec2/vec3/
+- **`yas/math`** - `*pi* *tau* *e* vec2?/vec3?/vec4?/mat4? vec2/vec3/
   vec4/mat4 mat4-identity mat4* mat4-inverse mat4-transpose vec-x/y/z/w
   vec-ref vec-set! vec-dot vec-cross vec-length vec-normalize vec-lerp
   vec-distance radians->degrees degrees->radians sqrt abs floor ceil
@@ -235,11 +257,11 @@ environment - there's no namespace object at runtime, so `m/sqrt` (from a
   number? mat4-translate/scale/rotate-x/rotate-y/rotate-z mat4-ortho
   mat4-perspective mat4-look-at`. Beyond vec/mat, these are interpreted
   Lisp, not C builtins (see [ARCHITECTURE.md](ARCHITECTURE.md)).
-- **`(yas format)`** - `format`, a `~`-directive string formatter (see
+- **`yas/format`** - `format`, a `~`-directive string formatter (see
   [Format directives](#format-directives)).
-- **`(yas test)`** - `check test run-tests` and supporting state; see
+- **`yas/test`** - `check test run-tests` and supporting state; see
   [Testing](GETTING_STARTED.md#testing).
-- **`(yas ffi)`** - only under `YAS_FFI=1`; see [BUILDING.md](BUILDING.md).
+- **`yas/ffi`** - only under `YAS_FFI=1`; see [BUILDING.md](BUILDING.md).
 
 ### Format directives
 
@@ -298,7 +320,7 @@ depending on platform), not built from lists or vectors:
 
 ## Serialization
 
-`(yas hash)` exports `serialize`/`deserialize` for a yas-native binary
-format; `(yas text)`/`(yas io)` cover string/byte-level I/O. See
+`yas/hash` exports `serialize`/`deserialize` for a yas-native binary
+format; `yas/text`/`yas/io` cover string/byte-level I/O. See
 `std/yas/hash.ys` for the wire format if you need to interoperate with it
 from outside yas.

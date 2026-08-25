@@ -35,7 +35,8 @@
 ;;   ./yas aux/gc_continuation_stress.ys
 ;; (it is part of `make stress-test` / `make test-gc-stress`)
 
-(import (yas base) (yas math) (yas test))
+(import yas/math)
+(import yas/test)
 
 (define *k1* nil)
 (define *v1* (+ 100 (call/cc (lambda (k) (set! *k1* k) 1))))

@@ -180,27 +180,26 @@ static void test_deep_list_no_stack_overflow(void)
 }
 
 /* 6. yas_eval_source()'s `env` parameter, when called with a fresh
- * yas_env_create(yas_nil) the way yas_library_load() does for every
- * native-module-plus-Lisp-source and pure-Lisp library load
- * (src/module.c), is reachable from nothing else. If a source string
- * triggers a full collection mid-evaluation (here, via (gc) called from
- * builtin context - see docs/GC.md's note that (gc)/(gc-start) can force
- * a cycle at any depth, not just at eval_vm's automatic safe point), the
- * unrooted env is swept before the next top-level form (define) tries to
- * bind into it. suite.ys can't reach this: the vulnerable env only ever
- * exists on the yas_library_load() path, where no user code can inject
- * a (gc) between forms. */
+ * yas_env_create(yas_nil) the way load_module() does for every module
+ * body evaluation (src/module.c), is reachable from nothing else. If a
+ * source string triggers a full collection mid-evaluation (here, via
+ * (gc) called from builtin context - see docs/GC.md's note that
+ * (gc)/(gc-start) can force a cycle at any depth, not just at eval_vm's
+ * automatic safe point), the unrooted env is swept before the next
+ * top-level form (define) tries to bind into it. suite.ys can't reach
+ * this: the vulnerable env only ever exists on the module-load path,
+ * where no user code can inject a (gc) between forms. */
 static void test_eval_source_roots_fresh_env(void)
 {
 	YasAtom result;
-	/* (import (yas base)) both binds `gc` into this fresh env (so a
-	 * later builtin-context collection can be forced at all) and, via
-	 * yas_library_load()'s own nested eval, allocates enough that a real
+	/* (import yas/base) both binds `gc` into this fresh env (so a later
+	 * builtin-context collection can be forced at all) and, via the
+	 * nested module loads it triggers, allocates enough that a real
 	 * cycle can start - then (gc) forces it to completion right inside
 	 * this env's unrooted window before the following (define) needs it
 	 * to still be reachable. */
 	int err = yas_eval_source(
-		"(import (yas base)) (gc) (define x 1) x", "<gc_test>",
+		"(import yas/base) (gc) (define x 1) x", "<gc_test>",
 		yas_env_create(yas_nil), &result);
 
 	CHECK(err == YAS_ERROR_OK);

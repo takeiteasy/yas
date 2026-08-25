@@ -1,46 +1,35 @@
-(define-library (yas hash)
-  (import (yas base))
-  (export
-    ;; Basic Hash Operations
-    make-hash hash-ref hash-set! hash-remove! hash-length hash-join hash-keys hash?
-    hash-update! alist->hash hash->alist hash-for-each hash-map hash-merge
-    
-    ;; Metatables & Reflection
-    set-metatable! get-metatable
-    callable?
-    
-    ;; Serialization
-    serialize deserialize)
-  (begin
-    (define (callable? obj)
-      (or (procedure? obj)
-          (and (hash? obj) 
-               (let ((mt (get-metatable obj)))
-                 (and mt (hash-ref mt (quote ~call) nil))))))
+;; yas/hash - hash-table helpers layered over the C builtins.
+;; Base is provided automatically in every module env.
 
-    (define (hash-update! hash key updater default)
-      (hash-set! hash key (updater (hash-ref hash key default))))
+(define (callable? obj)
+  (or (procedure? obj)
+      (and (hash? obj) 
+           (let ((mt (get-metatable obj)))
+             (and mt (hash-ref mt (quote ~call) nil))))))
 
-    (define (alist->hash alist)
-      (let ((h (make-hash)))
-        (for-each (lambda (pair) (hash-set! h (car pair) (cdr pair))) alist)
-        h))
+(define (hash-update! hash key updater default)
+  (hash-set! hash key (updater (hash-ref hash key default))))
 
-    (define (hash->alist h)
-      (let ((keys (hash-keys h)))
-        (map (lambda (k) (cons k (hash-ref h k))) keys)))
+(define (alist->hash alist)
+  (let ((h (make-hash)))
+    (for-each (lambda (pair) (hash-set! h (car pair) (cdr pair))) alist)
+    h))
 
-    (define (hash-for-each proc h)
-      (let ((keys (hash-keys h)))
-        (for-each (lambda (k) (proc k (hash-ref h k))) keys)))
+(define (hash->alist h)
+  (let ((keys (hash-keys h)))
+    (map (lambda (k) (cons k (hash-ref h k))) keys)))
 
-    (define (hash-map proc h)
-      (let ((keys (hash-keys h)))
-        (map (lambda (k) (proc k (hash-ref h k))) keys)))
+(define (hash-for-each proc h)
+  (let ((keys (hash-keys h)))
+    (for-each (lambda (k) (proc k (hash-ref h k))) keys)))
 
-    (define (hash-merge . hashes)
-      (let ((result (make-hash)))
-        (for-each (lambda (h)
-                    (hash-for-each (lambda (k v) (hash-set! result k v)) h))
-                  hashes)
-        result))))
+(define (hash-map proc h)
+  (let ((keys (hash-keys h)))
+    (map (lambda (k) (proc k (hash-ref h k))) keys)))
+
+(define (hash-merge . hashes)
+  (let ((result (make-hash)))
+    (for-each (lambda (h)
+                (hash-for-each (lambda (k v) (hash-set! result k v)) h))
+              hashes)
+    result))

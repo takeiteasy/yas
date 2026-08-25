@@ -9,9 +9,9 @@
 ;; time via (current-time), not process exit time - so this can be re-run
 ;; standalone (./yas aux/bench_alloc.ys) without a driver script.
 ;;
-;; No explicit (import (yas base)) needed for the same reason as
-;; aux/bench/workloads/*/*.ys: main.c imports it into every top-level env
-;; unconditionally.
+;; No explicit import needed for the same reason as
+;; aux/bench/workloads/*/*.ys: startup auto-imports yas/base into every
+;; top-level env.
 
 (define (build n acc)
   (if (= n 0) acc (build (- n 1) (cons n acc))))

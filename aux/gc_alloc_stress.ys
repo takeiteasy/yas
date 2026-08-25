@@ -23,7 +23,11 @@
 ;; struct YasHash* iteration loops fixed for ticket #33) - so the audit
 ;; isn't limited to one code path.
 
-(import (yas base) (yas hash) (yas vector) (yas text) (yas io) (yas test))
+(import yas/hash)
+(import yas/vector)
+(import yas/text)
+(import yas/io)
+(import yas/test)
 
 (test "lists and pairs"
   (let loop ((i 0) (acc nil))
@@ -64,9 +68,9 @@
         (loop (+ i 1) (cons (make-string 4 #\z) acc))
         (check (length acc) 50))))
 
-(test "module import re-walks the ticket #33 hash-iteration loops"
-  (import (except (yas base) +))
-  (import (prefix (yas hash) h-))
+(test "module import re-walks the import-set resolution loops"
+  (import (except yas/hash h-))
+  (import (prefix yas/vector v-))
   T)
 
 (run-tests)

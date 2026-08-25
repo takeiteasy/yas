@@ -1,8 +1,8 @@
 ;; Naive recursive fibonacci - call/arith-heavy workload for aux/bench/bench.py
 ;; (docs/BENCHMARKING.md). Deliberately exponential, so timing differences
-;; aren't noise. No explicit (import (yas base)) - but main.c imports it into
-;; every top-level env unconditionally (see CLAUDE.md), so `+ - * <` here are
-;; still (yas base)'s variadic foldl closures over the C primitives, not the
+;; aren't noise. No explicit import - startup auto-imports yas/base into
+;; every top-level env (see CLAUDE.md), so `+ - * <` here are
+;; still yas/base's variadic foldl closures over the C primitives, not the
 ;; primitives directly. That's the representative case: ordinary `./yas`
 ;; usage always has base loaded. A smaller n=24 (n=30 interpreted takes ~21s
 ;; at the default -O2 build, ~50s at -O0 - too slow either way to run

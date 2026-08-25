@@ -1,40 +1,20 @@
-(define-library (yas text)
-  (import (yas base))
-  (export
-    ;; String Operations
-    string? string-length string-ref string=? string-append string-byte-length
-    ->string
-    
-    ;; Format Helpers
-    number->string string-upcase string-downcase string-capitalize
-    make-string substring
-    
-    ;; Keyword Operations
-    keyword? keyword->string string->keyword
-    
-    ;; Procedure Documentation
-    procedure-doc
-    
-    ;; String Predicates
-    string-prefix? string-suffix?
-    
-    ;; String Utilities
-    string-join)
-  (begin
-    (define (string-prefix? prefix str)
-      (let ((len-p (string-length prefix))
-            (len-s (string-length str)))
-        (and (<= len-p len-s)
-             (string=? prefix (substring str 0 len-p)))))
+;; yas/text - string utilities layered over the C builtins.
+;; Base is provided automatically in every module env.
 
-    (define (string-suffix? suffix str)
-      (let ((len-s (string-length suffix))
-            (len-str (string-length str)))
-        (and (<= len-s len-str)
-             (string=? suffix (substring str (- len-str len-s) len-str)))))
+(define (string-prefix? prefix str)
+  (let ((len-p (string-length prefix))
+        (len-s (string-length str)))
+    (and (<= len-p len-s)
+         (string=? prefix (substring str 0 len-p)))))
 
-    (define (string-join lst sep)
-      (if (null? lst) ""
-          (let loop ((l (cdr lst)) (acc (car lst)))
-            (if (null? l) acc
-                (loop (cdr l) (string-append acc sep (car l)))))))))
+(define (string-suffix? suffix str)
+  (let ((len-s (string-length suffix))
+        (len-str (string-length str)))
+    (and (<= len-s len-str)
+         (string=? suffix (substring str (- len-str len-s) len-str)))))
+
+(define (string-join lst sep)
+  (if (null? lst) ""
+      (let loop ((l (cdr lst)) (acc (car lst)))
+        (if (null? l) acc
+            (loop (cdr l) (string-append acc sep (car l)))))))

@@ -120,7 +120,7 @@ int yas_eval_source(const char *text, const char *path, YasAtom env, YasAtom *re
      * accumulates it across many allocating calls (read_list()'s own
      * unrooted accumulator, one yas_cons() per list element) with no
      * protection of its own before this function ever sees it - a large
-     * top-level form (e.g. a define-library block) is exactly the kind
+     * top-level form is exactly the kind
      * of long allocation run that can trip the collector mid-parse. */
     yas_gc_push_root(&env);
     yas_gc_push_root(result);
@@ -1436,10 +1436,6 @@ static int eval_vm(YasAtom expr, YasAtom env, YasAtom *result, struct EvalRoot *
                     if (!yas_nilp(file_list))
                         return YAS_ERROR_SYNTAX;
                     /* result is set to the last expression evaluated */
-                } else if (strcmp(op.value.symbol, "DEFINE-LIBRARY") == 0) {
-                    err = yas_module_define_library(args, result);
-                    if (err)
-                        return err;
                 } else if (strcmp(op.value.symbol, "IMPORT") == 0) {
                     err = yas_module_import(args, env, result);
                     if (err)

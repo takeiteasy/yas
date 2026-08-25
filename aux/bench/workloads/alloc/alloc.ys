@@ -1,8 +1,8 @@
 ;; List-churn workload for aux/bench/bench.py (docs/BENCHMARKING.md) -
 ;; allocation/GC pressure, as opposed to fib's call/arith weight. Builds a
 ;; 50000-element list one cons at a time, then sums it. No explicit
-;; (import (yas base)) needed - main.c imports it into every top-level env
-;; unconditionally, so `+ -` here are (yas base)'s variadic closures, same
+;; import needed - startup auto-imports yas/base into every top-level env,
+;; so `+ -` here are yas/base's variadic closures, same
 ;; as fib.ys (see its comment).
 (define (build n acc)
   (if (= n 0) acc (build (- n 1) (cons n acc))))

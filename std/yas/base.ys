@@ -1,201 +1,194 @@
-(define-library (yas base)
-  (export
-    car cdr cons eq? pair? procedure? float? string?
-    length
-    append
-    throw error print t
-    caar cadr cdar cddr caaar caadr cadar caddr cdaar cdadr cddar cdddr
-    foldl foldr list unary-map map
-    quasiquote and begin cond let let* or unless when assert
-    + - * / = < <= > >=
-    for-each list-ref list-tail reverse list? not null?
-    macroexpand
-    dotimes dolist while for
-    equal?
-    *features*)
-  (begin
-    (define (caar x) (car (car x)))
-    (define (cadr x) (car (cdr x)))
-    (define (cdar x) (cdr (car x)))
-    (define (cddr x) (cdr (cdr x)))
-    ;; Three-level accessors
-    (define (caaar x) (car (car (car x))))
-    (define (caadr x) (car (car (cdr x))))
-    (define (cadar x) (car (cdr (car x))))
-    (define (caddr x) (car (cdr (cdr x))))
-    (define (cdaar x) (cdr (car (car x))))
-    (define (cdadr x) (cdr (car (cdr x))))
-    (define (cddar x) (cdr (cdr (car x))))
-    (define (cdddr x) (cdr (cdr (cdr x))))
+;; yas/base - core list operations and control-flow macros.
+;;
+;; A module is a file: everything defined at top level here becomes part
+;; of the module's public surface (underscore-prefixed names excepted).
+;; The C half of this module (module.c's yas_load_base_library) registers
+;; the primitive builtins into this same environment first; the Lisp half
+;; below extends it. Note +/-/*/ / are re-bound to variadic closures over
+;; their builtin selves further down.
 
-    (define (foldl proc init list)
-      (if list
-          (foldl proc (proc init (car list)) (cdr list))
-          init))
+(define (caar x) (car (car x)))
+(define (cadr x) (car (cdr x)))
+(define (cdar x) (cdr (car x)))
+(define (cddr x) (cdr (cdr x)))
+;; Three-level accessors
+(define (caaar x) (car (car (car x))))
+(define (caadr x) (car (car (cdr x))))
+(define (cadar x) (car (cdr (car x))))
+(define (caddr x) (car (cdr (cdr x))))
+(define (cdaar x) (cdr (car (car x))))
+(define (cdadr x) (cdr (car (cdr x))))
+(define (cddar x) (cdr (cdr (car x))))
+(define (cdddr x) (cdr (cdr (cdr x))))
 
-    (define (foldr proc init list)
-      (if list
-          (proc (car list) (foldr proc init (cdr list)))
-          init))
+(define (foldl proc init list)
+  (if list
+      (foldl proc (proc init (car list)) (cdr list))
+      init))
 
-    (define (list . items) (foldr cons nil items))
+(define (foldr proc init list)
+  (if list
+      (proc (car list) (foldr proc init (cdr list)))
+      init))
 
-    (define (unary-map proc list)
-      (foldr (lambda (x rest) (cons (proc x) rest)) nil list))
+(define (list . items) (foldr cons nil items))
 
-    (define (map proc . arg-lists)
-      (if (car arg-lists)
-          (cons (apply proc (unary-map car arg-lists))
-                (apply map (cons proc (unary-map cdr arg-lists))))
-          nil))
+(define (unary-map proc list)
+  (foldr (lambda (x rest) (cons (proc x) rest)) nil list))
 
-    (defmacro (quasiquote x)
-      (if (pair? x)
-          (if (eq? (car x) 'unquote)
-              (cadr x)
-              (if (eq? (if (pair? (car x)) (caar x) nil) 'unquote-splicing)
-                  (list 'append (cadr (car x)) (list 'quasiquote (cdr x)))
-                  (list 'cons (list 'quasiquote (car x)) (list 'quasiquote (cdr x)))))
-          (list 'quote x)))
+(define (map proc . arg-lists)
+  (if (car arg-lists)
+      (cons (apply proc (unary-map car arg-lists))
+            (apply map (cons proc (unary-map cdr arg-lists))))
+      nil))
 
-    (defmacro (and . terms)
-      (if terms
-          `(if ,(car terms) (and ,@(cdr terms)) nil)
-          t))
+(defmacro (quasiquote x)
+  (if (pair? x)
+      (if (eq? (car x) 'unquote)
+          (cadr x)
+          (if (eq? (if (pair? (car x)) (caar x) nil) 'unquote-splicing)
+              (list 'append (cadr (car x)) (list 'quasiquote (cdr x)))
+              (list 'cons (list 'quasiquote (car x)) (list 'quasiquote (cdr x)))))
+      (list 'quote x)))
 
-    (defmacro (begin . body) `((lambda () ,@body)))
+(defmacro (and . terms)
+  (if terms
+      `(if ,(car terms) (and ,@(cdr terms)) nil)
+      t))
 
-    (defmacro (cond . clauses)
-      (if clauses
-          (let ((test (caar clauses)) (body (cdar clauses)))
-               `(if ,test (begin ,@body) (cond ,@(cdr clauses))))
-          nil))
+(defmacro (begin . body) `((lambda () ,@body)))
 
-    (defmacro (let first . rest)
-      (if (or (pair? first) (null? first))
-          `((lambda ,(map car first) ,@rest) ,@(map cadr first))
-          (let ((name first)
-                (bindings (car rest))
-                (body (cdr rest)))
-             (let ((vars (map car bindings))
-                   (inits (map cadr bindings)))
-               `(let ((,name nil))
-                  (set! ,name (lambda ,vars ,@body))
-                  (,name ,@inits))))))
+(defmacro (cond . clauses)
+  (if clauses
+      (let ((test (caar clauses)) (body (cdar clauses)))
+           `(if ,test (begin ,@body) (cond ,@(cdr clauses))))
+      nil))
 
-    ;; let* - sequential bindings (each can reference previous)
-    (defmacro (let* bindings . body)
-      (if (null? bindings)
-          `(begin ,@body)
-          `(let (,(car bindings))
-             (let* ,(cdr bindings) ,@body))))
+(defmacro (let first . rest)
+  (if (or (pair? first) (null? first))
+      `((lambda ,(map car first) ,@rest) ,@(map cadr first))
+      (let ((name first)
+            (bindings (car rest))
+            (body (cdr rest)))
+         (let ((vars (map car bindings))
+               (inits (map cadr bindings)))
+           `(let ((,name nil))
+              (set! ,name (lambda ,vars ,@body))
+              (,name ,@inits))))))
 
-    (defmacro (or . terms)
-      (if terms
-          `(if ,(car terms) t (or ,@(cdr terms)))
-          nil))
+;; let* - sequential bindings (each can reference previous)
+(defmacro (let* bindings . body)
+  (if (null? bindings)
+      `(begin ,@body)
+      `(let (,(car bindings))
+         (let* ,(cdr bindings) ,@body))))
 
-    (defmacro (unless test . body) `(when (not ,test) ,@body))
+(defmacro (or . terms)
+  (if terms
+      `(if ,(car terms) t (or ,@(cdr terms)))
+      nil))
 
-    (defmacro (when test . body) `(if ,test (begin ,@body) nil))
+(defmacro (unless test . body) `(when (not ,test) ,@body))
 
-    (defmacro (assert condition . args)
-      `(unless ,condition (error ,(if args (car args) "Assertion failed"))))
+(defmacro (when test . body) `(if ,test (begin ,@body) nil))
 
-    ;; Loop macros
-    (defmacro (dotimes spec . body)
-      (let ((var (car spec))
-            (count (cadr spec))
-            (result (if (cddr spec) (car (cddr spec)) nil)))
-        `(let dotimes-loop ((,var 0))
-           (if (< ,var ,count)
-               (begin ,@body (dotimes-loop (+ ,var 1)))
-               ,result))))
+(defmacro (assert condition . args)
+  `(unless ,condition (error ,(if args (car args) "Assertion failed"))))
 
-    (defmacro (dolist spec . body)
-      (let ((var (car spec))
-            (lst (cadr spec))
-            (result (if (cddr spec) (car (cddr spec)) nil)))
-        `(let dolist-loop ((dolist-rest ,lst))
-           (if dolist-rest
-               (let ((,var (car dolist-rest)))
-                 ,@body
-                 (dolist-loop (cdr dolist-rest)))
-               ,result))))
+;; Loop macros
+(defmacro (dotimes spec . body)
+  (let ((var (car spec))
+        (count (cadr spec))
+        (result (if (cddr spec) (car (cddr spec)) nil)))
+    `(let dotimes-loop ((,var 0))
+       (if (< ,var ,count)
+           (begin ,@body (dotimes-loop (+ ,var 1)))
+           ,result))))
 
-    (defmacro (while test . body)
-      `(let while-loop ()
-         (when ,test
-           ,@body
-           (while-loop))))
+(defmacro (dolist spec . body)
+  (let ((var (car spec))
+        (lst (cadr spec))
+        (result (if (cddr spec) (car (cddr spec)) nil)))
+    `(let dolist-loop ((dolist-rest ,lst))
+       (if dolist-rest
+           (let ((,var (car dolist-rest)))
+             ,@body
+             (dolist-loop (cdr dolist-rest)))
+           ,result))))
 
-    (defmacro (for var . args)
-      (let ((lookup (lambda (key alist default)
-                      (let loop ((l alist))
-                        (if (null? l) default
-                            (if (eq? (car (car l)) key) (cdr (car l))
-                                (loop (cdr l))))))))
-        (let parse ((args args) (state nil) (res nil))
-          (if (null? args)
-              (let ((in-list (lookup 'in res nil)))
-                (if in-list
-                    `(dolist (,var ,in-list) ,@(lookup 'body res nil))
-                    (let ((start (lookup 'from res 0))
-                          (end (lookup 'to res 0))
-                          (step (lookup 'step res 1))
-                          (body (lookup 'body res nil)))
-                      `(let for-loop ((,var ,start))
-                         (if (< ,var ,end)
-                             (begin 
-                               ,@body
-                               (for-loop (+ ,var ,step)))
-                             nil)))))
-              (let ((k (car args)))
-                (cond
-                  ((eq? k 'from) (parse (cdr args) 'from res))
-                  ((eq? k 'to)   (parse (cdr args) 'to res))
-                  ((eq? k 'step) (parse (cdr args) 'step res))
-                  ((eq? k 'in)   (parse (cdr args) 'in res))
-                  ((eq? k 'do)   (parse (cdr args) 'do res))
-                  (t
-                   (cond
-                     ((eq? state 'from) (parse (cdr args) nil (cons (cons 'from k) res)))
-                     ((eq? state 'to)   (parse (cdr args) nil (cons (cons 'to k) res)))
-                     ((eq? state 'step) (parse (cdr args) nil (cons (cons 'step k) res)))
-                     ((eq? state 'in)   (parse (cdr args) nil (cons (cons 'in k) res)))
-                     ((eq? state 'do)   (parse nil nil (cons (cons 'body (cons k (cdr args))) res)))
-                     (t (parse (cdr args) state res))))))))))
+(defmacro (while test . body)
+  `(let while-loop ()
+     (when ,test
+       ,@body
+       (while-loop))))
 
-    (define + (let ((old+ +)) (lambda xs (foldl old+ 0 xs))))
-    (define - (let ((old- -)) (lambda (x . xs) (if xs (foldl old- x xs) (old- 0 x)))))
-    (define * (let ((old* *)) (lambda xs (foldl old* 1 xs))))
-    (define / (let ((old/ /)) (lambda (x . xs) (if xs (foldl old/ x xs) (old/ 1 x)))))
+(defmacro (for var . args)
+  (let ((lookup (lambda (key alist default)
+                  (let loop ((l alist))
+                    (if (null? l) default
+                        (if (eq? (car (car l)) key) (cdr (car l))
+                            (loop (cdr l))))))))
+    (let parse ((args args) (state nil) (res nil))
+      (if (null? args)
+          (let ((in-list (lookup 'in res nil)))
+            (if in-list
+                `(dolist (,var ,in-list) ,@(lookup 'body res nil))
+                (let ((start (lookup 'from res 0))
+                      (end (lookup 'to res 0))
+                      (step (lookup 'step res 1))
+                      (body (lookup 'body res nil)))
+                  `(let for-loop ((,var ,start))
+                     (if (< ,var ,end)
+                         (begin 
+                           ,@body
+                           (for-loop (+ ,var ,step)))
+                         nil)))))
+          (let ((k (car args)))
+            (cond
+              ((eq? k 'from) (parse (cdr args) 'from res))
+              ((eq? k 'to)   (parse (cdr args) 'to res))
+              ((eq? k 'step) (parse (cdr args) 'step res))
+              ((eq? k 'in)   (parse (cdr args) 'in res))
+              ((eq? k 'do)   (parse (cdr args) 'do res))
+              (t
+               (cond
+                 ((eq? state 'from) (parse (cdr args) nil (cons (cons 'from k) res)))
+                 ((eq? state 'to)   (parse (cdr args) nil (cons (cons 'to k) res)))
+                 ((eq? state 'step) (parse (cdr args) nil (cons (cons 'step k) res)))
+                 ((eq? state 'in)   (parse (cdr args) nil (cons (cons 'in k) res)))
+                 ((eq? state 'do)   (parse nil nil (cons (cons 'body (cons k (cdr args))) res)))
+                 (t (parse (cdr args) state res))))))))))
 
-    (define (<= a b) (or (= a b) (< a b)))
-    (define (> a b) (< b a))
-    (define (>= a b) (<= b a))
+(define + (let ((old+ +)) (lambda xs (foldl old+ 0 xs))))
+(define - (let ((old- -)) (lambda (x . xs) (if xs (foldl old- x xs) (old- 0 x)))))
+(define * (let ((old* *)) (lambda xs (foldl old* 1 xs))))
+(define / (let ((old/ /)) (lambda (x . xs) (if xs (foldl old/ x xs) (old/ 1 x)))))
 
-    (define (for-each proc . arg-lists)
-      (when (car arg-lists)
-        (apply proc (map car arg-lists))
-        (apply for-each (append (list proc) (map cdr arg-lists)))))
+(define (<= a b) (or (= a b) (< a b)))
+(define (> a b) (< b a))
+(define (>= a b) (<= b a))
 
-    (define (list-ref x k) (car (list-tail x k)))
-    (define (list-tail x k) (if (= k 0) x (list-tail (cdr x) (- k 1))))
-    (define (reverse list) (foldl (lambda (a x) (cons x a)) nil list))
+(define (for-each proc . arg-lists)
+  (when (car arg-lists)
+    (apply proc (map car arg-lists))
+    (apply for-each (append (list proc) (map cdr arg-lists)))))
 
-    (define (equal? a b)
-      (cond
-        ((eq? a b) t)
-        ((and (pair? a) (pair? b))
-         (and (equal? (car a) (car b))
-              (equal? (cdr a) (cdr b))))
-        (t nil)))
+(define (list-ref x k) (car (list-tail x k)))
+(define (list-tail x k) (if (= k 0) x (list-tail (cdr x) (- k 1))))
+(define (reverse list) (foldl (lambda (a x) (cons x a)) nil list))
 
-    (define (list? x) (or (null? x) (and (pair? x) (list? (cdr x)))))
-    (define (not x) (if x nil t))
-    (define (null? x) (not x))
+(define (equal? a b)
+  (cond
+    ((eq? a b) t)
+    ((and (pair? a) (pair? b))
+     (and (equal? (car a) (car b))
+          (equal? (cdr a) (cdr b))))
+    (t nil)))
 
-    (define (macroexpand form)
-      (let ((expanded (macroexpand-1 form)))
-        (if (eq? expanded form) form (macroexpand expanded))))))
+(define (list? x) (or (null? x) (and (pair? x) (list? (cdr x)))))
+(define (not x) (if x nil t))
+(define (null? x) (not x))
+
+(define (macroexpand form)
+  (let ((expanded (macroexpand-1 form)))
+    (if (eq? expanded form) form (macroexpand expanded))))

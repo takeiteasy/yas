@@ -1,9 +1,9 @@
-(import (yas base))
-(import (yas math))
-(import (yas hash))
-(import (yas vector))
-(import (yas text))
-(import (yas test))
+;; yas/base is imported automatically into every top-level env (main.c).
+(import yas/math)
+(import yas/hash)
+(import yas/vector)
+(import yas/text)
+(import yas/test)
 
 (print "Running YAS Test Suite...")
 
@@ -449,7 +449,7 @@
   (check (kw-mac :b 2 :a 1) (quote (1 2))))
 
 ;; Format Function
-(import (yas format))
+(import yas/format)
 
 (test "Format Strings"
   (check (format nil "Hello ~A!" "World") "Hello World!")
@@ -685,7 +685,7 @@
          "Symbol not bound: LEX-TOTALLY-UNBOUND-SYMBOL"))
 
 (test "Lexical cache: module-imported global still resolves"
-  ;; (yas base) rebinds +/-/*// to variadic closures (CLAUDE.md) - make
+  ;; yas/base rebinds +/-/*// to variadic closures (CLAUDE.md) - make
   ;; sure the cache resolves to the module's binding, not some earlier
   ;; native builtin slot.
   (check (+ 1 2 3) 6)

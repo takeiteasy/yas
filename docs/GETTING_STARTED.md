@@ -27,20 +27,18 @@ $ ./yas
 
 yas ships almost nothing without an explicit import - `car`, `cdr`,
 `define`, `lambda`, `if`, arithmetic, `let`, `cond`, and the rest of what
-feels like "the language" live in the `(yas base)` module:
+feels like "the language" live in the `yas/base` module:
 
 ```scheme
-(import (yas base))
-
 (define (greet name)
   (print "Hello," name))
 
 (greet "world")
 ```
 
-Running a file from the command line auto-imports `(yas base)` for you
-(see `main.c`); code loaded other ways (via `eval_source`, or a library's
-own body) does not, and must import it explicitly.
+Running a file from the command line auto-imports `yas/base` for you (see
+`main.c`) - and so does every module's environment - so most scripts need
+no import at all.
 
 Unlike the REPL, running a file does not auto-print each top-level form's
 result - only what the script itself prints (`print`, etc.) reaches
@@ -91,21 +89,34 @@ default]`) parameters and a `. rest` tail - see
 
 ## Modules
 
+A module is just a file - its top-level definitions are its public
+surface (names starting with `_` stay private):
+
 ```scheme
-(import (yas base) (yas math) (yas hash))
+;; mylib/util.ys
+(define _helper ...)                    ; private
+(define (greet name) (print "hi" name)) ; public
 ```
 
-Available modules: `(yas base)`, `(yas hash)`, `(yas vector)`, `(yas
-text)`, `(yas io)`, `(yas math)`, `(yas format)`, `(yas test)`, and `(yas
-ffi)` (only under `YAS_FFI=1` builds). See
-[LANGUAGE_REFERENCE.md](LANGUAGE_REFERENCE.md#modules) for what each
-exports.
+Import it by name (`mylib/util` resolves to `<search-dir>/mylib/util.ys`,
+searching the importing file's directory first, then `./lib` and `.`):
 
 ```scheme
-(import (only (yas math) sqrt abs))         ; just these names
-(import (except (yas base) map))             ; everything but this
-(import (prefix (yas math) m/))               ; m/sqrt, m/abs, ...
-(import (rename (yas math) (sqrt square-root)))
+(import mylib/util)
+(greet "world")
+```
+
+Available modules: `yas/base` (imported automatically everywhere),
+`yas/hash`, `yas/vector`, `yas/text`, `yas/io`, `yas/math`,
+`yas/format`, `yas/test`, and `yas/ffi` (only under `YAS_FFI=1`
+builds). See [LANGUAGE_REFERENCE.md](LANGUAGE_REFERENCE.md#modules) for
+what each contains.
+
+```scheme
+(import (only yas/math sqrt abs))         ; just these names
+(import (except yas/base map))            ; everything but this
+(import (prefix yas/math m/))             ; m/sqrt, m/abs, ...
+(import (rename yas/base (car first)))
 ```
 
 ## Error handling
@@ -122,7 +133,7 @@ exports.
 ## Testing
 
 ```scheme
-(import (yas base) (yas test))
+(import yas/test)
 
 (test "addition"
   (check (+ 1 1) 2)
@@ -134,8 +145,8 @@ exports.
 `run-tests` prints a pass/fail summary and then calls `(exit 0)` or
 `(exit 1)` depending on the result, so `make test` and other CI can gate
 on the process exit code directly. See `suite.ys` for a full example test
-file, and `(yas test)` in
-[LANGUAGE_REFERENCE.md](LANGUAGE_REFERENCE.md#yas-test) for `check`'s
+file, and `yas/test` in
+[LANGUAGE_REFERENCE.md](LANGUAGE_REFERENCE.md#modules) for `check`'s
 comparison rules.
 
 ## Next steps

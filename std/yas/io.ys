@@ -1,101 +1,76 @@
-(define-library (yas io)
-  (import (yas base) (yas text))
-  (export 
-    ;; Core port operations
-    open-input-file open-output-file close-port
-    port? input-port? output-port? port-open?
-    
-    ;; Read operations
-    read-char read-line read-all read-byte read-bytes
-    
-    ;; Write operations  
-    write-char write-string write-byte write-bytes newline flush-port
-    
-    ;; File utilities
-    file-exists? delete-file rename-file copy-file
-    path-join path-dirname path-basename path-extension
-    
-    ;; Bytevector operations
-    make-bytevector bytevector? bytevector-length
-    bytevector-u8-ref bytevector-u8-set!
-    bytevector->string string->bytevector
-    
-    ;; Sandbox control
-    io-sandbox-allow! io-sandbox-deny! io-sandbox-mode
-    
-    ;; High-level convenience functions
-    call-with-input-file call-with-output-file
-    with-input-from-file with-output-to-file
-    read-file write-file)
-  (begin
-    ;; High-level file I/O with automatic resource management
-    (define (call-with-input-file path proc)
-      (let ((port (open-input-file path)))
-        (try
-          (proc port)
-          (finally (close-port port)))))
-    
-    (define (call-with-output-file path proc)
-      (let ((port (open-output-file path)))
-        (try
-          (proc port)
-          (finally (close-port port)))))
-    
-    ;; Compatibility aliases for R7RS style
-    (define (with-input-from-file path proc)
-      (call-with-input-file path (lambda (port) (proc))))
-    
-    (define (with-output-to-file path proc)
-      (call-with-output-file path (lambda (port) (proc))))
-    
-    ;; Simple file reading/writing utilities
-    (define (read-file path)
-      (call-with-input-file path read-all))
-    
-    (define (write-file path content)
-      (call-with-output-file path 
-        (lambda (port) 
-          (write-string content port))))
+;; yas/io - port/file helpers layered over the C builtins.
+;; Depends on yas/text (string-join etc.); base is automatic.
 
-    ;; File Operations
-    (define (copy-file src dst)
-      (call-with-input-file src
-        (lambda (in)
-          (call-with-output-file dst
-            (lambda (out)
-              (let loop ()
-                (let ((chunk (read-bytes in 4096)))
-                  (if (not (eq? chunk 'EOF))
-                      (begin
-                        (write-bytes chunk out)
-                        (loop))))))))))
+(import yas/text)
 
-    ;; Path Utilities
-    (define (path-join . parts)
-      (string-join parts "/"))
+;; High-level file I/O with automatic resource management
+(define (call-with-input-file path proc)
+  (let ((port (open-input-file path)))
+    (try
+      (proc port)
+      (finally (close-port port)))))
 
-    (define (path-dirname path)
-      (let loop ((i (- (string-length path) 1)))
-        (if (< i 0)
-            "."
+(define (call-with-output-file path proc)
+  (let ((port (open-output-file path)))
+    (try
+      (proc port)
+      (finally (close-port port)))))
+
+;; Compatibility aliases for R7RS style
+(define (with-input-from-file path proc)
+  (call-with-input-file path (lambda (port) (proc))))
+
+(define (with-output-to-file path proc)
+  (call-with-output-file path (lambda (port) (proc))))
+
+;; Simple file reading/writing utilities
+(define (read-file path)
+  (call-with-input-file path read-all))
+
+(define (write-file path content)
+  (call-with-output-file path 
+    (lambda (port) 
+      (write-string content port))))
+
+;; File Operations
+(define (copy-file src dst)
+  (call-with-input-file src
+    (lambda (in)
+      (call-with-output-file dst
+        (lambda (out)
+          (let loop ()
+            (let ((chunk (read-bytes in 4096)))
+              (if (not (eq? chunk 'EOF))
+                  (begin
+                    (write-bytes chunk out)
+                    (loop))))))))))
+
+;; Path Utilities
+(define (path-join . parts)
+  (string-join parts "/"))
+
+(define (path-dirname path)
+  (let loop ((i (- (string-length path) 1)))
+    (if (< i 0)
+        "."
+        (if (string=? (substring path i (+ i 1)) "/")
+            (if (= i 0) "/" (substring path 0 i))
+            (loop (- i 1))))))
+
+(define (path-basename path)
+  (let loop ((i (- (string-length path) 1)))
+    (if (< i 0)
+        path
+        (if (string=? (substring path i (+ i 1)) "/")
+            (substring path (+ i 1) (string-length path))
+            (loop (- i 1))))))
+
+(define (path-extension path)
+  (let loop ((i (- (string-length path) 1)))
+    (if (< i 0)
+        ""
+        (if (string=? (substring path i (+ i 1)) ".")
+            (substring path i (string-length path))
             (if (string=? (substring path i (+ i 1)) "/")
-                (if (= i 0) "/" (substring path 0 i))
-                (loop (- i 1))))))
-
-    (define (path-basename path)
-      (let loop ((i (- (string-length path) 1)))
-        (if (< i 0)
-            path
-            (if (string=? (substring path i (+ i 1)) "/")
-                (substring path (+ i 1) (string-length path))
-                (loop (- i 1))))))
-
-    (define (path-extension path)
-      (let loop ((i (- (string-length path) 1)))
-        (if (< i 0)
-            ""
-            (if (string=? (substring path i (+ i 1)) ".")
-                (substring path i (string-length path))
-                (if (string=? (substring path i (+ i 1)) "/")
-                    ""
-                    (loop (- i 1)))))))))
+                ""
+                (loop (- i 1)))))))

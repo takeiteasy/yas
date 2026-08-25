@@ -1,47 +1,44 @@
-(define-library (yas vector)
-  (import (yas base))
-  (export
-    make-vector vector-ref vector-set! vector-length vector-append vector?
-    vector-map vector-for-each vector->list list->vector vector-fold)
-  (begin
-    (define (list->vector lst)
-      (let ((len (length lst)))
-        (let ((vec (make-vector len)))
-          (let loop ((i 0) (l lst))
-            (if (< i len)
-                (begin
-                  (vector-set! vec i (car l))
-                  (loop (+ i 1) (cdr l)))
-                vec)))))
+;; yas/vector - vector helpers layered over the C builtins.
+;; Base is provided automatically in every module env.
 
-    (define (vector->list vec)
-      (let ((len (vector-length vec)))
-        (let loop ((i (- len 1)) (acc nil))
-          (if (< i 0)
-              acc
-              (loop (- i 1) (cons (vector-ref vec i) acc))))))
+(define (list->vector lst)
+  (let ((len (length lst)))
+    (let ((vec (make-vector len)))
+      (let loop ((i 0) (l lst))
+        (if (< i len)
+            (begin
+              (vector-set! vec i (car l))
+              (loop (+ i 1) (cdr l)))
+            vec)))))
 
-    (define (vector-map proc vec)
-      (let ((len (vector-length vec)))
-        (let ((new-vec (make-vector len)))
-          (let loop ((i 0))
-            (if (< i len)
-                (begin
-                  (vector-set! new-vec i (proc (vector-ref vec i)))
-                  (loop (+ i 1)))
-                new-vec)))))
+(define (vector->list vec)
+  (let ((len (vector-length vec)))
+    (let loop ((i (- len 1)) (acc nil))
+      (if (< i 0)
+          acc
+          (loop (- i 1) (cons (vector-ref vec i) acc))))))
 
-    (define (vector-for-each proc vec)
-      (let ((len (vector-length vec)))
-        (let loop ((i 0))
-          (if (< i len)
-              (begin
-                (proc (vector-ref vec i))
-                (loop (+ i 1)))))))
+(define (vector-map proc vec)
+  (let ((len (vector-length vec)))
+    (let ((new-vec (make-vector len)))
+      (let loop ((i 0))
+        (if (< i len)
+            (begin
+              (vector-set! new-vec i (proc (vector-ref vec i)))
+              (loop (+ i 1)))
+            new-vec)))))
 
-    (define (vector-fold proc init vec)
-      (let ((len (vector-length vec)))
-        (let loop ((i 0) (acc init))
-          (if (< i len)
-              (loop (+ i 1) (proc acc (vector-ref vec i)))
-              acc))))))
+(define (vector-for-each proc vec)
+  (let ((len (vector-length vec)))
+    (let loop ((i 0))
+      (if (< i len)
+          (begin
+            (proc (vector-ref vec i))
+            (loop (+ i 1)))))))
+
+(define (vector-fold proc init vec)
+  (let ((len (vector-length vec)))
+    (let loop ((i 0) (acc init))
+      (if (< i len)
+          (loop (+ i 1) (proc acc (vector-ref vec i)))
+          acc))))

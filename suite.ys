@@ -752,6 +752,34 @@
   (check (try (try (throw 'x) (catch ((e) 'bad))) (catch e e))
          "Type error"))
 
+;; #69: a CATCH predicate that fails used to drag the dispatched value
+;; outward behind its own error - the outer handler received the inner
+;; throw's stale value instead of anything describing the pred's failure.
+;; The evaluator now dispatches from a detached snapshot and only restores
+;; it on unhandled passthrough, so whatever happens inside the pred owns
+;; the exception state exclusively.
+(test "Exceptions: predicate failures report themselves, not the dispatched value (#69)"
+  ;; Code-only pred failure: ((IF) E) trips IF's arity check, nothing
+  ;; raises explicitly - the outer catch must see the ARGS message.
+  (check (try (try (throw 'x) (catch (e (if)) 'never)) (catch e e))
+         "Argument error")
+  ;; Explicit raise inside the pred replaces the value outright - the
+  ;; unbound-symbol path installs its own fresh object. (Message text
+  ;; only: the `type-error` tag is C-built and stays lowercase, so a
+  ;; quoted list can't match it.)
+  (check (car (cdr (try (try (throw 'x) (catch (e nope-unbound-sym) 'never)) (catch e e))))
+         "Symbol not bound: NOPE-UNBOUND-SYM")
+  ;; A pred rethrowing the caught value still delivers it - the rethrow is
+  ;; a legitimate raise, not staleness.
+  (check (try (try (throw 'x) (catch (e (throw e)) 'never)) (catch e e))
+         'X)
+  ;; Declined preds keep the value alive for later clauses (unchanged by
+  ;; #69, pinned here because the mechanism moved out from under them).
+  (check (try (throw 'a)
+            (catch (e (lambda (x) nil)) 'declined)
+            (catch (e (lambda (x) (eq? x 'a))) 'a-branch))
+         'A-BRANCH))
+
 ;; #64: a macro call site now caches its expansion instead of re-running
 ;; the macro's closure on every evaluation. Pin correctness for exactly
 ;; the case this targets - the same source call site evaluated many

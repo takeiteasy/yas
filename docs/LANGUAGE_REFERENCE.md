@@ -112,7 +112,11 @@ spines, arity problems - synthesize a message string such as
 once a clause matches, the value is delivered to that clause alone, so a
 later, unrelated failure can't inherit it, while an uncaught throw still
 carries its value outward through nested `try`s to whichever handler (or
-the top level) eventually catches it.
+the top level) eventually catches it. A clause whose predicate declines
+passes the value on to later clauses untouched; a predicate that itself
+fails propagates its own failure instead - an explicit raise inside the
+pred replaces the value outright, and a code-only pred failure surfaces
+as its own synthesized message.
 
 ## Exiting
 

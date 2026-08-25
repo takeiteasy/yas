@@ -1101,16 +1101,37 @@ static int eval_vm(YasAtom expr, YasAtom env, YasAtom *result, struct EvalRoot *
                     err = yas_eval_expr(try_expr, env, result);
 
                     if (err != YAS_ERROR_OK) {
-                        /* Exception thrown or runtime error */
-                        if (yas_nilp(yas_ctx_exception)) {
-                            /* Convert code to exception string if not already
-                             * set. A non-nil yas_ctx_exception here always
-                             * belongs to THIS failure: explicit raises set it
-                             * immediately before returning their error code,
-                             * and matched CATCH clauses clear it once delivered
-                             * (#65), so a stale value from an earlier, already-
-                             * handled error can no longer be picked up by a
-                             * later code-only failure (SYNTAX/ARGS/TYPE). */
+                        /* Exception thrown or runtime error.
+                         *
+                         * Dispatch model (#65/#69): detach the pending
+                         * exception from the global for the whole clause
+                         * walk. Clauses bind from the local `pending`
+                         * snapshot and the global stays nil throughout, so
+                         * anything raised while evaluating a predicate or a
+                         * catch body installs itself unambiguously as the
+                         * global's new content - it can neither be confused
+                         * with the value being dispatched nor leave that
+                         * value stale behind a code-only failure (#69's
+                         * pred_err corner). The snapshot goes back to the
+                         * global only if this TRY finishes without any
+                         * clause handling the error: uncaught errors must
+                         * keep carrying their object outward, while every
+                         * superseding or malformed delivery abandons it. */
+                        YasAtom pending = yas_ctx_exception;
+                        yas_clear_exception();
+                        /* Rooted before anything below can allocate: once
+                         * detached above, `pending` is referenced only by
+                         * this slot until a clause's catch_env takes over
+                         * (the enclosing TRY form's own spine keeps the
+                         * clause cells alive via expr, but nothing else
+                         * references the exception value itself). */
+                        yas_gc_push_root(&pending);
+
+                        if (yas_nilp(pending)) {
+                            /* Code-only failure (SYNTAX/ARGS/TYPE/UNBOUND
+                             * with no explicit object installed by the
+                             * raiser): convert the code to a message string
+                             * for the clauses to bind. */
                             const char *msg = "Unknown Error";
                             if (err == YAS_ERROR_UNBOUND)
                                 msg = "Symbol not bound";
@@ -1121,7 +1142,7 @@ static int eval_vm(YasAtom expr, YasAtom env, YasAtom *result, struct EvalRoot *
                             else if (err == YAS_ERROR_SYNTAX)
                                 msg = "Syntax error";
 
-                            yas_ctx_exception = yas_make_string(msg);
+                            pending = yas_make_string(msg);
                         }
                         /* Exception thrown */
                         int caught = 0;
@@ -1140,12 +1161,12 @@ static int eval_vm(YasAtom expr, YasAtom env, YasAtom *result, struct EvalRoot *
                                 YasAtom catch_args = yas_cdr(clause);
                                 if (yas_nilp(catch_args)) {
                                     /* Malformed clause: delivery of the
-                                     * pending exception failed structurally
-                                     * (#65), so drop it - the SYNTAX error
+                                     * dispatched value failed structurally,
+                                     * so abandon it (#65) - the SYNTAX error
                                      * leaving this TRY describes itself via
-                                     * the synthesis branch above rather than
-                                     * carrying the abandoned exception. */
-                                    yas_clear_exception();
+                                     * an outer synthesis instead of carrying
+                                     * the abandoned value. */
+                                    pending = yas_nil;
                                     err = YAS_ERROR_SYNTAX;
                                     break;
                                 }
@@ -1162,38 +1183,39 @@ static int eval_vm(YasAtom expr, YasAtom env, YasAtom *result, struct EvalRoot *
                                 } else if (var_decl.type == YAS_ATOM_TYPE_PAIR) {
                                     if (yas_nilp(var_decl) || yas_nilp(yas_cdr(var_decl))) {
                                         /* Same delivery-abandoned case as
-                                         * the catch_args check above (#65). */
-                                        yas_clear_exception();
+                                         * the catch_args check above. */
+                                        pending = yas_nil;
                                         err = YAS_ERROR_SYNTAX;
                                         break;
                                     }
                                     var = yas_car(var_decl);
                                     pred = yas_car(yas_cdr(var_decl));
                                     if (var.type != YAS_ATOM_TYPE_SYMBOL) {
-                                        yas_clear_exception();
+                                        pending = yas_nil;
                                         err = YAS_ERROR_TYPE;
                                         break;
                                     } /* Var must be symbol */
                                 } else {
-                                    yas_clear_exception();
+                                    pending = yas_nil;
                                     err = YAS_ERROR_SYNTAX;
                                     break;
                                 }
 
-                                /* Bind exception for predicate check and body.
-                                 * catch_env is a fresh yas_env_create(env) that
-                                 * nothing else references (env's own binding
-                                 * list doesn't point back at its children), so
-                                 * it must stay rooted for as long as it's used
+                                /* Bind the dispatched value for predicate
+                                 * check and body. catch_env is a fresh
+                                 * yas_env_create(env) that nothing else
+                                 * references (env's own binding list doesn't
+                                 * point back at its children), so it must
+                                 * stay rooted for as long as it's used
                                  * below - through the predicate eval and the
-                                 * catch body loop, both of which can trigger a
-                                 * nested GC step. Popped on every exit from
+                                 * catch body loop, both of which can trigger
+                                 * a nested GC step. Popped on every exit from
                                  * this clause: the predicate-error break, the
                                  * matched-and-executed break, and the
                                  * not-matched fall-through to the next
                                  * clause. */
                                 YasAtom catch_env = yas_env_create(env);
-                                yas_env_define(catch_env, var, yas_ctx_exception);
+                                yas_env_define(catch_env, var, pending);
                                 yas_gc_push_root(&catch_env);
 
                                 int match = 1;
@@ -1204,9 +1226,19 @@ static int eval_vm(YasAtom expr, YasAtom env, YasAtom *result, struct EvalRoot *
                                     YasError pred_err = yas_eval_expr(pred_expr, catch_env, &pred_res);
 
                                     if (pred_err) {
-                                        /* Error evaluating predicate? Propagate it unless it's an exception? */
-                                        /* If predicate throws, we probably abort catch logic and propagate that error
-                                         */
+                                        /* Error evaluating predicate?
+                                         * Propagate it - and abandon the
+                                         * dispatched value (#69): whatever
+                                         * went wrong inside the pred has
+                                         * already installed its own exception
+                                         * object if it raised explicitly (a
+                                         * throw, an unbound symbol), and left
+                                         * the global nil if it failed
+                                         * code-only, so the outward error
+                                         * always describes the pred's own
+                                         * failure rather than dragging the
+                                         * abandoned value along. */
+                                        pending = yas_nil;
                                         err = pred_err;
                                         yas_gc_pop_roots(1); /* catch_env */
                                         break;
@@ -1217,20 +1249,6 @@ static int eval_vm(YasAtom expr, YasAtom env, YasAtom *result, struct EvalRoot *
                                 }
 
                                 if (match) {
-                                    /* This clause takes ownership of the
-                                     * exception (#65): it was already bound
-                                     * into the rooted catch_env above, so the
-                                     * global can be cleared before the body
-                                     * runs. Clearing here (not at bind time)
-                                     * keeps the value live for later clauses
-                                     * when a predicate declines the match,
-                                     * and clearing before (not after) the
-                                     * body means an error raised by the body
-                                     * - whether a fresh explicit raise or a
-                                     * code-only failure - is what outer
-                                     * handlers see, never this consumed one. */
-                                    yas_clear_exception();
-
                                     /* Execute body. last_res carries the
                                      * previous body form's value across the
                                      * next form's yas_eval_expr() - unrooted
@@ -1249,16 +1267,31 @@ static int eval_vm(YasAtom expr, YasAtom env, YasAtom *result, struct EvalRoot *
                                     *result = last_res;
                                     yas_gc_pop_roots(2); /* last_res, catch_env */
                                     caught = 1;
-                                    (void)caught; /* suppress warning */
                                     break;
                                 } else {
-                                    /* Restore exception state for next iteration */
+                                    /* Predicate declined - keep `pending`
+                                     * intact for the next clause, re-arming
+                                     * the dispatched error code. */
                                     err = YAS_ERROR_EXCEPTION;
                                     yas_gc_pop_roots(1); /* catch_env */
                                 }
                             }
                             p = yas_cdr(p);
                         }
+
+                        /* Unhandled passthrough: put the dispatched value
+                         * back so the error leaves this TRY carrying the
+                         * same object it arrived with (nested-TRY
+                         * passthrough). Handled-or-superseded exits nil'd
+                         * `pending` above - the guard keeps their hands off
+                         * the global, which by then holds either the
+                         * superseding raise's own fresh object or nil (for
+                         * an outward code-only synthesis). All paths
+                         * through the clause walk converge on this single
+                         * pop. */
+                        if (!caught && !yas_nilp(pending))
+                            yas_ctx_exception = pending;
+                        yas_gc_pop_roots(1); /* pending */
 
                         /* If not caught, err remains YAS_ERROR_EXCEPTION (or Syntax error from loop break) */
                     }

@@ -311,6 +311,12 @@ struct YasEnv {
     struct YasAtom *vals;
     size_t count;
     size_t capacity;
+    /* Module-boundary marker (module.c): set on every module env -
+     * file-based and native, including yas/base. yas_env_set() treats
+     * the innermost such frame reached on the parent walk as terminal:
+     * an inherited name's binding is shadowed there instead of writing
+     * through to the one shared base frame. */
+    unsigned char module_boundary;
 };
 
 /* eval.c's explicit control-stack frame (see docs/ARCHITECTURE.md
@@ -573,6 +579,24 @@ int yas_builtin_vec_set(YasAtom args, YasAtom *result);
 int yas_builtin_mat4_multiply(YasAtom args, YasAtom *result);
 int yas_builtin_mat4_transpose(YasAtom args, YasAtom *result);
 int yas_builtin_mat4_inverse(YasAtom args, YasAtom *result);
+
+/* Scalar math builtins (libm) */
+int yas_builtin_asin(YasAtom args, YasAtom *result);
+int yas_builtin_acos(YasAtom args, YasAtom *result);
+int yas_builtin_atan(YasAtom args, YasAtom *result);
+int yas_builtin_atan2(YasAtom args, YasAtom *result);
+int yas_builtin_log(YasAtom args, YasAtom *result);
+int yas_builtin_log10(YasAtom args, YasAtom *result);
+int yas_builtin_log2(YasAtom args, YasAtom *result);
+int yas_builtin_sqrt(YasAtom args, YasAtom *result);
+int yas_builtin_sin(YasAtom args, YasAtom *result);
+int yas_builtin_cos(YasAtom args, YasAtom *result);
+int yas_builtin_tan(YasAtom args, YasAtom *result);
+int yas_builtin_exp(YasAtom args, YasAtom *result);
+int yas_builtin_pow(YasAtom args, YasAtom *result);
+int yas_builtin_floor(YasAtom args, YasAtom *result);
+int yas_builtin_ceil(YasAtom args, YasAtom *result);
+int yas_builtin_round(YasAtom args, YasAtom *result);
 
 /* Output builtins */
 int yas_builtin_print(YasAtom args, YasAtom *result);

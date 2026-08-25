@@ -1,4 +1,5 @@
 #include "yas.h"
+#include <math.h>
 #include <string.h>
 #include <stdio.h>
 
@@ -1163,4 +1164,135 @@ int yas_builtin_number_to_string(YasAtom args, YasAtom *result)
     int r = yas_builtin_number_to_string_impl(args, result);
     return r;
 }
+
+
+/* ============================================================
+ * Scalar Math Builtins (libm)
+ * ============================================================ */
+
+/* All functions compute in double and return floats. Domain errors are
+ * pure IEEE: (log 0) -> -inf, (asin 2) -> nan, (atan2 0 0) -> 0. */
+
+static double num_to_double(YasAtom a)
+{
+    return (a.type == YAS_ATOM_TYPE_INTEGER) ? (double)a.value.integer : a.value.floatval;
+}
+
+typedef double (*yas_math_fn1)(double);
+typedef double (*yas_math_fn2)(double, double);
+
+static int yas_math_unary(const char *name, yas_math_fn1 fn, YasAtom args, YasAtom *result)
+{
+    char msg[128];
+
+    if (yas_nilp(args) || !yas_nilp(yas_cdr(args))) {
+        snprintf(msg, sizeof(msg), "%s: expected 1 argument", name);
+        return yas_raise_error("args-error", msg);
+    }
+
+    YasAtom a = yas_car(args);
+    if (!is_numeric(a.type)) {
+        snprintf(msg, sizeof(msg), "%s: argument must be a number", name);
+        return yas_raise_error("type-error", msg);
+    }
+
+    *result = yas_make_float(fn(num_to_double(a)));
+    return YAS_ERROR_OK;
+}
+
+static int yas_math_binary(const char *name, yas_math_fn2 fn, YasAtom args, YasAtom *result)
+{
+    char msg[128];
+
+    if (yas_nilp(args) || yas_nilp(yas_cdr(args)) || !yas_nilp(yas_cdr(yas_cdr(args)))) {
+        snprintf(msg, sizeof(msg), "%s: expected 2 arguments", name);
+        return yas_raise_error("args-error", msg);
+    }
+
+    YasAtom a = yas_car(args);
+    YasAtom b = yas_car(yas_cdr(args));
+    if (!is_numeric(a.type) || !is_numeric(b.type)) {
+        snprintf(msg, sizeof(msg), "%s: arguments must be numbers", name);
+        return yas_raise_error("type-error", msg);
+    }
+
+    *result = yas_make_float(fn(num_to_double(a), num_to_double(b)));
+    return YAS_ERROR_OK;
+}
+
+/* Rounding keeps integers integer ((floor 3) => 3) and maps floats to
+ * integral floats ((floor 3.7) => 3.0), so float math stays float and
+ * integer results stay usable as indices. */
+static int yas_math_rounding(const char *name, yas_math_fn1 fn, YasAtom args, YasAtom *result)
+{
+    char msg[128];
+
+    if (yas_nilp(args) || !yas_nilp(yas_cdr(args))) {
+        snprintf(msg, sizeof(msg), "%s: expected 1 argument", name);
+        return yas_raise_error("args-error", msg);
+    }
+
+    YasAtom a = yas_car(args);
+    if (a.type == YAS_ATOM_TYPE_INTEGER) {
+        *result = a;
+        return YAS_ERROR_OK;
+    }
+    if (a.type != YAS_ATOM_TYPE_FLOAT) {
+        snprintf(msg, sizeof(msg), "%s: argument must be a number", name);
+        return yas_raise_error("type-error", msg);
+    }
+
+    *result = yas_make_float(fn(a.value.floatval));
+    return YAS_ERROR_OK;
+}
+
+#define YAS_MATH_UNARY(c_name, lisp_name)                                                     \
+    static int yas_builtin_##c_name##_impl(YasAtom args, YasAtom *result)                     \
+    {                                                                                         \
+        return yas_math_unary(#lisp_name, c_name, args, result);                              \
+    }                                                                                         \
+    int yas_builtin_##c_name(YasAtom args, YasAtom *result)                                   \
+    {                                                                                         \
+        int r = yas_builtin_##c_name##_impl(args, result);                                    \
+        return r;                                                                             \
+    }
+
+#define YAS_MATH_BINARY(c_name, lisp_name)                                                    \
+    static int yas_builtin_##c_name##_impl(YasAtom args, YasAtom *result)                     \
+    {                                                                                         \
+        return yas_math_binary(#lisp_name, c_name, args, result);                             \
+    }                                                                                         \
+    int yas_builtin_##c_name(YasAtom args, YasAtom *result)                                   \
+    {                                                                                         \
+        int r = yas_builtin_##c_name##_impl(args, result);                                    \
+        return r;                                                                             \
+    }
+
+#define YAS_MATH_ROUNDING(c_name, libm_fn, lisp_name)                                         \
+    static int yas_builtin_##c_name##_impl(YasAtom args, YasAtom *result)                     \
+    {                                                                                         \
+        return yas_math_rounding(#lisp_name, libm_fn, args, result);                          \
+    }                                                                                         \
+    int yas_builtin_##c_name(YasAtom args, YasAtom *result)                                   \
+    {                                                                                         \
+        int r = yas_builtin_##c_name##_impl(args, result);                                    \
+        return r;                                                                             \
+    }
+
+YAS_MATH_UNARY(asin, asin)
+YAS_MATH_UNARY(acos, acos)
+YAS_MATH_UNARY(atan, atan)
+YAS_MATH_BINARY(atan2, atan2)
+YAS_MATH_UNARY(log, log)
+YAS_MATH_UNARY(log10, log10)
+YAS_MATH_UNARY(log2, log2)
+YAS_MATH_UNARY(sqrt, sqrt)
+YAS_MATH_UNARY(sin, sin)
+YAS_MATH_UNARY(cos, cos)
+YAS_MATH_UNARY(tan, tan)
+YAS_MATH_UNARY(exp, exp)
+YAS_MATH_BINARY(pow, pow)
+YAS_MATH_ROUNDING(floor, floor, floor)
+YAS_MATH_ROUNDING(ceil, ceil, ceil)
+YAS_MATH_ROUNDING(round, round, round)
 

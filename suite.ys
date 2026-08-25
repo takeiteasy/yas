@@ -14,6 +14,54 @@
   (check (/ 10 2) 5)
   (check (modulo 10 3) 1))
 
+;; Golden values for the libm-backed scalar math builtins (yas/math).
+;; Float results go through exact equal?/=/comparison, so tolerances are
+;; asserted as booleans.
+(define (nan? x) (and (float? x) (not (= x x))))
+
+(test "Math"
+  ;; Inverse trig / logs
+  (check (< (abs (- (asin 0.5) 0.5235987755982988)) 1.0e-12) t)
+  (check (< (abs (- (acos 0.5) 1.0471975511965979)) 1.0e-12) t)
+  (check (< (abs (- (atan 1) 0.7853981633974483)) 1.0e-12) t)
+  (check (< (abs (- (atan2 1 1) 0.7853981633974483)) 1.0e-12) t)
+  (check (< (abs (- (log (exp 1)) 1)) 1.0e-12) t)
+  (check (< (abs (- (log2 8) 3)) 1.0e-12) t)
+  (check (< (abs (- (log10 1000.0) 3)) 1.0e-12) t)
+  (check (< (abs (- (sqrt 2) 1.4142135623730951)) 1.0e-12) t)
+  (check (< (abs (- (pow 2 0.5) (sqrt 2))) 1.0e-12) t)
+  ;; Trig round-trips
+  (check (< (abs (- (sin 0) 0)) 1.0e-12) t)
+  (check (< (abs (- (cos 0) 1)) 1.0e-12) t)
+  (check (< (abs (+ (sin 1.234) (sin (- 1.234)))) 1.0e-12) t)
+  (check (< (abs (- (* 2 (sin 0.617) (cos 0.617)) (sin 1.234))) 1.0e-12) t)
+  (check (< (abs (- (tan 0.7853981633974483) 1)) 1.0e-12) t)
+  ;; Rounding: integers stay integers, floats stay floats
+  (check (floor 3) 3)
+  (check (ceil 3) 3)
+  (check (round 3) 3)
+  (check (integer? (floor 3)) t)
+  (check (floor 3.7) 3)
+  (check (floor -3.2) -4)
+  (check (ceil 3.2) 4)
+  (check (ceil -3.7) -3)
+  (check (round 3.5) 4)
+  (check (round 2.4) 2)
+  (check (round -2.5) -3)
+  (check (float? (floor 3.7)) t)
+  ;; IEEE domain results, not errors
+  (check (< (log 0) -1.0e308) t)
+  (check (< (log 0.0) -1.0e308) t)
+  (check (nan? (asin 2)) t)
+  (check (nan? (acos 2)) t)
+  (check (nan? (sqrt -1)) t)
+  (check (atan2 0 0) 0)
+  (check (= (atan2 0 0) 0.0) t)
+  ;; Argument/type errors still raise
+  (check (try (asin) (catch e t)) t)
+  (check (try (asin "x") (catch e t)) t)
+  (check (try (atan2 1) (catch e t)) t))
+
 (test "Lists"
   (check (car '(1 2)) 1)
   (check (cdr '(1 2)) '(2))

@@ -55,16 +55,6 @@
   "Clamp a value between lo and hi"
   (min hi (max lo x)))
 
-;; Placeholder math functions - these would need C builtins for efficiency
-;; For now, use Taylor series approximations or scheme implementations
-
-(define (sqrt x)
-  "Square root using Newton-Raphson"
-  (if (= x 0) 0
-      (let loop ((guess 1.0) (n 10))
-        (if (= n 0) guess
-            (loop (* 0.5 (+ guess (/ x guess))) (- n 1))))))
-
 (define (abs x) (if (< x 0) (- x) x))
 
 (define (even? x) (= (modulo x 2) 0))
@@ -86,47 +76,15 @@
 (define (zero? x) (= x 0))
 (define (modulo a b) (remainder a b))
 
-(define (floor x) 
-  "Floor (integer part)"
-  (if (< x 0)
-      (- (- x (- x (quotient (- x) 1))))
-      (quotient x 1)))
-
-(define (ceil x) (- 0 (floor (- 0 x))))
-
-(define (round x) (floor (+ x 0.5)))
-
 ;; number? predicate using builtin integer? and float?
 (define (number? x)
   "Check if x is a number (integer or float)"
   (or (integer? x) (float? x)))
 
-;; Trigonometric functions (Taylor series approximations)
-(define (sin x)
-  "Sine using Taylor series"
-  (let ((x (- x (* (floor (/ x *tau*)) *tau*)))) ; Normalize to [0, 2*pi*)
-    (let loop ((term x) (sum x) (n 1))
-      (if (> n 10) sum
-          (let ((next (* (- term) (/ (* x x) (* (+ (* 2 n) 1) (* 2 n))))))
-            (loop next (+ sum next) (+ n 1)))))))
-
-(define (cos x) (sin (+ x (/ *pi* 2))))
-(define (tan x) (/ (sin x) (cos x)))
-
-;; Inverse trig would need more complex implementations
-(define (asin x) nil)  ; Placeholder
-(define (acos x) nil)  ; Placeholder
-(define (atan x) nil)  ; Placeholder
-(define (atan2 y x) nil)  ; Placeholder
-
-(define (pow base exp)
-  "Power function (integer exponent only)"
-  (if (= exp 0) 1
-      (if (< exp 0) (/ 1 (pow base (- exp)))
-          (* base (pow base (- exp 1))))))
-
-(define (exp x) (pow *e* (round x)))  ; Approximation
-(define (log x) nil)  ; Placeholder
+;; Trigonometry, exponentials and logs come from libm as yas/math
+;; builtins: sin cos tan asin acos atan atan2 exp log log10 log2 sqrt
+;; pow, plus floor ceil round (integer-preserving). Domain errors are
+;; IEEE results: (log 0) => -inf, (asin 2) => nan, (atan2 0 0) => 0.
 
 ;; Matrix operations
 (define (mat4-translate tx ty tz)

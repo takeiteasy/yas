@@ -391,6 +391,25 @@ static void yas_load_math_library_impl(YasAtom parent_env)
     reg_builtin(env, "MAT4*", yas_builtin_mat4_multiply);
     reg_builtin(env, "MAT4-TRANSPOSE", yas_builtin_mat4_transpose);
     reg_builtin(env, "MAT4-INVERSE", yas_builtin_mat4_inverse);
+
+    /* Scalar math over libm - domain errors are IEEE results (nan/-inf),
+     * not raises; see docs/LANGUAGE_REFERENCE.md's numeric section. */
+    reg_builtin(env, "ASIN", yas_builtin_asin);
+    reg_builtin(env, "ACOS", yas_builtin_acos);
+    reg_builtin(env, "ATAN", yas_builtin_atan);
+    reg_builtin(env, "ATAN2", yas_builtin_atan2);
+    reg_builtin(env, "LOG", yas_builtin_log);
+    reg_builtin(env, "LOG10", yas_builtin_log10);
+    reg_builtin(env, "LOG2", yas_builtin_log2);
+    reg_builtin(env, "SQRT", yas_builtin_sqrt);
+    reg_builtin(env, "SIN", yas_builtin_sin);
+    reg_builtin(env, "COS", yas_builtin_cos);
+    reg_builtin(env, "TAN", yas_builtin_tan);
+    reg_builtin(env, "EXP", yas_builtin_exp);
+    reg_builtin(env, "POW", yas_builtin_pow);
+    reg_builtin(env, "FLOOR", yas_builtin_floor);
+    reg_builtin(env, "CEIL", yas_builtin_ceil);
+    reg_builtin(env, "ROUND", yas_builtin_round);
 }
 
 void yas_load_math_library(YasAtom parent_env)

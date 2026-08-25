@@ -252,11 +252,16 @@ is resolved by whichever import ran last; use `prefix`, `rename`, or
   vec4/mat4 mat4-identity mat4* mat4-inverse mat4-transpose vec-x/y/z/w
   vec-ref vec-set! vec-dot vec-cross vec-length vec-normalize vec-lerp
   vec-distance radians->degrees degrees->radians sqrt abs floor ceil
-  round sin cos tan asin acos atan atan2 pow exp log clamp gcd lcm min
-  max negative? odd? positive? quotient remainder zero? modulo even?
-  number? mat4-translate/scale/rotate-x/rotate-y/rotate-z mat4-ortho
-  mat4-perspective mat4-look-at`. Beyond vec/mat, these are interpreted
-  Lisp, not C builtins (see [ARCHITECTURE.md](ARCHITECTURE.md)).
+  round sin cos tan asin acos atan atan2 pow exp log log10 log2 clamp
+  gcd lcm min max negative? odd? positive? quotient remainder zero?
+  modulo even? number? mat4-translate/scale/rotate-x/rotate-y/rotate-z
+  mat4-ortho mat4-perspective mat4-look-at`. All scalar math is
+  computed by libm in double precision and returns floats; only the
+  rounding trio keeps integers integer (`(floor 3)` is `3`). Domain
+  errors are IEEE results, not exceptions: `(log 0)` is `-inf`,
+  `(asin 2)` is `nan`, and `(atan2 0 0)` is `0`. Beyond vec/mat, the
+  remaining wrappers (abs/gcd/clamp/mat4-* builders) are interpreted
+  Lisp over these C builtins (see [ARCHITECTURE.md](ARCHITECTURE.md)).
 - **`yas/format`** - `format`, a `~`-directive string formatter (see
   [Format directives](#format-directives)).
 - **`yas/test`** - `check test run-tests` and supporting state; see

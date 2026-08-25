@@ -187,7 +187,7 @@ static void serialize_write(YasAtom atom, char *buf, size_t *pos)
     }
 }
 
-int yas_builtin_serialize(YasAtom args, YasAtom *result)
+static int yas_builtin_serialize_impl(YasAtom args, YasAtom *result)
 {
     if (yas_nilp(args) || !yas_nilp(yas_cdr(args)))
         return YAS_ERROR_ARGS;
@@ -207,6 +207,15 @@ int yas_builtin_serialize(YasAtom args, YasAtom *result)
     free(buf);
     return YAS_ERROR_OK;
 }
+
+int yas_builtin_serialize(YasAtom args, YasAtom *result)
+{
+    yas_gil_enter();
+    int r = yas_builtin_serialize_impl(args, result);
+    yas_gil_leave();
+    return r;
+}
+
 
 /* Helper to convert Lists to Hash Tables recursively */
 static YasAtom lisd_convert(YasAtom atom)
@@ -251,7 +260,7 @@ static YasAtom lisd_convert(YasAtom atom)
     return atom;
 }
 
-int yas_builtin_deserialize(YasAtom args, YasAtom *result)
+static int yas_builtin_deserialize_impl(YasAtom args, YasAtom *result)
 {
     if (yas_nilp(args) || !yas_nilp(yas_cdr(args)))
         return YAS_ERROR_ARGS;
@@ -281,8 +290,17 @@ int yas_builtin_deserialize(YasAtom args, YasAtom *result)
     return YAS_ERROR_OK;
 }
 
+int yas_builtin_deserialize(YasAtom args, YasAtom *result)
+{
+    yas_gil_enter();
+    int r = yas_builtin_deserialize_impl(args, result);
+    yas_gil_leave();
+    return r;
+}
+
+
 /* (read-string str) - Parse an S-expression from a string, returning raw result (no conversion) */
-int yas_builtin_read_string(YasAtom args, YasAtom *result)
+static int yas_builtin_read_string_impl(YasAtom args, YasAtom *result)
 {
     if (yas_nilp(args) || !yas_nilp(yas_cdr(args)))
         return YAS_ERROR_ARGS;
@@ -307,3 +325,12 @@ int yas_builtin_read_string(YasAtom args, YasAtom *result)
 
     return YAS_ERROR_OK;
 }
+
+int yas_builtin_read_string(YasAtom args, YasAtom *result)
+{
+    yas_gil_enter();
+    int r = yas_builtin_read_string_impl(args, result);
+    yas_gil_leave();
+    return r;
+}
+

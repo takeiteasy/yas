@@ -18,21 +18,47 @@
  * Library Loading
  * ============================================================ */
 
-void *yas_ffi_load_library(const char *path)
+static void * yas_ffi_load_library_impl(const char *path)
 {
     return dlopen(path, RTLD_LAZY);
 }
 
-void yas_ffi_close_library(void *handle)
+void * yas_ffi_load_library(const char *path)
+{
+    yas_gil_enter();
+    void * r = yas_ffi_load_library_impl(path);
+    yas_gil_leave();
+    return r;
+}
+
+
+static void yas_ffi_close_library_impl(void *handle)
 {
     if (handle)
         dlclose(handle);
 }
 
-void *yas_ffi_get_symbol(void *handle, const char *name)
+void yas_ffi_close_library(void *handle)
+{
+    yas_gil_enter();
+    yas_ffi_close_library_impl(handle);
+    yas_gil_leave();
+}
+
+
+static void * yas_ffi_get_symbol_impl(void *handle, const char *name)
 {
     return dlsym(handle, name);
 }
+
+void * yas_ffi_get_symbol(void *handle, const char *name)
+{
+    yas_gil_enter();
+    void * r = yas_ffi_get_symbol_impl(handle, name);
+    yas_gil_leave();
+    return r;
+}
+
 
 /* ============================================================
  * Type Mapping
@@ -113,7 +139,7 @@ static ffi_type *type_to_ffi(YasFFIType t)
 YasFFIStructType *yas_ffi_struct_registry = NULL;
 
 /* Look up a struct type by name */
-YasFFIStructType *yas_ffi_lookup_struct_type(const char *name)
+static YasFFIStructType * yas_ffi_lookup_struct_type_impl(const char *name)
 {
     YasFFIStructType *st = yas_ffi_struct_registry;
     while (st) {
@@ -124,6 +150,15 @@ YasFFIStructType *yas_ffi_lookup_struct_type(const char *name)
     }
     return NULL;
 }
+
+YasFFIStructType * yas_ffi_lookup_struct_type(const char *name)
+{
+    yas_gil_enter();
+    YasFFIStructType * r = yas_ffi_lookup_struct_type_impl(name);
+    yas_gil_leave();
+    return r;
+}
+
 
 /* Resolve a type name (keyword or symbol) to ffi_type and YasFFIType */
 static ffi_type *resolve_type(const char *name, YasFFIType *out_type)
@@ -150,7 +185,7 @@ static ffi_type *resolve_type(const char *name, YasFFIType *out_type)
  * Function Preparation
  * ============================================================ */
 
-struct YasFFIFunction *yas_ffi_prepare(void *fn_ptr, YasAtom ret_type, YasAtom arg_types)
+static struct YasFFIFunction * yas_ffi_prepare_impl(void *fn_ptr, YasAtom ret_type, YasAtom arg_types)
 {
     /* GC-tracked (data.c) like every other heap object - already linked
      * into the unified GC list before this function returns, so on the
@@ -216,6 +251,15 @@ struct YasFFIFunction *yas_ffi_prepare(void *fn_ptr, YasAtom ret_type, YasAtom a
     return fn;
 }
 
+struct YasFFIFunction * yas_ffi_prepare(void *fn_ptr, YasAtom ret_type, YasAtom arg_types)
+{
+    yas_gil_enter();
+    struct YasFFIFunction * r = yas_ffi_prepare_impl(fn_ptr, ret_type, arg_types);
+    yas_gil_leave();
+    return r;
+}
+
+
 /* NOTE: `fn` is GC-tracked (linked into data.c's unified gc_all list at
  * yas_gc_alloc_ffi_function() time). This function is no longer called
  * anywhere internally - data.c's gc_free_object() does this same field
@@ -223,7 +267,7 @@ struct YasFFIFunction *yas_ffi_prepare(void *fn_ptr, YasAtom ret_type, YasAtom a
  * Do NOT call this on a still-linked object: it frees the fields but
  * doesn't unlink `fn` from gc_all, so a later sweep would free() it (and
  * its already-freed fields) again. Kept for API compatibility. */
-void yas_ffi_free_function(struct YasFFIFunction *fn)
+static void yas_ffi_free_function_impl(struct YasFFIFunction *fn)
 {
     if (!fn)
         return;
@@ -236,11 +280,19 @@ void yas_ffi_free_function(struct YasFFIFunction *fn)
     free(fn);
 }
 
+void yas_ffi_free_function(struct YasFFIFunction *fn)
+{
+    yas_gil_enter();
+    yas_ffi_free_function_impl(fn);
+    yas_gil_leave();
+}
+
+
 /* ============================================================
  * Function Calling
  * ============================================================ */
 
-YasAtom yas_ffi_call_function(struct YasFFIFunction *fn, YasAtom args)
+static YasAtom yas_ffi_call_function_impl(struct YasFFIFunction *fn, YasAtom args)
 {
     if (!fn || !fn->cif)
         return yas_nil;
@@ -405,12 +457,21 @@ YasAtom yas_ffi_call_function(struct YasFFIFunction *fn, YasAtom args)
     return result;
 }
 
+YasAtom yas_ffi_call_function(struct YasFFIFunction *fn, YasAtom args)
+{
+    yas_gil_enter();
+    YasAtom r = yas_ffi_call_function_impl(fn, args);
+    yas_gil_leave();
+    return r;
+}
+
+
 /* ============================================================
  * Builtin Functions
  * ============================================================ */
 
 /* (ffi-open path) -> ffi-library */
-int yas_builtin_ffi_open(YasAtom args, YasAtom *result)
+static int yas_builtin_ffi_open_impl(YasAtom args, YasAtom *result)
 {
     if (yas_nilp(args) || yas_car(args).type != YAS_ATOM_TYPE_STRING) {
         return yas_raise_error("type-error", "ffi-open requires a string path");
@@ -428,8 +489,17 @@ int yas_builtin_ffi_open(YasAtom args, YasAtom *result)
     return YAS_ERROR_OK;
 }
 
+int yas_builtin_ffi_open(YasAtom args, YasAtom *result)
+{
+    yas_gil_enter();
+    int r = yas_builtin_ffi_open_impl(args, result);
+    yas_gil_leave();
+    return r;
+}
+
+
 /* (ffi-close lib) -> #t */
-int yas_builtin_ffi_close(YasAtom args, YasAtom *result)
+static int yas_builtin_ffi_close_impl(YasAtom args, YasAtom *result)
 {
     if (yas_nilp(args) || yas_car(args).type != YAS_ATOM_TYPE_FFI_LIBRARY) {
         return yas_raise_error("type-error", "ffi-close requires an ffi-library");
@@ -440,8 +510,17 @@ int yas_builtin_ffi_close(YasAtom args, YasAtom *result)
     return YAS_ERROR_OK;
 }
 
+int yas_builtin_ffi_close(YasAtom args, YasAtom *result)
+{
+    yas_gil_enter();
+    int r = yas_builtin_ffi_close_impl(args, result);
+    yas_gil_leave();
+    return r;
+}
+
+
 /* (ffi-lookup lib name) -> ffi-pointer */
-int yas_builtin_ffi_lookup(YasAtom args, YasAtom *result)
+static int yas_builtin_ffi_lookup_impl(YasAtom args, YasAtom *result)
 {
     if (yas_nilp(args) || yas_car(args).type != YAS_ATOM_TYPE_FFI_LIBRARY) {
         return yas_raise_error("type-error", "ffi-lookup requires an ffi-library");
@@ -463,8 +542,17 @@ int yas_builtin_ffi_lookup(YasAtom args, YasAtom *result)
     return YAS_ERROR_OK;
 }
 
+int yas_builtin_ffi_lookup(YasAtom args, YasAtom *result)
+{
+    yas_gil_enter();
+    int r = yas_builtin_ffi_lookup_impl(args, result);
+    yas_gil_leave();
+    return r;
+}
+
+
 /* (ffi-define ptr ret-type (arg-types...)) -> ffi-function */
-int yas_builtin_ffi_define(YasAtom args, YasAtom *result)
+static int yas_builtin_ffi_define_impl(YasAtom args, YasAtom *result)
 {
     if (yas_nilp(args) || yas_car(args).type != YAS_ATOM_TYPE_FFI_POINTER) {
         return yas_raise_error("type-error", "ffi-define requires an ffi-pointer");
@@ -488,8 +576,17 @@ int yas_builtin_ffi_define(YasAtom args, YasAtom *result)
     return YAS_ERROR_OK;
 }
 
+int yas_builtin_ffi_define(YasAtom args, YasAtom *result)
+{
+    yas_gil_enter();
+    int r = yas_builtin_ffi_define_impl(args, result);
+    yas_gil_leave();
+    return r;
+}
+
+
 /* (ffi-call fn args...) -> result */
-int yas_builtin_ffi_call(YasAtom args, YasAtom *result)
+static int yas_builtin_ffi_call_impl(YasAtom args, YasAtom *result)
 {
     if (yas_nilp(args) || yas_car(args).type != YAS_ATOM_TYPE_FFI_FUNCTION) {
         return yas_raise_error("type-error", "ffi-call requires an ffi-function");
@@ -500,8 +597,17 @@ int yas_builtin_ffi_call(YasAtom args, YasAtom *result)
     return YAS_ERROR_OK;
 }
 
+int yas_builtin_ffi_call(YasAtom args, YasAtom *result)
+{
+    yas_gil_enter();
+    int r = yas_builtin_ffi_call_impl(args, result);
+    yas_gil_leave();
+    return r;
+}
+
+
 /* (ffi-malloc size) -> ffi-pointer */
-int yas_builtin_ffi_malloc(YasAtom args, YasAtom *result)
+static int yas_builtin_ffi_malloc_impl(YasAtom args, YasAtom *result)
 {
     if (yas_nilp(args) || yas_car(args).type != YAS_ATOM_TYPE_INTEGER) {
         return yas_raise_error("type-error", "ffi-malloc requires an integer size");
@@ -515,8 +621,17 @@ int yas_builtin_ffi_malloc(YasAtom args, YasAtom *result)
     return YAS_ERROR_OK;
 }
 
+int yas_builtin_ffi_malloc(YasAtom args, YasAtom *result)
+{
+    yas_gil_enter();
+    int r = yas_builtin_ffi_malloc_impl(args, result);
+    yas_gil_leave();
+    return r;
+}
+
+
 /* (ffi-free ptr) -> #t */
-int yas_builtin_ffi_free(YasAtom args, YasAtom *result)
+static int yas_builtin_ffi_free_impl(YasAtom args, YasAtom *result)
 {
     if (yas_nilp(args) || yas_car(args).type != YAS_ATOM_TYPE_FFI_POINTER) {
         return yas_raise_error("type-error", "ffi-free requires an ffi-pointer");
@@ -527,8 +642,17 @@ int yas_builtin_ffi_free(YasAtom args, YasAtom *result)
     return YAS_ERROR_OK;
 }
 
+int yas_builtin_ffi_free(YasAtom args, YasAtom *result)
+{
+    yas_gil_enter();
+    int r = yas_builtin_ffi_free_impl(args, result);
+    yas_gil_leave();
+    return r;
+}
+
+
 /* (ffi-pointer-ref ptr type offset) -> value */
-int yas_builtin_ffi_pointer_ref(YasAtom args, YasAtom *result)
+static int yas_builtin_ffi_pointer_ref_impl(YasAtom args, YasAtom *result)
 {
     if (yas_nilp(args) || yas_car(args).type != YAS_ATOM_TYPE_FFI_POINTER) {
         return yas_raise_error("type-error", "ffi-pointer-ref requires an ffi-pointer");
@@ -588,8 +712,17 @@ int yas_builtin_ffi_pointer_ref(YasAtom args, YasAtom *result)
     return YAS_ERROR_OK;
 }
 
+int yas_builtin_ffi_pointer_ref(YasAtom args, YasAtom *result)
+{
+    yas_gil_enter();
+    int r = yas_builtin_ffi_pointer_ref_impl(args, result);
+    yas_gil_leave();
+    return r;
+}
+
+
 /* (ffi-pointer-set! ptr type offset value) -> #t */
-int yas_builtin_ffi_pointer_set(YasAtom args, YasAtom *result)
+static int yas_builtin_ffi_pointer_set_impl(YasAtom args, YasAtom *result)
 {
     if (yas_nilp(args) || yas_car(args).type != YAS_ATOM_TYPE_FFI_POINTER) {
         return yas_raise_error("type-error", "ffi-pointer-set! requires an ffi-pointer");
@@ -651,8 +784,17 @@ int yas_builtin_ffi_pointer_set(YasAtom args, YasAtom *result)
     return YAS_ERROR_OK;
 }
 
+int yas_builtin_ffi_pointer_set(YasAtom args, YasAtom *result)
+{
+    yas_gil_enter();
+    int r = yas_builtin_ffi_pointer_set_impl(args, result);
+    yas_gil_leave();
+    return r;
+}
+
+
 /* (ffi-null) -> null pointer */
-int yas_builtin_ffi_null(YasAtom args, YasAtom *result)
+static int yas_builtin_ffi_null_impl(YasAtom args, YasAtom *result)
 {
     (void)args;
     result->type = YAS_ATOM_TYPE_FFI_POINTER;
@@ -660,8 +802,17 @@ int yas_builtin_ffi_null(YasAtom args, YasAtom *result)
     return YAS_ERROR_OK;
 }
 
+int yas_builtin_ffi_null(YasAtom args, YasAtom *result)
+{
+    yas_gil_enter();
+    int r = yas_builtin_ffi_null_impl(args, result);
+    yas_gil_leave();
+    return r;
+}
+
+
 /* (ffi-null? ptr) -> boolean */
-int yas_builtin_ffi_nullp(YasAtom args, YasAtom *result)
+static int yas_builtin_ffi_nullp_impl(YasAtom args, YasAtom *result)
 {
     if (yas_nilp(args)) {
         *result = yas_make_sym("T");
@@ -679,6 +830,15 @@ int yas_builtin_ffi_nullp(YasAtom args, YasAtom *result)
     return YAS_ERROR_OK;
 }
 
+int yas_builtin_ffi_nullp(YasAtom args, YasAtom *result)
+{
+    yas_gil_enter();
+    int r = yas_builtin_ffi_nullp_impl(args, result);
+    yas_gil_leave();
+    return r;
+}
+
+
 /* ============================================================
  * Struct Builtins
  * ============================================================ */
@@ -686,7 +846,7 @@ int yas_builtin_ffi_nullp(YasAtom args, YasAtom *result)
 /* (%ffi-defstruct 'name '((field-name type) ...)) -> struct-type-symbol
  * Called by the ffi-defstruct macro which quotes the arguments.
  */
-int yas_builtin_ffi_defstruct(YasAtom args, YasAtom *result)
+static int yas_builtin_ffi_defstruct_impl(YasAtom args, YasAtom *result)
 {
     if (yas_nilp(args) || yas_car(args).type != YAS_ATOM_TYPE_SYMBOL) {
         return yas_raise_error("type-error", "%ffi-defstruct requires a symbol name");
@@ -782,8 +942,17 @@ int yas_builtin_ffi_defstruct(YasAtom args, YasAtom *result)
     return YAS_ERROR_OK;
 }
 
+int yas_builtin_ffi_defstruct(YasAtom args, YasAtom *result)
+{
+    yas_gil_enter();
+    int r = yas_builtin_ffi_defstruct_impl(args, result);
+    yas_gil_leave();
+    return r;
+}
+
+
 /* (make-ffi-struct type-name values...) -> ffi-struct */
-int yas_builtin_ffi_make_struct(YasAtom args, YasAtom *result)
+static int yas_builtin_ffi_make_struct_impl(YasAtom args, YasAtom *result)
 {
     if (yas_nilp(args) || yas_car(args).type != YAS_ATOM_TYPE_SYMBOL) {
         return yas_raise_error("type-error", "make-ffi-struct requires a struct type name");
@@ -851,8 +1020,17 @@ int yas_builtin_ffi_make_struct(YasAtom args, YasAtom *result)
     return YAS_ERROR_OK;
 }
 
+int yas_builtin_ffi_make_struct(YasAtom args, YasAtom *result)
+{
+    yas_gil_enter();
+    int r = yas_builtin_ffi_make_struct_impl(args, result);
+    yas_gil_leave();
+    return r;
+}
+
+
 /* (ffi-struct-ref struct field-name) -> value */
-int yas_builtin_ffi_struct_ref(YasAtom args, YasAtom *result)
+static int yas_builtin_ffi_struct_ref_impl(YasAtom args, YasAtom *result)
 {
     if (yas_nilp(args) || yas_car(args).type != YAS_ATOM_TYPE_FFI_STRUCT) {
         return yas_raise_error("type-error", "ffi-struct-ref requires an ffi-struct");
@@ -924,8 +1102,17 @@ int yas_builtin_ffi_struct_ref(YasAtom args, YasAtom *result)
     return YAS_ERROR_OK;
 }
 
+int yas_builtin_ffi_struct_ref(YasAtom args, YasAtom *result)
+{
+    yas_gil_enter();
+    int r = yas_builtin_ffi_struct_ref_impl(args, result);
+    yas_gil_leave();
+    return r;
+}
+
+
 /* (ffi-struct-set! struct field-name value) -> value */
-int yas_builtin_ffi_struct_set(YasAtom args, YasAtom *result)
+static int yas_builtin_ffi_struct_set_impl(YasAtom args, YasAtom *result)
 {
     if (yas_nilp(args) || yas_car(args).type != YAS_ATOM_TYPE_FFI_STRUCT) {
         return yas_raise_error("type-error", "ffi-struct-set! requires an ffi-struct");
@@ -1002,5 +1189,14 @@ int yas_builtin_ffi_struct_set(YasAtom args, YasAtom *result)
     *result = value;
     return YAS_ERROR_OK;
 }
+
+int yas_builtin_ffi_struct_set(YasAtom args, YasAtom *result)
+{
+    yas_gil_enter();
+    int r = yas_builtin_ffi_struct_set_impl(args, result);
+    yas_gil_leave();
+    return r;
+}
+
 
 #endif /* YAS_FFI */

@@ -117,7 +117,7 @@ static int is_numeric(int type)
     return type == YAS_ATOM_TYPE_INTEGER || type == YAS_ATOM_TYPE_FLOAT;
 }
 
-int yas_builtin_add(YasAtom args, YasAtom *result)
+static int yas_builtin_add_impl(YasAtom args, YasAtom *result)
 {
     YasAtom a, b;
 
@@ -193,7 +193,16 @@ int yas_builtin_add(YasAtom args, YasAtom *result)
     return yas_raise_error("type-error", "+: operands must be numbers or vectors");
 }
 
-int yas_builtin_subtract(YasAtom args, YasAtom *result)
+int yas_builtin_add(YasAtom args, YasAtom *result)
+{
+    yas_gil_enter();
+    int r = yas_builtin_add_impl(args, result);
+    yas_gil_leave();
+    return r;
+}
+
+
+static int yas_builtin_subtract_impl(YasAtom args, YasAtom *result)
 {
     YasAtom a, b;
 
@@ -253,7 +262,16 @@ int yas_builtin_subtract(YasAtom args, YasAtom *result)
     return yas_raise_error("type-error", "-: operands must be numbers or vectors");
 }
 
-int yas_builtin_multiply(YasAtom args, YasAtom *result)
+int yas_builtin_subtract(YasAtom args, YasAtom *result)
+{
+    yas_gil_enter();
+    int r = yas_builtin_subtract_impl(args, result);
+    yas_gil_leave();
+    return r;
+}
+
+
+static int yas_builtin_multiply_impl(YasAtom args, YasAtom *result)
 {
     YasAtom a, b;
 
@@ -329,7 +347,16 @@ int yas_builtin_multiply(YasAtom args, YasAtom *result)
     return yas_raise_error("type-error", "*: operands must be numbers or vectors");
 }
 
-int yas_builtin_divide(YasAtom args, YasAtom *result)
+int yas_builtin_multiply(YasAtom args, YasAtom *result)
+{
+    yas_gil_enter();
+    int r = yas_builtin_multiply_impl(args, result);
+    yas_gil_leave();
+    return r;
+}
+
+
+static int yas_builtin_divide_impl(YasAtom args, YasAtom *result)
 {
     YasAtom a, b;
 
@@ -395,7 +422,16 @@ int yas_builtin_divide(YasAtom args, YasAtom *result)
     return yas_raise_error("type-error", "/: operands must be numbers or vectors");
 }
 
-int yas_builtin_numeq(YasAtom args, YasAtom *result)
+int yas_builtin_divide(YasAtom args, YasAtom *result)
+{
+    yas_gil_enter();
+    int r = yas_builtin_divide_impl(args, result);
+    yas_gil_leave();
+    return r;
+}
+
+
+static int yas_builtin_numeq_impl(YasAtom args, YasAtom *result)
 {
     YasAtom a, b;
 
@@ -422,7 +458,16 @@ int yas_builtin_numeq(YasAtom args, YasAtom *result)
     return yas_raise_error("type-error", "=: operands must be numbers");
 }
 
-int yas_builtin_less(YasAtom args, YasAtom *result)
+int yas_builtin_numeq(YasAtom args, YasAtom *result)
+{
+    yas_gil_enter();
+    int r = yas_builtin_numeq_impl(args, result);
+    yas_gil_leave();
+    return r;
+}
+
+
+static int yas_builtin_less_impl(YasAtom args, YasAtom *result)
 {
     YasAtom a, b;
 
@@ -453,8 +498,17 @@ int yas_builtin_less(YasAtom args, YasAtom *result)
     return yas_raise_error("type-error", "<: operands must be numbers");
 }
 
+int yas_builtin_less(YasAtom args, YasAtom *result)
+{
+    yas_gil_enter();
+    int r = yas_builtin_less_impl(args, result);
+    yas_gil_leave();
+    return r;
+}
+
+
 /* Type predicates */
-int yas_builtin_floatp(YasAtom args, YasAtom *result)
+static int yas_builtin_floatp_impl(YasAtom args, YasAtom *result)
 {
     if (yas_nilp(args) || !yas_nilp(yas_cdr(args)))
         return yas_raise_error("args-error", "float?: expected 1 argument");
@@ -462,13 +516,31 @@ int yas_builtin_floatp(YasAtom args, YasAtom *result)
     return YAS_ERROR_OK;
 }
 
-int yas_builtin_integerp(YasAtom args, YasAtom *result)
+int yas_builtin_floatp(YasAtom args, YasAtom *result)
+{
+    yas_gil_enter();
+    int r = yas_builtin_floatp_impl(args, result);
+    yas_gil_leave();
+    return r;
+}
+
+
+static int yas_builtin_integerp_impl(YasAtom args, YasAtom *result)
 {
     if (yas_nilp(args) || !yas_nilp(yas_cdr(args)))
         return yas_raise_error("args-error", "integer?: expected 1 argument");
     *result = (yas_car(args).type == YAS_ATOM_TYPE_INTEGER) ? yas_make_sym("T") : yas_nil;
     return YAS_ERROR_OK;
 }
+
+int yas_builtin_integerp(YasAtom args, YasAtom *result)
+{
+    yas_gil_enter();
+    int r = yas_builtin_integerp_impl(args, result);
+    yas_gil_leave();
+    return r;
+}
+
 
 /* ============================================================
  * SIMD VECTOR/MATRIX BUILTINS
@@ -493,7 +565,7 @@ static float vec_get_component(YasAtom vec, int idx)
 }
 
 /* Type predicates */
-int yas_builtin_vec2p(YasAtom args, YasAtom *result)
+static int yas_builtin_vec2p_impl(YasAtom args, YasAtom *result)
 {
     if (yas_nilp(args) || !yas_nilp(yas_cdr(args)))
         return yas_raise_error("args-error", "vec2?: expected 1 argument");
@@ -501,7 +573,16 @@ int yas_builtin_vec2p(YasAtom args, YasAtom *result)
     return YAS_ERROR_OK;
 }
 
-int yas_builtin_vec3p(YasAtom args, YasAtom *result)
+int yas_builtin_vec2p(YasAtom args, YasAtom *result)
+{
+    yas_gil_enter();
+    int r = yas_builtin_vec2p_impl(args, result);
+    yas_gil_leave();
+    return r;
+}
+
+
+static int yas_builtin_vec3p_impl(YasAtom args, YasAtom *result)
 {
     if (yas_nilp(args) || !yas_nilp(yas_cdr(args)))
         return yas_raise_error("args-error", "vec3?: expected 1 argument");
@@ -509,7 +590,16 @@ int yas_builtin_vec3p(YasAtom args, YasAtom *result)
     return YAS_ERROR_OK;
 }
 
-int yas_builtin_vec4p(YasAtom args, YasAtom *result)
+int yas_builtin_vec3p(YasAtom args, YasAtom *result)
+{
+    yas_gil_enter();
+    int r = yas_builtin_vec3p_impl(args, result);
+    yas_gil_leave();
+    return r;
+}
+
+
+static int yas_builtin_vec4p_impl(YasAtom args, YasAtom *result)
 {
     if (yas_nilp(args) || !yas_nilp(yas_cdr(args)))
         return yas_raise_error("args-error", "vec4?: expected 1 argument");
@@ -517,7 +607,16 @@ int yas_builtin_vec4p(YasAtom args, YasAtom *result)
     return YAS_ERROR_OK;
 }
 
-int yas_builtin_mat4p(YasAtom args, YasAtom *result)
+int yas_builtin_vec4p(YasAtom args, YasAtom *result)
+{
+    yas_gil_enter();
+    int r = yas_builtin_vec4p_impl(args, result);
+    yas_gil_leave();
+    return r;
+}
+
+
+static int yas_builtin_mat4p_impl(YasAtom args, YasAtom *result)
 {
     if (yas_nilp(args) || !yas_nilp(yas_cdr(args)))
         return yas_raise_error("args-error", "mat4?: expected 1 argument");
@@ -525,8 +624,17 @@ int yas_builtin_mat4p(YasAtom args, YasAtom *result)
     return YAS_ERROR_OK;
 }
 
+int yas_builtin_mat4p(YasAtom args, YasAtom *result)
+{
+    yas_gil_enter();
+    int r = yas_builtin_mat4p_impl(args, result);
+    yas_gil_leave();
+    return r;
+}
+
+
 /* Constructors */
-int yas_builtin_vec2(YasAtom args, YasAtom *result)
+static int yas_builtin_vec2_impl(YasAtom args, YasAtom *result)
 {
     if (yas_nilp(args) || yas_nilp(yas_cdr(args)) || !yas_nilp(yas_cdr(yas_cdr(args))))
         return yas_raise_error("args-error", "vec2: expected 2 arguments");
@@ -552,7 +660,16 @@ int yas_builtin_vec2(YasAtom args, YasAtom *result)
     return YAS_ERROR_OK;
 }
 
-int yas_builtin_vec3(YasAtom args, YasAtom *result)
+int yas_builtin_vec2(YasAtom args, YasAtom *result)
+{
+    yas_gil_enter();
+    int r = yas_builtin_vec2_impl(args, result);
+    yas_gil_leave();
+    return r;
+}
+
+
+static int yas_builtin_vec3_impl(YasAtom args, YasAtom *result)
 {
     YasAtom x = yas_car(args), y = yas_car(yas_cdr(args)), z = yas_car(yas_cdr(yas_cdr(args)));
     float fx, fy, fz;
@@ -582,7 +699,16 @@ int yas_builtin_vec3(YasAtom args, YasAtom *result)
     return YAS_ERROR_OK;
 }
 
-int yas_builtin_vec4(YasAtom args, YasAtom *result)
+int yas_builtin_vec3(YasAtom args, YasAtom *result)
+{
+    yas_gil_enter();
+    int r = yas_builtin_vec3_impl(args, result);
+    yas_gil_leave();
+    return r;
+}
+
+
+static int yas_builtin_vec4_impl(YasAtom args, YasAtom *result)
 {
     YasAtom x = yas_car(args), y = yas_car(yas_cdr(args)), z = yas_car(yas_cdr(yas_cdr(args))),
             w = yas_car(yas_cdr(yas_cdr(yas_cdr(args))));
@@ -620,7 +746,16 @@ int yas_builtin_vec4(YasAtom args, YasAtom *result)
     return YAS_ERROR_OK;
 }
 
-int yas_builtin_mat4_identity(YasAtom args, YasAtom *result)
+int yas_builtin_vec4(YasAtom args, YasAtom *result)
+{
+    yas_gil_enter();
+    int r = yas_builtin_vec4_impl(args, result);
+    yas_gil_leave();
+    return r;
+}
+
+
+static int yas_builtin_mat4_identity_impl(YasAtom args, YasAtom *result)
 {
     if (!yas_nilp(args))
         return yas_raise_error("args-error", "mat4-identity: expected 0 arguments");
@@ -628,8 +763,17 @@ int yas_builtin_mat4_identity(YasAtom args, YasAtom *result)
     return YAS_ERROR_OK;
 }
 
+int yas_builtin_mat4_identity(YasAtom args, YasAtom *result)
+{
+    yas_gil_enter();
+    int r = yas_builtin_mat4_identity_impl(args, result);
+    yas_gil_leave();
+    return r;
+}
+
+
 /* Component accessors */
-int yas_builtin_vec_x(YasAtom args, YasAtom *result)
+static int yas_builtin_vec_x_impl(YasAtom args, YasAtom *result)
 {
     if (yas_nilp(args) || !yas_nilp(yas_cdr(args)))
         return yas_raise_error("args-error", "vec-x: expected 1 argument");
@@ -640,7 +784,16 @@ int yas_builtin_vec_x(YasAtom args, YasAtom *result)
     return YAS_ERROR_OK;
 }
 
-int yas_builtin_vec_y(YasAtom args, YasAtom *result)
+int yas_builtin_vec_x(YasAtom args, YasAtom *result)
+{
+    yas_gil_enter();
+    int r = yas_builtin_vec_x_impl(args, result);
+    yas_gil_leave();
+    return r;
+}
+
+
+static int yas_builtin_vec_y_impl(YasAtom args, YasAtom *result)
 {
     if (yas_nilp(args) || !yas_nilp(yas_cdr(args)))
         return yas_raise_error("args-error", "vec-y: expected 1 argument");
@@ -651,7 +804,16 @@ int yas_builtin_vec_y(YasAtom args, YasAtom *result)
     return YAS_ERROR_OK;
 }
 
-int yas_builtin_vec_z(YasAtom args, YasAtom *result)
+int yas_builtin_vec_y(YasAtom args, YasAtom *result)
+{
+    yas_gil_enter();
+    int r = yas_builtin_vec_y_impl(args, result);
+    yas_gil_leave();
+    return r;
+}
+
+
+static int yas_builtin_vec_z_impl(YasAtom args, YasAtom *result)
 {
     if (yas_nilp(args) || !yas_nilp(yas_cdr(args)))
         return yas_raise_error("args-error", "vec-z: expected 1 argument");
@@ -662,7 +824,16 @@ int yas_builtin_vec_z(YasAtom args, YasAtom *result)
     return YAS_ERROR_OK;
 }
 
-int yas_builtin_vec_w(YasAtom args, YasAtom *result)
+int yas_builtin_vec_z(YasAtom args, YasAtom *result)
+{
+    yas_gil_enter();
+    int r = yas_builtin_vec_z_impl(args, result);
+    yas_gil_leave();
+    return r;
+}
+
+
+static int yas_builtin_vec_w_impl(YasAtom args, YasAtom *result)
 {
     if (yas_nilp(args) || !yas_nilp(yas_cdr(args)))
         return yas_raise_error("args-error", "vec-w: expected 1 argument");
@@ -673,8 +844,17 @@ int yas_builtin_vec_w(YasAtom args, YasAtom *result)
     return YAS_ERROR_OK;
 }
 
+int yas_builtin_vec_w(YasAtom args, YasAtom *result)
+{
+    yas_gil_enter();
+    int r = yas_builtin_vec_w_impl(args, result);
+    yas_gil_leave();
+    return r;
+}
+
+
 /* (vec-ref v idx) - get component by index */
-int yas_builtin_vec_ref(YasAtom args, YasAtom *result)
+static int yas_builtin_vec_ref_impl(YasAtom args, YasAtom *result)
 {
     if (yas_nilp(args) || yas_nilp(yas_cdr(args)) || !yas_nilp(yas_cdr(yas_cdr(args))))
         return yas_raise_error("args-error", "vec-ref: expected 2 arguments");
@@ -693,6 +873,15 @@ int yas_builtin_vec_ref(YasAtom args, YasAtom *result)
     *result = yas_make_float(vec_get_component(v, idx));
     return YAS_ERROR_OK;
 }
+
+int yas_builtin_vec_ref(YasAtom args, YasAtom *result)
+{
+    yas_gil_enter();
+    int r = yas_builtin_vec_ref_impl(args, result);
+    yas_gil_leave();
+    return r;
+}
+
 
 /* Helper to set a vector component */
 static void vec_set_component(YasAtom vec, int idx, float val)
@@ -714,7 +903,7 @@ static void vec_set_component(YasAtom vec, int idx, float val)
 }
 
 /* (vec-set! v idx value) - set component by index (mutates in place) */
-int yas_builtin_vec_set(YasAtom args, YasAtom *result)
+static int yas_builtin_vec_set_impl(YasAtom args, YasAtom *result)
 {
     if (yas_nilp(args) || yas_nilp(yas_cdr(args)) || yas_nilp(yas_cdr(yas_cdr(args))) ||
         !yas_nilp(yas_cdr(yas_cdr(yas_cdr(args)))))
@@ -739,8 +928,17 @@ int yas_builtin_vec_set(YasAtom args, YasAtom *result)
     return YAS_ERROR_OK;
 }
 
+int yas_builtin_vec_set(YasAtom args, YasAtom *result)
+{
+    yas_gil_enter();
+    int r = yas_builtin_vec_set_impl(args, result);
+    yas_gil_leave();
+    return r;
+}
+
+
 /* mat4 multiply: multiply two 4x4 matrices */
-int yas_builtin_mat4_multiply(YasAtom args, YasAtom *result)
+static int yas_builtin_mat4_multiply_impl(YasAtom args, YasAtom *result)
 {
     if (yas_nilp(args) || yas_nilp(yas_cdr(args)) || !yas_nilp(yas_cdr(yas_cdr(args))))
         return yas_raise_error("args-error", "mat4*: expected 2 arguments");
@@ -783,8 +981,17 @@ int yas_builtin_mat4_multiply(YasAtom args, YasAtom *result)
     return YAS_ERROR_OK;
 }
 
+int yas_builtin_mat4_multiply(YasAtom args, YasAtom *result)
+{
+    yas_gil_enter();
+    int r = yas_builtin_mat4_multiply_impl(args, result);
+    yas_gil_leave();
+    return r;
+}
+
+
 /* (mat4 e0 ... e15) - Create mat4 from 16 floats (column-major) */
-int yas_builtin_mat4(YasAtom args, YasAtom *result)
+static int yas_builtin_mat4_impl(YasAtom args, YasAtom *result)
 {
     float vals[16];
     YasAtom p = args;
@@ -804,8 +1011,17 @@ int yas_builtin_mat4(YasAtom args, YasAtom *result)
     return YAS_ERROR_OK;
 }
 
+int yas_builtin_mat4(YasAtom args, YasAtom *result)
+{
+    yas_gil_enter();
+    int r = yas_builtin_mat4_impl(args, result);
+    yas_gil_leave();
+    return r;
+}
+
+
 /* mat4 transpose */
-int yas_builtin_mat4_transpose(YasAtom args, YasAtom *result)
+static int yas_builtin_mat4_transpose_impl(YasAtom args, YasAtom *result)
 {
     if (yas_nilp(args) || !yas_nilp(yas_cdr(args)))
         return yas_raise_error("args-error", "mat4-transpose: expected 1 argument");
@@ -841,8 +1057,17 @@ int yas_builtin_mat4_transpose(YasAtom args, YasAtom *result)
     return YAS_ERROR_OK;
 }
 
+int yas_builtin_mat4_transpose(YasAtom args, YasAtom *result)
+{
+    yas_gil_enter();
+    int r = yas_builtin_mat4_transpose_impl(args, result);
+    yas_gil_leave();
+    return r;
+}
+
+
 /* mat4 inverse - uses standard 4x4 matrix inversion algorithm */
-int yas_builtin_mat4_inverse(YasAtom args, YasAtom *result)
+static int yas_builtin_mat4_inverse_impl(YasAtom args, YasAtom *result)
 {
     if (yas_nilp(args) || !yas_nilp(yas_cdr(args)))
         return yas_raise_error("args-error", "mat4-inverse: expected 1 argument");
@@ -915,12 +1140,21 @@ int yas_builtin_mat4_inverse(YasAtom args, YasAtom *result)
     return YAS_ERROR_OK;
 }
 
+int yas_builtin_mat4_inverse(YasAtom args, YasAtom *result)
+{
+    yas_gil_enter();
+    int r = yas_builtin_mat4_inverse_impl(args, result);
+    yas_gil_leave();
+    return r;
+}
+
+
 /* ============================================================
  * Format String Helper Builtins
  * ============================================================ */
 
 /* (number->string n [radix]) - convert number to string with optional radix */
-int yas_builtin_number_to_string(YasAtom args, YasAtom *result)
+static int yas_builtin_number_to_string_impl(YasAtom args, YasAtom *result)
 {
     if (yas_nilp(args))
         return yas_raise_error("args-error", "number->string: expected at least 1 argument");
@@ -975,3 +1209,12 @@ int yas_builtin_number_to_string(YasAtom args, YasAtom *result)
     *result = yas_make_string(buf);
     return YAS_ERROR_OK;
 }
+
+int yas_builtin_number_to_string(YasAtom args, YasAtom *result)
+{
+    yas_gil_enter();
+    int r = yas_builtin_number_to_string_impl(args, result);
+    yas_gil_leave();
+    return r;
+}
+

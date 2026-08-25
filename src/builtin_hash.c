@@ -1,6 +1,6 @@
 #include "yas.h"
 
-int yas_builtin_hashp(YasAtom args, YasAtom *result)
+static int yas_builtin_hashp_impl(YasAtom args, YasAtom *result)
 {
     if (yas_nilp(args) || !yas_nilp(yas_cdr(args)))
         return yas_raise_error("args-error", "hash?: expected 1 argument");
@@ -8,8 +8,17 @@ int yas_builtin_hashp(YasAtom args, YasAtom *result)
     return YAS_ERROR_OK;
 }
 
+int yas_builtin_hashp(YasAtom args, YasAtom *result)
+{
+    yas_gil_enter();
+    int r = yas_builtin_hashp_impl(args, result);
+    yas_gil_leave();
+    return r;
+}
+
+
 /* (hash-length hash) */
-int yas_builtin_hash_length(YasAtom args, YasAtom *result)
+static int yas_builtin_hash_length_impl(YasAtom args, YasAtom *result)
 {
     if (yas_nilp(args) || !yas_nilp(yas_cdr(args)))
         return yas_raise_error("args-error", "hash-length: expected 1 argument");
@@ -20,9 +29,18 @@ int yas_builtin_hash_length(YasAtom args, YasAtom *result)
     return YAS_ERROR_OK;
 }
 
+int yas_builtin_hash_length(YasAtom args, YasAtom *result)
+{
+    yas_gil_enter();
+    int r = yas_builtin_hash_length_impl(args, result);
+    yas_gil_leave();
+    return r;
+}
+
+
 /* (hash-join h1 h2 ...) - merges h2 into h1, but since we are functional-ish,
    lets return NEW hash with all contents. Last one wins. */
-int yas_builtin_hash_join(YasAtom args, YasAtom *result)
+static int yas_builtin_hash_join_impl(YasAtom args, YasAtom *result)
 {
     YasAtom new_h = yas_make_hash();
     YasAtom p = args;
@@ -41,8 +59,17 @@ int yas_builtin_hash_join(YasAtom args, YasAtom *result)
     return YAS_ERROR_OK;
 }
 
+int yas_builtin_hash_join(YasAtom args, YasAtom *result)
+{
+    yas_gil_enter();
+    int r = yas_builtin_hash_join_impl(args, result);
+    yas_gil_leave();
+    return r;
+}
+
+
 /* Hash operations */
-int yas_builtin_make_hash(YasAtom args, YasAtom *result)
+static int yas_builtin_make_hash_impl(YasAtom args, YasAtom *result)
 {
     if (!yas_nilp(args))
         return yas_raise_error("args-error", "make-hash: expected 0 arguments");
@@ -51,7 +78,16 @@ int yas_builtin_make_hash(YasAtom args, YasAtom *result)
     return YAS_ERROR_OK;
 }
 
-int yas_builtin_hash_ref(YasAtom args, YasAtom *result)
+int yas_builtin_make_hash(YasAtom args, YasAtom *result)
+{
+    yas_gil_enter();
+    int r = yas_builtin_make_hash_impl(args, result);
+    yas_gil_leave();
+    return r;
+}
+
+
+static int yas_builtin_hash_ref_impl(YasAtom args, YasAtom *result)
 {
     if (yas_nilp(args) || yas_nilp(yas_cdr(args)))
         return yas_raise_error("args-error", "hash-ref: expected at least 2 arguments");
@@ -73,7 +109,16 @@ int yas_builtin_hash_ref(YasAtom args, YasAtom *result)
     return YAS_ERROR_OK;
 }
 
-int yas_builtin_hash_set(YasAtom args, YasAtom *result)
+int yas_builtin_hash_ref(YasAtom args, YasAtom *result)
+{
+    yas_gil_enter();
+    int r = yas_builtin_hash_ref_impl(args, result);
+    yas_gil_leave();
+    return r;
+}
+
+
+static int yas_builtin_hash_set_impl(YasAtom args, YasAtom *result)
 {
     if (yas_nilp(args) || yas_nilp(yas_cdr(args)) || yas_nilp(yas_cdr(yas_cdr(args))) ||
         !yas_nilp(yas_cdr(yas_cdr(yas_cdr(args)))))
@@ -91,7 +136,16 @@ int yas_builtin_hash_set(YasAtom args, YasAtom *result)
     return YAS_ERROR_OK;
 }
 
-int yas_builtin_hash_remove(YasAtom args, YasAtom *result)
+int yas_builtin_hash_set(YasAtom args, YasAtom *result)
+{
+    yas_gil_enter();
+    int r = yas_builtin_hash_set_impl(args, result);
+    yas_gil_leave();
+    return r;
+}
+
+
+static int yas_builtin_hash_remove_impl(YasAtom args, YasAtom *result)
 {
     if (yas_nilp(args) || yas_nilp(yas_cdr(args)) || !yas_nilp(yas_cdr(yas_cdr(args))))
         return yas_raise_error("args-error", "hash-remove!: expected 2 arguments");
@@ -106,7 +160,16 @@ int yas_builtin_hash_remove(YasAtom args, YasAtom *result)
     return YAS_ERROR_OK;
 }
 
-int yas_builtin_hash_keys(YasAtom args, YasAtom *result)
+int yas_builtin_hash_remove(YasAtom args, YasAtom *result)
+{
+    yas_gil_enter();
+    int r = yas_builtin_hash_remove_impl(args, result);
+    yas_gil_leave();
+    return r;
+}
+
+
+static int yas_builtin_hash_keys_impl(YasAtom args, YasAtom *result)
 {
     if (yas_nilp(args) || !yas_nilp(yas_cdr(args)))
         return yas_raise_error("args-error", "hash-keys: expected 1 argument");
@@ -126,8 +189,17 @@ int yas_builtin_hash_keys(YasAtom args, YasAtom *result)
     return YAS_ERROR_OK;
 }
 
+int yas_builtin_hash_keys(YasAtom args, YasAtom *result)
+{
+    yas_gil_enter();
+    int r = yas_builtin_hash_keys_impl(args, result);
+    yas_gil_leave();
+    return r;
+}
+
+
 /* Metatable operations */
-int yas_builtin_set_metatable(YasAtom args, YasAtom *result)
+static int yas_builtin_set_metatable_impl(YasAtom args, YasAtom *result)
 {
     if (yas_nilp(args) || yas_nilp(yas_cdr(args)) || !yas_nilp(yas_cdr(yas_cdr(args))))
         return yas_raise_error("args-error", "set-metatable!: expected 2 arguments");
@@ -152,7 +224,16 @@ int yas_builtin_set_metatable(YasAtom args, YasAtom *result)
     return YAS_ERROR_OK;
 }
 
-int yas_builtin_get_metatable(YasAtom args, YasAtom *result)
+int yas_builtin_set_metatable(YasAtom args, YasAtom *result)
+{
+    yas_gil_enter();
+    int r = yas_builtin_set_metatable_impl(args, result);
+    yas_gil_leave();
+    return r;
+}
+
+
+static int yas_builtin_get_metatable_impl(YasAtom args, YasAtom *result)
 {
     if (yas_nilp(args) || !yas_nilp(yas_cdr(args)))
         return yas_raise_error("args-error", "get-metatable: expected 1 argument");
@@ -171,3 +252,12 @@ int yas_builtin_get_metatable(YasAtom args, YasAtom *result)
 
     return YAS_ERROR_OK;
 }
+
+int yas_builtin_get_metatable(YasAtom args, YasAtom *result)
+{
+    yas_gil_enter();
+    int r = yas_builtin_get_metatable_impl(args, result);
+    yas_gil_leave();
+    return r;
+}
+

@@ -15,7 +15,10 @@ ifdef YAS_DEBUG
 OPT = -O0
 endif
 CFLAGS = -Wall $(OPT) -g --std=c99 -D_GNU_SOURCE -iquote src
-LDFLAGS=-lreadline
+# -lpthread: the interpreter lock (src/thread.c, ticket #47 milestone 1).
+# A no-op link stub on Darwin (pthread lives in libSystem) but required
+# on Linux/glibc.
+LDFLAGS=-lreadline -lpthread
 
 # Optional FFI support: make YAS_FFI=1
 ifdef YAS_FFI
@@ -80,12 +83,15 @@ $(libyas): $(lib_objects)
 libyas: $(libyas)
 
 .PHONY: test
-test: yas
-	@./yas suite.ys; \
-	status=$$?; \
-	./yas aux/module_test.ys; \
-	status2=$$?; \
-	if [ $$status -ne 0 ] || [ $$status2 -ne 0 ]; then \
+# Runs the .ys suite, the module-system tests, and aux/thread_test.c (the
+# GIL concurrency regression, ticket #47 milestone 1) against libyas.
+test: yas $(libyas)
+	@./yas suite.ys; status=$$?; \
+	./yas aux/module_test.ys; status2=$$?; \
+	mkdir -p build; \
+	$(CC) -std=c99 -Wall -D_GNU_SOURCE -iquote src -o build/thread_test aux/thread_test.c -L. -lyas -Wl,-rpath,. || exit 1; \
+	./build/thread_test; status3=$$?; \
+	if [ $$status -ne 0 ] || [ $$status2 -ne 0 ] || [ $$status3 -ne 0 ]; then \
 		echo "make test: FAILED"; \
 		exit 1; \
 	fi; \
@@ -147,6 +153,10 @@ test-gc-stress: yas $(libyas)
 	@YAS_GC_STRESS=1 ./yas suite.ys || exit 1
 	@echo "=== aux/module_test.ys (YAS_GC_STRESS=1) ==="
 	@YAS_GC_STRESS=1 ./yas aux/module_test.ys || exit 1
+	@mkdir -p build
+	$(CC) -std=c99 -Wall -D_GNU_SOURCE -iquote src -o build/thread_test aux/thread_test.c -L. -lyas -Wl,-rpath,.
+	@echo "=== aux/thread_test.c (YAS_GC_STRESS=1) ==="
+	@YAS_GC_STRESS=1 ./build/thread_test || exit 1
 	@for f in aux/*_stress.ys; do \
 		echo "=== $$f (YAS_GC_STRESS=1) ==="; \
 		YAS_GC_STRESS=1 ./yas $$f || exit 1; \

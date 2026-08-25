@@ -3,7 +3,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-void yas_print_expr(YasAtom atom)
+static void yas_print_expr_impl(YasAtom atom)
 {
     switch (atom.type) {
         default:
@@ -198,6 +198,14 @@ void yas_print_expr(YasAtom atom)
 #endif
     }
 }
+
+void yas_print_expr(YasAtom atom)
+{
+    yas_gil_enter();
+    yas_print_expr_impl(atom);
+    yas_gil_leave();
+}
+
 
 /* Calculate length needed for sprint_expr */
 static size_t sprint_expr_len(YasAtom atom)
@@ -407,7 +415,7 @@ static size_t sprint_expr_to(YasAtom atom, char *buf, size_t pos)
 }
 
 /* Convert atom to string - returns newly allocated string */
-char *yas_sprint_expr(YasAtom atom)
+static char * yas_sprint_expr_impl(YasAtom atom)
 {
     size_t len = sprint_expr_len(atom);
     char *buf = malloc(len + 1);
@@ -415,3 +423,12 @@ char *yas_sprint_expr(YasAtom atom)
     buf[end] = '\0';
     return buf;
 }
+
+char * yas_sprint_expr(YasAtom atom)
+{
+    yas_gil_enter();
+    char * r = yas_sprint_expr_impl(atom);
+    yas_gil_leave();
+    return r;
+}
+

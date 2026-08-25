@@ -31,7 +31,7 @@ static int eval_vm(YasAtom expr, YasAtom env, YasAtom *result, struct EvalRoot *
  * anything an embedder or a nested yas_eval_expr() caller can see, so
  * they stay a separate root source from the yas_gc_push_root() shadow
  * stack. Two root sources, one collector. */
-void yas_eval_mark_roots(void)
+static void yas_eval_mark_roots_impl(void)
 {
     struct EvalRoot *r = eval_roots;
     while (r) {
@@ -43,6 +43,14 @@ void yas_eval_mark_roots(void)
         r = r->prev;
     }
 }
+
+void yas_eval_mark_roots(void)
+{
+    yas_gil_enter();
+    yas_eval_mark_roots_impl();
+    yas_gil_leave();
+}
+
 
 static int eval_do_return(YasAtom *stack, YasAtom *expr, YasAtom *env, YasAtom *result);
 static int eval_do_exec(YasAtom *stack, YasAtom *expr, YasAtom *env);
@@ -91,7 +99,7 @@ static char *resolve_include_path(const char *include_path)
 
 /* Helper to evaluate include - reads file, parses, evaluates all exprs */
 /* Evaluate source string */
-int yas_eval_source(const char *text, const char *path, YasAtom env, YasAtom *result)
+static int yas_eval_source_impl(const char *text, const char *path, YasAtom env, YasAtom *result)
 {
     const char *saved_path = yas_current_file_path;
     yas_current_file_path = path;
@@ -169,8 +177,17 @@ int yas_eval_source(const char *text, const char *path, YasAtom env, YasAtom *re
     return YAS_ERROR_OK;
 }
 
+int yas_eval_source(const char *text, const char *path, YasAtom env, YasAtom *result)
+{
+    yas_gil_enter();
+    int r = yas_eval_source_impl(text, path, env, result);
+    yas_gil_leave();
+    return r;
+}
+
+
 /* Helper to evaluate include - reads file, parses, evaluates all exprs */
-int yas_eval_file(const char *path, YasAtom env, YasAtom *result, int case_insensitive)
+static int yas_eval_file_impl(const char *path, YasAtom env, YasAtom *result, int case_insensitive)
 {
     char *resolved = resolve_include_path(path);
     char *text = yas_slurp(resolved);
@@ -186,6 +203,15 @@ int yas_eval_file(const char *path, YasAtom env, YasAtom *result, int case_insen
     free(resolved);
     return err;
 }
+
+int yas_eval_file(const char *path, YasAtom env, YasAtom *result, int case_insensitive)
+{
+    yas_gil_enter();
+    int r = yas_eval_file_impl(path, env, result, case_insensitive);
+    yas_gil_leave();
+    return r;
+}
+
 
 static int make_closure(YasAtom env, YasAtom args, YasAtom body, YasAtom *result)
 {
@@ -997,7 +1023,7 @@ int eval_do_return(YasAtom *stack, YasAtom *expr, YasAtom *env, YasAtom *result)
     return YAS_ERROR_OK;
 }
 
-int yas_eval_expr(YasAtom expr, YasAtom env, YasAtom *result)
+static int yas_eval_expr_impl(YasAtom expr, YasAtom env, YasAtom *result)
 {
     struct EvalRoot root;
     root.prev = eval_roots;
@@ -1018,6 +1044,15 @@ int yas_eval_expr(YasAtom expr, YasAtom env, YasAtom *result)
     assert(yas_gc_root_count() == root_count_before);
     return err;
 }
+
+int yas_eval_expr(YasAtom expr, YasAtom env, YasAtom *result)
+{
+    yas_gil_enter();
+    int r = yas_eval_expr_impl(expr, env, result);
+    yas_gil_leave();
+    return r;
+}
+
 
 static int eval_vm(YasAtom expr, YasAtom env, YasAtom *result, struct EvalRoot *root)
 {
@@ -1476,3 +1511,4 @@ static int eval_vm(YasAtom expr, YasAtom env, YasAtom *result, struct EvalRoot *
 
     return err;
 }
+

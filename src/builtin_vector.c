@@ -1,6 +1,6 @@
 #include "yas.h"
 
-int yas_builtin_vectorp(YasAtom args, YasAtom *result)
+static int yas_builtin_vectorp_impl(YasAtom args, YasAtom *result)
 {
     if (yas_nilp(args) || !yas_nilp(yas_cdr(args)))
         return yas_raise_error("args-error", "vector?: expected 1 argument");
@@ -8,8 +8,17 @@ int yas_builtin_vectorp(YasAtom args, YasAtom *result)
     return YAS_ERROR_OK;
 }
 
+int yas_builtin_vectorp(YasAtom args, YasAtom *result)
+{
+    yas_gil_enter();
+    int r = yas_builtin_vectorp_impl(args, result);
+    yas_gil_leave();
+    return r;
+}
+
+
 /* (vector-length vec) */
-int yas_builtin_vector_length(YasAtom args, YasAtom *result)
+static int yas_builtin_vector_length_impl(YasAtom args, YasAtom *result)
 {
     if (yas_nilp(args) || !yas_nilp(yas_cdr(args)))
         return yas_raise_error("args-error", "vector-length: expected 1 argument");
@@ -20,8 +29,17 @@ int yas_builtin_vector_length(YasAtom args, YasAtom *result)
     return YAS_ERROR_OK;
 }
 
+int yas_builtin_vector_length(YasAtom args, YasAtom *result)
+{
+    yas_gil_enter();
+    int r = yas_builtin_vector_length_impl(args, result);
+    yas_gil_leave();
+    return r;
+}
+
+
 /* (vector-append v1 v2 ...) */
-int yas_builtin_vector_append(YasAtom args, YasAtom *result)
+static int yas_builtin_vector_append_impl(YasAtom args, YasAtom *result)
 {
     size_t total_len = 0;
     YasAtom p = args;
@@ -44,8 +62,17 @@ int yas_builtin_vector_append(YasAtom args, YasAtom *result)
     return YAS_ERROR_OK;
 }
 
+int yas_builtin_vector_append(YasAtom args, YasAtom *result)
+{
+    yas_gil_enter();
+    int r = yas_builtin_vector_append_impl(args, result);
+    yas_gil_leave();
+    return r;
+}
+
+
 /* Vector operations */
-int yas_builtin_make_vector(YasAtom args, YasAtom *result)
+static int yas_builtin_make_vector_impl(YasAtom args, YasAtom *result)
 {
     if (yas_nilp(args))
         return yas_raise_error("args-error", "make-vector: expected size argument");
@@ -65,7 +92,16 @@ int yas_builtin_make_vector(YasAtom args, YasAtom *result)
     return YAS_ERROR_OK;
 }
 
-int yas_builtin_vector_ref(YasAtom args, YasAtom *result)
+int yas_builtin_make_vector(YasAtom args, YasAtom *result)
+{
+    yas_gil_enter();
+    int r = yas_builtin_make_vector_impl(args, result);
+    yas_gil_leave();
+    return r;
+}
+
+
+static int yas_builtin_vector_ref_impl(YasAtom args, YasAtom *result)
 {
     if (yas_nilp(args) || yas_nilp(yas_cdr(args)) || !yas_nilp(yas_cdr(yas_cdr(args))))
         return yas_raise_error("args-error", "vector-ref: expected 2 arguments");
@@ -83,7 +119,16 @@ int yas_builtin_vector_ref(YasAtom args, YasAtom *result)
     return YAS_ERROR_OK;
 }
 
-int yas_builtin_vector_set(YasAtom args, YasAtom *result)
+int yas_builtin_vector_ref(YasAtom args, YasAtom *result)
+{
+    yas_gil_enter();
+    int r = yas_builtin_vector_ref_impl(args, result);
+    yas_gil_leave();
+    return r;
+}
+
+
+static int yas_builtin_vector_set_impl(YasAtom args, YasAtom *result)
 {
     if (yas_nilp(args) || yas_nilp(yas_cdr(args)) || yas_nilp(yas_cdr(yas_cdr(args))) ||
         !yas_nilp(yas_cdr(yas_cdr(yas_cdr(args)))))
@@ -103,3 +148,12 @@ int yas_builtin_vector_set(YasAtom args, YasAtom *result)
     *result = val;
     return YAS_ERROR_OK;
 }
+
+int yas_builtin_vector_set(YasAtom args, YasAtom *result)
+{
+    yas_gil_enter();
+    int r = yas_builtin_vector_set_impl(args, result);
+    yas_gil_leave();
+    return r;
+}
+

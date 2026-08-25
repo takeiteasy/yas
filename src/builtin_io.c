@@ -4,7 +4,7 @@
 #include <string.h>
 
 /* (open-input-file path [binary?]) */
-int yas_builtin_open_input_file(YasAtom args, YasAtom *result)
+static int yas_builtin_open_input_file_impl(YasAtom args, YasAtom *result)
 {
     if (yas_nilp(args) || yas_car(args).type != YAS_ATOM_TYPE_STRING) {
         return yas_raise_error("type-error", "open-input-file expects a string path");
@@ -24,8 +24,17 @@ int yas_builtin_open_input_file(YasAtom args, YasAtom *result)
     return YAS_ERROR_OK;
 }
 
+int yas_builtin_open_input_file(YasAtom args, YasAtom *result)
+{
+    yas_gil_enter();
+    int r = yas_builtin_open_input_file_impl(args, result);
+    yas_gil_leave();
+    return r;
+}
+
+
 /* (open-output-file path [binary?]) */
-int yas_builtin_open_output_file(YasAtom args, YasAtom *result)
+static int yas_builtin_open_output_file_impl(YasAtom args, YasAtom *result)
 {
     if (yas_nilp(args) || yas_car(args).type != YAS_ATOM_TYPE_STRING) {
         return yas_raise_error("type-error", "open-output-file expects a string path");
@@ -45,8 +54,17 @@ int yas_builtin_open_output_file(YasAtom args, YasAtom *result)
     return YAS_ERROR_OK;
 }
 
+int yas_builtin_open_output_file(YasAtom args, YasAtom *result)
+{
+    yas_gil_enter();
+    int r = yas_builtin_open_output_file_impl(args, result);
+    yas_gil_leave();
+    return r;
+}
+
+
 /* (close-port port) */
-int yas_builtin_close_port(YasAtom args, YasAtom *result)
+static int yas_builtin_close_port_impl(YasAtom args, YasAtom *result)
 {
     if (yas_nilp(args) || yas_car(args).type != YAS_ATOM_TYPE_PORT) {
         return yas_raise_error("type-error", "close-port expects a port");
@@ -56,8 +74,17 @@ int yas_builtin_close_port(YasAtom args, YasAtom *result)
     return YAS_ERROR_OK;
 }
 
+int yas_builtin_close_port(YasAtom args, YasAtom *result)
+{
+    yas_gil_enter();
+    int r = yas_builtin_close_port_impl(args, result);
+    yas_gil_leave();
+    return r;
+}
+
+
 /* (port? obj) */
-int yas_builtin_portp(YasAtom args, YasAtom *result)
+static int yas_builtin_portp_impl(YasAtom args, YasAtom *result)
 {
     if (yas_nilp(args))
         return YAS_ERROR_ARGS;
@@ -65,8 +92,17 @@ int yas_builtin_portp(YasAtom args, YasAtom *result)
     return YAS_ERROR_OK;
 }
 
+int yas_builtin_portp(YasAtom args, YasAtom *result)
+{
+    yas_gil_enter();
+    int r = yas_builtin_portp_impl(args, result);
+    yas_gil_leave();
+    return r;
+}
+
+
 /* (input-port? port) */
-int yas_builtin_input_portp(YasAtom args, YasAtom *result)
+static int yas_builtin_input_portp_impl(YasAtom args, YasAtom *result)
 {
     if (yas_nilp(args))
         return YAS_ERROR_ARGS;
@@ -75,8 +111,17 @@ int yas_builtin_input_portp(YasAtom args, YasAtom *result)
     return YAS_ERROR_OK;
 }
 
+int yas_builtin_input_portp(YasAtom args, YasAtom *result)
+{
+    yas_gil_enter();
+    int r = yas_builtin_input_portp_impl(args, result);
+    yas_gil_leave();
+    return r;
+}
+
+
 /* (output-port? port) */
-int yas_builtin_output_portp(YasAtom args, YasAtom *result)
+static int yas_builtin_output_portp_impl(YasAtom args, YasAtom *result)
 {
     if (yas_nilp(args))
         return YAS_ERROR_ARGS;
@@ -85,8 +130,17 @@ int yas_builtin_output_portp(YasAtom args, YasAtom *result)
     return YAS_ERROR_OK;
 }
 
+int yas_builtin_output_portp(YasAtom args, YasAtom *result)
+{
+    yas_gil_enter();
+    int r = yas_builtin_output_portp_impl(args, result);
+    yas_gil_leave();
+    return r;
+}
+
+
 /* (port-open? port) */
-int yas_builtin_port_openp(YasAtom args, YasAtom *result)
+static int yas_builtin_port_openp_impl(YasAtom args, YasAtom *result)
 {
     if (yas_nilp(args))
         return YAS_ERROR_ARGS;
@@ -95,8 +149,17 @@ int yas_builtin_port_openp(YasAtom args, YasAtom *result)
     return YAS_ERROR_OK;
 }
 
+int yas_builtin_port_openp(YasAtom args, YasAtom *result)
+{
+    yas_gil_enter();
+    int r = yas_builtin_port_openp_impl(args, result);
+    yas_gil_leave();
+    return r;
+}
+
+
 /* (read-char port) - reads a full UTF-8 character, returns char type */
-int yas_builtin_read_char(YasAtom args, YasAtom *result)
+static int yas_builtin_read_char_impl(YasAtom args, YasAtom *result)
 {
     if (yas_nilp(args) || yas_car(args).type != YAS_ATOM_TYPE_PORT) {
         return yas_raise_error("type-error", "read-char expects an input port");
@@ -142,8 +205,17 @@ int yas_builtin_read_char(YasAtom args, YasAtom *result)
     return YAS_ERROR_OK;
 }
 
+int yas_builtin_read_char(YasAtom args, YasAtom *result)
+{
+    yas_gil_enter();
+    int r = yas_builtin_read_char_impl(args, result);
+    yas_gil_leave();
+    return r;
+}
+
+
 /* (read-line port) */
-int yas_builtin_read_line(YasAtom args, YasAtom *result)
+static int yas_builtin_read_line_impl(YasAtom args, YasAtom *result)
 {
     if (yas_nilp(args) || yas_car(args).type != YAS_ATOM_TYPE_PORT) {
         return yas_raise_error("type-error", "read-line expects an input port");
@@ -180,8 +252,17 @@ int yas_builtin_read_line(YasAtom args, YasAtom *result)
     return YAS_ERROR_OK;
 }
 
+int yas_builtin_read_line(YasAtom args, YasAtom *result)
+{
+    yas_gil_enter();
+    int r = yas_builtin_read_line_impl(args, result);
+    yas_gil_leave();
+    return r;
+}
+
+
 /* (read-all port) */
-int yas_builtin_read_all(YasAtom args, YasAtom *result)
+static int yas_builtin_read_all_impl(YasAtom args, YasAtom *result)
 {
     if (yas_nilp(args) || yas_car(args).type != YAS_ATOM_TYPE_PORT) {
         return yas_raise_error("type-error", "read-all expects an input port");
@@ -215,8 +296,17 @@ int yas_builtin_read_all(YasAtom args, YasAtom *result)
     return YAS_ERROR_OK;
 }
 
+int yas_builtin_read_all(YasAtom args, YasAtom *result)
+{
+    yas_gil_enter();
+    int r = yas_builtin_read_all_impl(args, result);
+    yas_gil_leave();
+    return r;
+}
+
+
 /* (read-byte port) */
-int yas_builtin_read_byte(YasAtom args, YasAtom *result)
+static int yas_builtin_read_byte_impl(YasAtom args, YasAtom *result)
 {
     if (yas_nilp(args) || yas_car(args).type != YAS_ATOM_TYPE_PORT) {
         return yas_raise_error("type-error", "read-byte expects an input port");
@@ -236,8 +326,17 @@ int yas_builtin_read_byte(YasAtom args, YasAtom *result)
     return YAS_ERROR_OK;
 }
 
+int yas_builtin_read_byte(YasAtom args, YasAtom *result)
+{
+    yas_gil_enter();
+    int r = yas_builtin_read_byte_impl(args, result);
+    yas_gil_leave();
+    return r;
+}
+
+
 /* (read-bytes port n) */
-int yas_builtin_read_bytes(YasAtom args, YasAtom *result)
+static int yas_builtin_read_bytes_impl(YasAtom args, YasAtom *result)
 {
     if (yas_nilp(args) || yas_car(args).type != YAS_ATOM_TYPE_PORT) {
         return yas_raise_error("type-error", "read-bytes expects an input port");
@@ -267,8 +366,17 @@ int yas_builtin_read_bytes(YasAtom args, YasAtom *result)
     return YAS_ERROR_OK;
 }
 
+int yas_builtin_read_bytes(YasAtom args, YasAtom *result)
+{
+    yas_gil_enter();
+    int r = yas_builtin_read_bytes_impl(args, result);
+    yas_gil_leave();
+    return r;
+}
+
+
 /* (write-char char port) */
-int yas_builtin_write_char(YasAtom args, YasAtom *result)
+static int yas_builtin_write_char_impl(YasAtom args, YasAtom *result)
 {
     if (yas_nilp(args) || yas_car(args).type != YAS_ATOM_TYPE_STRING) {
         return yas_raise_error("type-error", "write-char expects a string (character)");
@@ -289,8 +397,17 @@ int yas_builtin_write_char(YasAtom args, YasAtom *result)
     return YAS_ERROR_OK;
 }
 
+int yas_builtin_write_char(YasAtom args, YasAtom *result)
+{
+    yas_gil_enter();
+    int r = yas_builtin_write_char_impl(args, result);
+    yas_gil_leave();
+    return r;
+}
+
+
 /* (write-string string port) */
-int yas_builtin_write_string(YasAtom args, YasAtom *result)
+static int yas_builtin_write_string_impl(YasAtom args, YasAtom *result)
 {
     if (yas_nilp(args) || yas_car(args).type != YAS_ATOM_TYPE_STRING) {
         return yas_raise_error("type-error", "write-string expects a string");
@@ -311,8 +428,17 @@ int yas_builtin_write_string(YasAtom args, YasAtom *result)
     return YAS_ERROR_OK;
 }
 
+int yas_builtin_write_string(YasAtom args, YasAtom *result)
+{
+    yas_gil_enter();
+    int r = yas_builtin_write_string_impl(args, result);
+    yas_gil_leave();
+    return r;
+}
+
+
 /* (write-byte byte port) */
-int yas_builtin_write_byte(YasAtom args, YasAtom *result)
+static int yas_builtin_write_byte_impl(YasAtom args, YasAtom *result)
 {
     if (yas_nilp(args) || yas_car(args).type != YAS_ATOM_TYPE_INTEGER) {
         return yas_raise_error("type-error", "write-byte expects an integer (0-255)");
@@ -333,8 +459,17 @@ int yas_builtin_write_byte(YasAtom args, YasAtom *result)
     return YAS_ERROR_OK;
 }
 
+int yas_builtin_write_byte(YasAtom args, YasAtom *result)
+{
+    yas_gil_enter();
+    int r = yas_builtin_write_byte_impl(args, result);
+    yas_gil_leave();
+    return r;
+}
+
+
 /* (write-bytes bytevector port) */
-int yas_builtin_write_bytes(YasAtom args, YasAtom *result)
+static int yas_builtin_write_bytes_impl(YasAtom args, YasAtom *result)
 {
     if (yas_nilp(args) || yas_car(args).type != YAS_ATOM_TYPE_BYTEVECTOR) {
         return yas_raise_error("type-error", "write-bytes expects a bytevector");
@@ -355,8 +490,17 @@ int yas_builtin_write_bytes(YasAtom args, YasAtom *result)
     return YAS_ERROR_OK;
 }
 
+int yas_builtin_write_bytes(YasAtom args, YasAtom *result)
+{
+    yas_gil_enter();
+    int r = yas_builtin_write_bytes_impl(args, result);
+    yas_gil_leave();
+    return r;
+}
+
+
 /* (newline port) */
-int yas_builtin_newline(YasAtom args, YasAtom *result)
+static int yas_builtin_newline_impl(YasAtom args, YasAtom *result)
 {
     if (yas_nilp(args) || yas_car(args).type != YAS_ATOM_TYPE_PORT) {
         return yas_raise_error("type-error", "newline expects a port");
@@ -372,8 +516,17 @@ int yas_builtin_newline(YasAtom args, YasAtom *result)
     return YAS_ERROR_OK;
 }
 
+int yas_builtin_newline(YasAtom args, YasAtom *result)
+{
+    yas_gil_enter();
+    int r = yas_builtin_newline_impl(args, result);
+    yas_gil_leave();
+    return r;
+}
+
+
 /* (flush-port port) */
-int yas_builtin_flush_port(YasAtom args, YasAtom *result)
+static int yas_builtin_flush_port_impl(YasAtom args, YasAtom *result)
 {
     if (yas_nilp(args) || yas_car(args).type != YAS_ATOM_TYPE_PORT) {
         return yas_raise_error("type-error", "flush-port expects a port");
@@ -386,8 +539,17 @@ int yas_builtin_flush_port(YasAtom args, YasAtom *result)
     return YAS_ERROR_OK;
 }
 
+int yas_builtin_flush_port(YasAtom args, YasAtom *result)
+{
+    yas_gil_enter();
+    int r = yas_builtin_flush_port_impl(args, result);
+    yas_gil_leave();
+    return r;
+}
+
+
 /* (file-exists? path) */
-int yas_builtin_file_exists(YasAtom args, YasAtom *result)
+static int yas_builtin_file_exists_impl(YasAtom args, YasAtom *result)
 {
     if (yas_nilp(args) || yas_car(args).type != YAS_ATOM_TYPE_STRING) {
         return yas_raise_error("type-error", "file-exists? expects a string path");
@@ -402,8 +564,17 @@ int yas_builtin_file_exists(YasAtom args, YasAtom *result)
     return YAS_ERROR_OK;
 }
 
+int yas_builtin_file_exists(YasAtom args, YasAtom *result)
+{
+    yas_gil_enter();
+    int r = yas_builtin_file_exists_impl(args, result);
+    yas_gil_leave();
+    return r;
+}
+
+
 /* (delete-file path) */
-int yas_builtin_delete_file(YasAtom args, YasAtom *result)
+static int yas_builtin_delete_file_impl(YasAtom args, YasAtom *result)
 {
     if (yas_nilp(args) || yas_car(args).type != YAS_ATOM_TYPE_STRING) {
         return yas_raise_error("type-error", "delete-file expects a string path");
@@ -417,8 +588,17 @@ int yas_builtin_delete_file(YasAtom args, YasAtom *result)
     }
 }
 
+int yas_builtin_delete_file(YasAtom args, YasAtom *result)
+{
+    yas_gil_enter();
+    int r = yas_builtin_delete_file_impl(args, result);
+    yas_gil_leave();
+    return r;
+}
+
+
 /* (rename-file old new) */
-int yas_builtin_rename_file(YasAtom args, YasAtom *result)
+static int yas_builtin_rename_file_impl(YasAtom args, YasAtom *result)
 {
     if (yas_nilp(args) || yas_car(args).type != YAS_ATOM_TYPE_STRING) {
         return yas_raise_error("type-error", "rename-file expects a string source path");
@@ -437,3 +617,12 @@ int yas_builtin_rename_file(YasAtom args, YasAtom *result)
         return yas_raise_error("io-error", "could not rename file");
     }
 }
+
+int yas_builtin_rename_file(YasAtom args, YasAtom *result)
+{
+    yas_gil_enter();
+    int r = yas_builtin_rename_file_impl(args, result);
+    yas_gil_leave();
+    return r;
+}
+

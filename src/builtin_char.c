@@ -1,7 +1,7 @@
 #include "yas.h"
 
 /* (char? obj) */
-int yas_builtin_charp(YasAtom args, YasAtom *result)
+static int yas_builtin_charp_impl(YasAtom args, YasAtom *result)
 {
     if (yas_nilp(args))
         return yas_raise_error("args-error", "char?: expected 1 argument");
@@ -9,8 +9,17 @@ int yas_builtin_charp(YasAtom args, YasAtom *result)
     return YAS_ERROR_OK;
 }
 
+int yas_builtin_charp(YasAtom args, YasAtom *result)
+{
+    yas_gil_enter();
+    int r = yas_builtin_charp_impl(args, result);
+    yas_gil_leave();
+    return r;
+}
+
+
 /* (char->integer char) */
-int yas_builtin_char_to_integer(YasAtom args, YasAtom *result)
+static int yas_builtin_char_to_integer_impl(YasAtom args, YasAtom *result)
 {
     if (yas_nilp(args) || !yas_nilp(yas_cdr(args)))
         return yas_raise_error("args-error", "char->integer: expected 1 argument");
@@ -21,8 +30,17 @@ int yas_builtin_char_to_integer(YasAtom args, YasAtom *result)
     return YAS_ERROR_OK;
 }
 
+int yas_builtin_char_to_integer(YasAtom args, YasAtom *result)
+{
+    yas_gil_enter();
+    int r = yas_builtin_char_to_integer_impl(args, result);
+    yas_gil_leave();
+    return r;
+}
+
+
 /* (integer->char int) */
-int yas_builtin_integer_to_char(YasAtom args, YasAtom *result)
+static int yas_builtin_integer_to_char_impl(YasAtom args, YasAtom *result)
 {
     if (yas_nilp(args) || !yas_nilp(yas_cdr(args)))
         return yas_raise_error("args-error", "integer->char: expected 1 argument");
@@ -33,8 +51,17 @@ int yas_builtin_integer_to_char(YasAtom args, YasAtom *result)
     return YAS_ERROR_OK;
 }
 
+int yas_builtin_integer_to_char(YasAtom args, YasAtom *result)
+{
+    yas_gil_enter();
+    int r = yas_builtin_integer_to_char_impl(args, result);
+    yas_gil_leave();
+    return r;
+}
+
+
 /* (char=? a b) */
-int yas_builtin_char_eq(YasAtom args, YasAtom *result)
+static int yas_builtin_char_eq_impl(YasAtom args, YasAtom *result)
 {
     if (yas_nilp(args) || yas_nilp(yas_cdr(args)) || !yas_nilp(yas_cdr(yas_cdr(args))))
         return yas_raise_error("args-error", "char=?: expected 2 arguments");
@@ -45,8 +72,17 @@ int yas_builtin_char_eq(YasAtom args, YasAtom *result)
     return YAS_ERROR_OK;
 }
 
+int yas_builtin_char_eq(YasAtom args, YasAtom *result)
+{
+    yas_gil_enter();
+    int r = yas_builtin_char_eq_impl(args, result);
+    yas_gil_leave();
+    return r;
+}
+
+
 /* (char<? a b) */
-int yas_builtin_char_lt(YasAtom args, YasAtom *result)
+static int yas_builtin_char_lt_impl(YasAtom args, YasAtom *result)
 {
     if (yas_nilp(args) || yas_nilp(yas_cdr(args)) || !yas_nilp(yas_cdr(yas_cdr(args))))
         return yas_raise_error("args-error", "char<?: expected 2 arguments");
@@ -56,3 +92,12 @@ int yas_builtin_char_lt(YasAtom args, YasAtom *result)
     *result = (a.value.character < b.value.character) ? yas_make_sym("T") : yas_nil;
     return YAS_ERROR_OK;
 }
+
+int yas_builtin_char_lt(YasAtom args, YasAtom *result)
+{
+    yas_gil_enter();
+    int r = yas_builtin_char_lt_impl(args, result);
+    yas_gil_leave();
+    return r;
+}
+

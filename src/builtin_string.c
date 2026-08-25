@@ -2,7 +2,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-int yas_builtin_stringp(YasAtom args, YasAtom *result)
+static int yas_builtin_stringp_impl(YasAtom args, YasAtom *result)
 {
     if (yas_nilp(args) || !yas_nilp(yas_cdr(args)))
         return yas_raise_error("args-error", "string?: expected 1 argument");
@@ -10,8 +10,17 @@ int yas_builtin_stringp(YasAtom args, YasAtom *result)
     return YAS_ERROR_OK;
 }
 
+int yas_builtin_stringp(YasAtom args, YasAtom *result)
+{
+    yas_gil_enter();
+    int r = yas_builtin_stringp_impl(args, result);
+    yas_gil_leave();
+    return r;
+}
+
+
 /* (string-length str) */
-int yas_builtin_string_length(YasAtom args, YasAtom *result)
+static int yas_builtin_string_length_impl(YasAtom args, YasAtom *result)
 {
     if (yas_nilp(args) || !yas_nilp(yas_cdr(args)))
         return yas_raise_error("args-error", "string-length: expected 1 argument");
@@ -22,8 +31,17 @@ int yas_builtin_string_length(YasAtom args, YasAtom *result)
     return YAS_ERROR_OK;
 }
 
+int yas_builtin_string_length(YasAtom args, YasAtom *result)
+{
+    yas_gil_enter();
+    int r = yas_builtin_string_length_impl(args, result);
+    yas_gil_leave();
+    return r;
+}
+
+
 /* (string-ref str k) - get k-th character (0-indexed) */
-int yas_builtin_string_ref(YasAtom args, YasAtom *result)
+static int yas_builtin_string_ref_impl(YasAtom args, YasAtom *result)
 {
     if (yas_nilp(args) || yas_nilp(yas_cdr(args)) || !yas_nilp(yas_cdr(yas_cdr(args))))
         return yas_raise_error("args-error", "string-ref: expected 2 arguments");
@@ -44,8 +62,17 @@ int yas_builtin_string_ref(YasAtom args, YasAtom *result)
     return YAS_ERROR_OK;
 }
 
+int yas_builtin_string_ref(YasAtom args, YasAtom *result)
+{
+    yas_gil_enter();
+    int r = yas_builtin_string_ref_impl(args, result);
+    yas_gil_leave();
+    return r;
+}
+
+
 /* (string=? s1 s2) */
-int yas_builtin_string_eq(YasAtom args, YasAtom *result)
+static int yas_builtin_string_eq_impl(YasAtom args, YasAtom *result)
 {
     if (yas_nilp(args) || yas_nilp(yas_cdr(args)) || !yas_nilp(yas_cdr(yas_cdr(args))))
         return yas_raise_error("args-error", "string=?: expected 2 arguments");
@@ -60,8 +87,17 @@ int yas_builtin_string_eq(YasAtom args, YasAtom *result)
     return YAS_ERROR_OK;
 }
 
+int yas_builtin_string_eq(YasAtom args, YasAtom *result)
+{
+    yas_gil_enter();
+    int r = yas_builtin_string_eq_impl(args, result);
+    yas_gil_leave();
+    return r;
+}
+
+
 /* (string-byte-length str) - byte length (for I/O) */
-int yas_builtin_string_byte_length(YasAtom args, YasAtom *result)
+static int yas_builtin_string_byte_length_impl(YasAtom args, YasAtom *result)
 {
     if (yas_nilp(args) || !yas_nilp(yas_cdr(args)))
         return yas_raise_error("args-error", "string-byte-length: expected 1 argument");
@@ -74,8 +110,17 @@ int yas_builtin_string_byte_length(YasAtom args, YasAtom *result)
     return YAS_ERROR_OK;
 }
 
+int yas_builtin_string_byte_length(YasAtom args, YasAtom *result)
+{
+    yas_gil_enter();
+    int r = yas_builtin_string_byte_length_impl(args, result);
+    yas_gil_leave();
+    return r;
+}
+
+
 /* (string-append s1 s2 ...) */
-int yas_builtin_string_append(YasAtom args, YasAtom *result)
+static int yas_builtin_string_append_impl(YasAtom args, YasAtom *result)
 {
     size_t total_len = 0;
     YasAtom p = args;
@@ -97,8 +142,17 @@ int yas_builtin_string_append(YasAtom args, YasAtom *result)
     return YAS_ERROR_OK;
 }
 
+int yas_builtin_string_append(YasAtom args, YasAtom *result)
+{
+    yas_gil_enter();
+    int r = yas_builtin_string_append_impl(args, result);
+    yas_gil_leave();
+    return r;
+}
+
+
 /* (string-upcase str) - convert string to uppercase */
-int yas_builtin_string_upcase(YasAtom args, YasAtom *result)
+static int yas_builtin_string_upcase_impl(YasAtom args, YasAtom *result)
 {
     if (yas_nilp(args) || !yas_nilp(yas_cdr(args)))
         return yas_raise_error("args-error", "string-upcase: expected 1 argument");
@@ -123,8 +177,17 @@ int yas_builtin_string_upcase(YasAtom args, YasAtom *result)
     return YAS_ERROR_OK;
 }
 
+int yas_builtin_string_upcase(YasAtom args, YasAtom *result)
+{
+    yas_gil_enter();
+    int r = yas_builtin_string_upcase_impl(args, result);
+    yas_gil_leave();
+    return r;
+}
+
+
 /* (string-downcase str) - convert string to lowercase */
-int yas_builtin_string_downcase(YasAtom args, YasAtom *result)
+static int yas_builtin_string_downcase_impl(YasAtom args, YasAtom *result)
 {
     if (yas_nilp(args) || !yas_nilp(yas_cdr(args)))
         return yas_raise_error("args-error", "string-downcase: expected 1 argument");
@@ -149,8 +212,17 @@ int yas_builtin_string_downcase(YasAtom args, YasAtom *result)
     return YAS_ERROR_OK;
 }
 
+int yas_builtin_string_downcase(YasAtom args, YasAtom *result)
+{
+    yas_gil_enter();
+    int r = yas_builtin_string_downcase_impl(args, result);
+    yas_gil_leave();
+    return r;
+}
+
+
 /* (string-capitalize str) - capitalize first letter of each word */
-int yas_builtin_string_capitalize(YasAtom args, YasAtom *result)
+static int yas_builtin_string_capitalize_impl(YasAtom args, YasAtom *result)
 {
     if (yas_nilp(args) || !yas_nilp(yas_cdr(args)))
         return yas_raise_error("args-error", "string-capitalize: expected 1 argument");
@@ -186,8 +258,17 @@ int yas_builtin_string_capitalize(YasAtom args, YasAtom *result)
     return YAS_ERROR_OK;
 }
 
+int yas_builtin_string_capitalize(YasAtom args, YasAtom *result)
+{
+    yas_gil_enter();
+    int r = yas_builtin_string_capitalize_impl(args, result);
+    yas_gil_leave();
+    return r;
+}
+
+
 /* (make-string n [char]) - create string of n copies of char (default space) */
-int yas_builtin_make_string(YasAtom args, YasAtom *result)
+static int yas_builtin_make_string_impl(YasAtom args, YasAtom *result)
 {
     if (yas_nilp(args))
         return yas_raise_error("args-error", "make-string: expected at least 1 argument");
@@ -229,8 +310,17 @@ int yas_builtin_make_string(YasAtom args, YasAtom *result)
     return YAS_ERROR_OK;
 }
 
+int yas_builtin_make_string(YasAtom args, YasAtom *result)
+{
+    yas_gil_enter();
+    int r = yas_builtin_make_string_impl(args, result);
+    yas_gil_leave();
+    return r;
+}
+
+
 /* (substring str start [end]) - extract substring */
-int yas_builtin_substring(YasAtom args, YasAtom *result)
+static int yas_builtin_substring_impl(YasAtom args, YasAtom *result)
 {
     if (yas_nilp(args) || yas_nilp(yas_cdr(args)))
         return yas_raise_error("args-error", "substring: expected at least 2 arguments");
@@ -274,3 +364,12 @@ int yas_builtin_substring(YasAtom args, YasAtom *result)
     *result = yas_make_string_n(start_ptr, byte_len);
     return YAS_ERROR_OK;
 }
+
+int yas_builtin_substring(YasAtom args, YasAtom *result)
+{
+    yas_gil_enter();
+    int r = yas_builtin_substring_impl(args, result);
+    yas_gil_leave();
+    return r;
+}
+

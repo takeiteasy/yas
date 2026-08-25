@@ -1,6 +1,6 @@
 #include "yas.h"
 
-int yas_builtin_get_search_paths(YasAtom args, YasAtom *result)
+static int yas_builtin_get_search_paths_impl(YasAtom args, YasAtom *result)
 {
     if (!yas_nilp(args))
         return yas_raise_error("args-error", "get-search-paths: expected 0 arguments");
@@ -8,7 +8,16 @@ int yas_builtin_get_search_paths(YasAtom args, YasAtom *result)
     return YAS_ERROR_OK;
 }
 
-int yas_builtin_set_search_paths(YasAtom args, YasAtom *result)
+int yas_builtin_get_search_paths(YasAtom args, YasAtom *result)
+{
+    yas_gil_enter();
+    int r = yas_builtin_get_search_paths_impl(args, result);
+    yas_gil_leave();
+    return r;
+}
+
+
+static int yas_builtin_set_search_paths_impl(YasAtom args, YasAtom *result)
 {
     if (yas_nilp(args) || !yas_nilp(yas_cdr(args)))
         return yas_raise_error("args-error", "set-search-paths!: expected 1 argument");
@@ -27,7 +36,16 @@ int yas_builtin_set_search_paths(YasAtom args, YasAtom *result)
     return YAS_ERROR_OK;
 }
 
-int yas_builtin_add_search_path(YasAtom args, YasAtom *result)
+int yas_builtin_set_search_paths(YasAtom args, YasAtom *result)
+{
+    yas_gil_enter();
+    int r = yas_builtin_set_search_paths_impl(args, result);
+    yas_gil_leave();
+    return r;
+}
+
+
+static int yas_builtin_add_search_path_impl(YasAtom args, YasAtom *result)
 {
     if (yas_nilp(args) || !yas_nilp(yas_cdr(args)))
         return yas_raise_error("args-error", "add-search-path!: expected 1 argument");
@@ -38,3 +56,12 @@ int yas_builtin_add_search_path(YasAtom args, YasAtom *result)
     *result = yas_global_search_paths;
     return YAS_ERROR_OK;
 }
+
+int yas_builtin_add_search_path(YasAtom args, YasAtom *result)
+{
+    yas_gil_enter();
+    int r = yas_builtin_add_search_path_impl(args, result);
+    yas_gil_leave();
+    return r;
+}
+

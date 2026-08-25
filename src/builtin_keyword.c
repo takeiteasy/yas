@@ -3,7 +3,7 @@
 #include <string.h>
 
 /* (keyword? obj) */
-int yas_builtin_keywordp(YasAtom args, YasAtom *result)
+static int yas_builtin_keywordp_impl(YasAtom args, YasAtom *result)
 {
     if (yas_nilp(args) || !yas_nilp(yas_cdr(args)))
         return yas_raise_error("args-error", "keyword?: expected 1 argument");
@@ -11,8 +11,17 @@ int yas_builtin_keywordp(YasAtom args, YasAtom *result)
     return YAS_ERROR_OK;
 }
 
+int yas_builtin_keywordp(YasAtom args, YasAtom *result)
+{
+    yas_gil_enter();
+    int r = yas_builtin_keywordp_impl(args, result);
+    yas_gil_leave();
+    return r;
+}
+
+
 /* (keyword->string kw) */
-int yas_builtin_keyword_to_string(YasAtom args, YasAtom *result)
+static int yas_builtin_keyword_to_string_impl(YasAtom args, YasAtom *result)
 {
     if (yas_nilp(args) || !yas_nilp(yas_cdr(args)))
         return yas_raise_error("args-error", "keyword->string: expected 1 argument");
@@ -22,8 +31,17 @@ int yas_builtin_keyword_to_string(YasAtom args, YasAtom *result)
     return YAS_ERROR_OK;
 }
 
+int yas_builtin_keyword_to_string(YasAtom args, YasAtom *result)
+{
+    yas_gil_enter();
+    int r = yas_builtin_keyword_to_string_impl(args, result);
+    yas_gil_leave();
+    return r;
+}
+
+
 /* (string->keyword str) */
-int yas_builtin_string_to_keyword(YasAtom args, YasAtom *result)
+static int yas_builtin_string_to_keyword_impl(YasAtom args, YasAtom *result)
 {
     if (yas_nilp(args) || !yas_nilp(yas_cdr(args)))
         return yas_raise_error("args-error", "string->keyword: expected 1 argument");
@@ -40,3 +58,12 @@ int yas_builtin_string_to_keyword(YasAtom args, YasAtom *result)
     free(buf);
     return YAS_ERROR_OK;
 }
+
+int yas_builtin_string_to_keyword(YasAtom args, YasAtom *result)
+{
+    yas_gil_enter();
+    int r = yas_builtin_string_to_keyword_impl(args, result);
+    yas_gil_leave();
+    return r;
+}
+

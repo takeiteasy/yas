@@ -3,7 +3,7 @@
 #include <string.h>
 
 /* (make-bytevector size [fill]) */
-int yas_builtin_make_bytevector(YasAtom args, YasAtom *result)
+static int yas_builtin_make_bytevector_impl(YasAtom args, YasAtom *result)
 {
     if (yas_nilp(args) || yas_car(args).type != YAS_ATOM_TYPE_INTEGER) {
         return yas_raise_error("type-error", "make-bytevector expects an integer size");
@@ -21,8 +21,17 @@ int yas_builtin_make_bytevector(YasAtom args, YasAtom *result)
     return YAS_ERROR_OK;
 }
 
+int yas_builtin_make_bytevector(YasAtom args, YasAtom *result)
+{
+    yas_gil_enter();
+    int r = yas_builtin_make_bytevector_impl(args, result);
+    yas_gil_leave();
+    return r;
+}
+
+
 /* (bytevector? obj) */
-int yas_builtin_bytevectorp(YasAtom args, YasAtom *result)
+static int yas_builtin_bytevectorp_impl(YasAtom args, YasAtom *result)
 {
     if (yas_nilp(args))
         return YAS_ERROR_ARGS;
@@ -30,8 +39,17 @@ int yas_builtin_bytevectorp(YasAtom args, YasAtom *result)
     return YAS_ERROR_OK;
 }
 
+int yas_builtin_bytevectorp(YasAtom args, YasAtom *result)
+{
+    yas_gil_enter();
+    int r = yas_builtin_bytevectorp_impl(args, result);
+    yas_gil_leave();
+    return r;
+}
+
+
 /* (bytevector-length bv) */
-int yas_builtin_bytevector_length(YasAtom args, YasAtom *result)
+static int yas_builtin_bytevector_length_impl(YasAtom args, YasAtom *result)
 {
     if (yas_nilp(args) || yas_car(args).type != YAS_ATOM_TYPE_BYTEVECTOR) {
         return yas_raise_error("type-error", "bytevector-length expects a bytevector");
@@ -40,8 +58,17 @@ int yas_builtin_bytevector_length(YasAtom args, YasAtom *result)
     return YAS_ERROR_OK;
 }
 
+int yas_builtin_bytevector_length(YasAtom args, YasAtom *result)
+{
+    yas_gil_enter();
+    int r = yas_builtin_bytevector_length_impl(args, result);
+    yas_gil_leave();
+    return r;
+}
+
+
 /* (bytevector-u8-ref bv index) */
-int yas_builtin_bytevector_u8_ref(YasAtom args, YasAtom *result)
+static int yas_builtin_bytevector_u8_ref_impl(YasAtom args, YasAtom *result)
 {
     if (yas_nilp(args) || yas_car(args).type != YAS_ATOM_TYPE_BYTEVECTOR) {
         return yas_raise_error("type-error", "bytevector-u8-ref expects a bytevector");
@@ -61,8 +88,17 @@ int yas_builtin_bytevector_u8_ref(YasAtom args, YasAtom *result)
     return YAS_ERROR_OK;
 }
 
+int yas_builtin_bytevector_u8_ref(YasAtom args, YasAtom *result)
+{
+    yas_gil_enter();
+    int r = yas_builtin_bytevector_u8_ref_impl(args, result);
+    yas_gil_leave();
+    return r;
+}
+
+
 /* (bytevector-u8-set! bv index value) */
-int yas_builtin_bytevector_u8_set(YasAtom args, YasAtom *result)
+static int yas_builtin_bytevector_u8_set_impl(YasAtom args, YasAtom *result)
 {
     if (yas_nilp(args) || yas_car(args).type != YAS_ATOM_TYPE_BYTEVECTOR) {
         return yas_raise_error("type-error", "bytevector-u8-set! expects a bytevector");
@@ -87,8 +123,17 @@ int yas_builtin_bytevector_u8_set(YasAtom args, YasAtom *result)
     return YAS_ERROR_OK;
 }
 
+int yas_builtin_bytevector_u8_set(YasAtom args, YasAtom *result)
+{
+    yas_gil_enter();
+    int r = yas_builtin_bytevector_u8_set_impl(args, result);
+    yas_gil_leave();
+    return r;
+}
+
+
 /* (bytevector->string bv) - UTF-8 interpretation */
-int yas_builtin_bytevector_to_string(YasAtom args, YasAtom *result)
+static int yas_builtin_bytevector_to_string_impl(YasAtom args, YasAtom *result)
 {
     if (yas_nilp(args) || yas_car(args).type != YAS_ATOM_TYPE_BYTEVECTOR) {
         return yas_raise_error("type-error", "bytevector->string expects a bytevector");
@@ -99,8 +144,17 @@ int yas_builtin_bytevector_to_string(YasAtom args, YasAtom *result)
     return YAS_ERROR_OK;
 }
 
+int yas_builtin_bytevector_to_string(YasAtom args, YasAtom *result)
+{
+    yas_gil_enter();
+    int r = yas_builtin_bytevector_to_string_impl(args, result);
+    yas_gil_leave();
+    return r;
+}
+
+
 /* (string->bytevector str) */
-int yas_builtin_string_to_bytevector(YasAtom args, YasAtom *result)
+static int yas_builtin_string_to_bytevector_impl(YasAtom args, YasAtom *result)
 {
     if (yas_nilp(args) || yas_car(args).type != YAS_ATOM_TYPE_STRING) {
         return yas_raise_error("type-error", "string->bytevector expects a string");
@@ -111,8 +165,17 @@ int yas_builtin_string_to_bytevector(YasAtom args, YasAtom *result)
     return YAS_ERROR_OK;
 }
 
+int yas_builtin_string_to_bytevector(YasAtom args, YasAtom *result)
+{
+    yas_gil_enter();
+    int r = yas_builtin_string_to_bytevector_impl(args, result);
+    yas_gil_leave();
+    return r;
+}
+
+
 /* (string->bytes str [encoding]) - Convert string to bytevector */
-int yas_builtin_string_to_bytes(YasAtom args, YasAtom *result)
+static int yas_builtin_string_to_bytes_impl(YasAtom args, YasAtom *result)
 {
     if (yas_nilp(args) || yas_car(args).type != YAS_ATOM_TYPE_STRING)
         return yas_raise_error("type-error", "string->bytes: first argument must be string");
@@ -161,8 +224,17 @@ int yas_builtin_string_to_bytes(YasAtom args, YasAtom *result)
     return YAS_ERROR_OK;
 }
 
+int yas_builtin_string_to_bytes(YasAtom args, YasAtom *result)
+{
+    yas_gil_enter();
+    int r = yas_builtin_string_to_bytes_impl(args, result);
+    yas_gil_leave();
+    return r;
+}
+
+
 /* (bytes->string bytevector [encoding]) - Convert bytevector to string */
-int yas_builtin_bytes_to_string(YasAtom args, YasAtom *result)
+static int yas_builtin_bytes_to_string_impl(YasAtom args, YasAtom *result)
 {
     if (yas_nilp(args) || yas_car(args).type != YAS_ATOM_TYPE_BYTEVECTOR)
         return yas_raise_error("type-error", "bytes->string: first argument must be bytevector");
@@ -205,3 +277,12 @@ int yas_builtin_bytes_to_string(YasAtom args, YasAtom *result)
 
     return YAS_ERROR_OK;
 }
+
+int yas_builtin_bytes_to_string(YasAtom args, YasAtom *result)
+{
+    yas_gil_enter();
+    int r = yas_builtin_bytes_to_string_impl(args, result);
+    yas_gil_leave();
+    return r;
+}
+

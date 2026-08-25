@@ -101,7 +101,7 @@ static void reg_sym(YasAtom env, const char *name, YasAtom val)
     yas_env_define(env, yas_make_sym(name), val);
 }
 
-YasAtom yas_define_native_module(const char *name_str, YasAtom parent_env, YasAtom *out_env)
+static YasAtom yas_define_native_module_impl(const char *name_str, YasAtom parent_env, YasAtom *out_env)
 {
     ensure_registry();
 
@@ -171,9 +171,18 @@ YasAtom yas_define_native_module(const char *name_str, YasAtom parent_env, YasAt
     return lib;
 }
 
+YasAtom yas_define_native_module(const char *name_str, YasAtom parent_env, YasAtom *out_env)
+{
+    yas_gil_enter();
+    YasAtom r = yas_define_native_module_impl(name_str, parent_env, out_env);
+    yas_gil_leave();
+    return r;
+}
+
+
 /* Native loaders - register C builtins into the module env; any embedded
  * Lisp layer (stdlib.h) is merged later by merge_embedded_source(). */
-void yas_load_base_library(YasAtom parent_env)
+static void yas_load_base_library_impl(YasAtom parent_env)
 {
     ensure_registry();
     YasAtom env;
@@ -221,7 +230,15 @@ void yas_load_base_library(YasAtom parent_env)
     reg_builtin(env, "ADD-SEARCH-PATH!", yas_builtin_add_search_path);
 }
 
-void yas_load_hash_library(YasAtom parent_env)
+void yas_load_base_library(YasAtom parent_env)
+{
+    yas_gil_enter();
+    yas_load_base_library_impl(parent_env);
+    yas_gil_leave();
+}
+
+
+static void yas_load_hash_library_impl(YasAtom parent_env)
 {
     ensure_registry();
     YasAtom env;
@@ -244,7 +261,15 @@ void yas_load_hash_library(YasAtom parent_env)
     reg_builtin(env, "READ-STRING", yas_builtin_read_string);
 }
 
-void yas_load_vector_library(YasAtom parent_env)
+void yas_load_hash_library(YasAtom parent_env)
+{
+    yas_gil_enter();
+    yas_load_hash_library_impl(parent_env);
+    yas_gil_leave();
+}
+
+
+static void yas_load_vector_library_impl(YasAtom parent_env)
 {
     ensure_registry();
     YasAtom env;
@@ -258,7 +283,15 @@ void yas_load_vector_library(YasAtom parent_env)
     reg_builtin(env, "VECTOR-APPEND", yas_builtin_vector_append);
 }
 
-void yas_load_text_library(YasAtom parent_env)
+void yas_load_vector_library(YasAtom parent_env)
+{
+    yas_gil_enter();
+    yas_load_vector_library_impl(parent_env);
+    yas_gil_leave();
+}
+
+
+static void yas_load_text_library_impl(YasAtom parent_env)
 {
     ensure_registry();
     YasAtom env;
@@ -292,7 +325,15 @@ void yas_load_text_library(YasAtom parent_env)
     reg_builtin(env, "STRING->KEYWORD", yas_builtin_string_to_keyword);
 }
 
-void yas_load_io_library(YasAtom parent_env)
+void yas_load_text_library(YasAtom parent_env)
+{
+    yas_gil_enter();
+    yas_load_text_library_impl(parent_env);
+    yas_gil_leave();
+}
+
+
+static void yas_load_io_library_impl(YasAtom parent_env)
 {
     ensure_registry();
     YasAtom env;
@@ -333,7 +374,15 @@ void yas_load_io_library(YasAtom parent_env)
     reg_builtin(env, "IO-SANDBOX-MODE", yas_builtin_io_sandbox_mode);
 }
 
-void yas_load_math_library(YasAtom parent_env)
+void yas_load_io_library(YasAtom parent_env)
+{
+    yas_gil_enter();
+    yas_load_io_library_impl(parent_env);
+    yas_gil_leave();
+}
+
+
+static void yas_load_math_library_impl(YasAtom parent_env)
 {
     ensure_registry();
     YasAtom env;
@@ -359,8 +408,16 @@ void yas_load_math_library(YasAtom parent_env)
     reg_builtin(env, "MAT4-INVERSE", yas_builtin_mat4_inverse);
 }
 
+void yas_load_math_library(YasAtom parent_env)
+{
+    yas_gil_enter();
+    yas_load_math_library_impl(parent_env);
+    yas_gil_leave();
+}
+
+
 #ifdef YAS_FFI
-void yas_load_ffi_library(YasAtom parent_env)
+static void yas_load_ffi_library_impl(YasAtom parent_env)
 {
     ensure_registry();
     YasAtom env;
@@ -384,6 +441,14 @@ void yas_load_ffi_library(YasAtom parent_env)
     reg_builtin(env, "%FFI-STRUCT-REF", yas_builtin_ffi_struct_ref);
     reg_builtin(env, "%FFI-STRUCT-SET!", yas_builtin_ffi_struct_set);
 }
+
+void yas_load_ffi_library(YasAtom parent_env)
+{
+    yas_gil_enter();
+    yas_load_ffi_library_impl(parent_env);
+    yas_gil_leave();
+}
+
 #endif
 
 static const NativeModule native_modules[] = {{"yas/base", yas_load_base_library},
@@ -430,7 +495,7 @@ static void ensure_search_paths(void)
  * Goes through load_module() so eager and lazy loading produce identical
  * records - an embedder that calls this gets working modules even if it
  * never goes through yas_module_import() at all. */
-void yas_load_all_modules(void)
+static void yas_load_all_modules_impl(void)
 {
     ensure_registry();
     ensure_search_paths();
@@ -440,6 +505,14 @@ void yas_load_all_modules(void)
         load_module(native_modules[i].name, &ignore);
     }
 }
+
+void yas_load_all_modules(void)
+{
+    yas_gil_enter();
+    yas_load_all_modules_impl();
+    yas_gil_leave();
+}
+
 
 /* Lowercase a module-name symbol into its canonical registry key
  * ("YAS/BASE" -> "yas/base"). Returns a malloc'd string, or NULL if
@@ -930,7 +1003,7 @@ static int process_import_set(YasAtom import_set, YasAtom target_env)
     return YAS_ERROR_OK;
 }
 
-int yas_module_import(YasAtom args, YasAtom env, YasAtom *result)
+static int yas_module_import_impl(YasAtom args, YasAtom env, YasAtom *result)
 {
     /* (import set1 set2 ...) - called synchronously from eval_vm()'s own
      * IMPORT special-form dispatch (eval.c), never via a separate
@@ -959,3 +1032,12 @@ int yas_module_import(YasAtom args, YasAtom env, YasAtom *result)
     *result = yas_nil;
     return YAS_ERROR_OK;
 }
+
+int yas_module_import(YasAtom args, YasAtom env, YasAtom *result)
+{
+    yas_gil_enter();
+    int r = yas_module_import_impl(args, env, result);
+    yas_gil_leave();
+    return r;
+}
+

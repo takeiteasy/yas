@@ -3,8 +3,10 @@
 There is no `yas_state_t` and no init/destroy pair - all interpreter state
 lives in file-scope globals (symbol/keyword tables, the allocation lists
 the GC sweeps, the module registry, search paths, the current exception).
-Only one yas instance can exist per process. Embedding is a small, fixed
-sequence, taken from `src/main.c`:
+Only one yas instance can exist per process; multiple *threads* are
+supported (serialized by an internal lock - see "Threads" below), with
+full per-context isolation planned as #47's second milestone. Embedding
+is a small, fixed sequence, taken from `src/main.c`:
 
 ```c
 #include "yas.h"
@@ -98,6 +100,45 @@ one.
 
 `YAS_ERROR_SKIP` is reader-internal (see above) - a real evaluation never
 returns it.
+
+## Threads
+
+Interpreter state is still process-global, so milestone 1 of the
+thread-safety work (#47) puts one internal recursive lock (the "GIL",
+`src/thread.c`) around every public entry point that touches it: eval,
+read, print, every allocator and GC entry, the module registry, the
+sandbox config. Consequences for embedders:
+
+- **Any documented API is safe to call from any thread.** Calls
+  serialize; there is no parallelism yet (that is #47 milestone 2's
+  per-context isolation). Do not call `yas_gil_enter`/`yas_gil_leave`
+  yourself - nesting is handled internally.
+- **The GC may run on behalf of another thread at any moment**, between
+  your calls - even while your thread executes plain C code. Root
+  *every* `YasAtom` local for its **full lifetime**, not merely across
+  your own next allocating call:
+
+  ```c
+  YasAtom expr = yas_nil, result = yas_nil;
+  yas_gc_push_root(&expr);
+  yas_gc_push_root(&result);
+  /* read, eval, consume - all with both slots registered */
+  yas_gc_pop_roots(2);
+  ```
+
+  Single-threaded code only needs roots across its *own* allocating
+  calls (nothing else can start a collection); concurrent threads break
+  that assumption, hence the stricter rule above.
+- **Root stacks are per-thread** (see [GC.md](GC.md)): push/pop in LIFO
+  order within a thread; a thread's roots are invisible to other
+  threads' balance accounting by design.
+- The exception slot (`yas_ctx_exception`) and the module registry are
+  process-global, so a value raised in one context of use is observable
+  by another between calls - clear exceptions promptly
+  (`yas_clear_exception()`).
+
+`aux/thread_test.c` (run by `make test` and `make test-gc-stress`) is the
+regression gate for all of this.
 
 ## I/O sandbox
 

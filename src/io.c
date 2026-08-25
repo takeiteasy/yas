@@ -4,7 +4,7 @@
 #include <string.h>
 #include <fnmatch.h>
 
-char *yas_slurp(const char *path)
+static char * yas_slurp_impl(const char *path)
 {
     FILE *file;
     char *buf;
@@ -28,6 +28,15 @@ char *yas_slurp(const char *path)
     return buf;
 }
 
+char * yas_slurp(const char *path)
+{
+    yas_gil_enter();
+    char * r = yas_slurp_impl(path);
+    yas_gil_leave();
+    return r;
+}
+
+
 static YasIOSandboxMode sandbox_mode = YAS_IO_SANDBOX_UNRESTRICTED;
 static int sandbox_default_allow = 1; /* Default: allow unmatched paths */
 
@@ -43,41 +52,91 @@ static int denied_count = 0;
 static YasIOProvider *providers[MAX_PROVIDERS];
 static int provider_count = 0;
 
-void yas_io_sandbox_init(YasIOSandboxMode mode)
+static void yas_io_sandbox_init_impl(YasIOSandboxMode mode)
 {
     sandbox_mode = mode;
 }
 
-YasIOSandboxMode yas_io_sandbox_get_mode(void)
+void yas_io_sandbox_init(YasIOSandboxMode mode)
+{
+    yas_gil_enter();
+    yas_io_sandbox_init_impl(mode);
+    yas_gil_leave();
+}
+
+
+static YasIOSandboxMode yas_io_sandbox_get_mode_impl(void)
 {
     return sandbox_mode;
 }
 
-void yas_io_sandbox_allow_path(const char *pattern)
+YasIOSandboxMode yas_io_sandbox_get_mode(void)
+{
+    yas_gil_enter();
+    YasIOSandboxMode r = yas_io_sandbox_get_mode_impl();
+    yas_gil_leave();
+    return r;
+}
+
+
+static void yas_io_sandbox_allow_path_impl(const char *pattern)
 {
     if (allowed_count < MAX_PATTERNS) {
         allowed_patterns[allowed_count++] = strdup(pattern);
     }
 }
 
-void yas_io_sandbox_deny_path(const char *pattern)
+void yas_io_sandbox_allow_path(const char *pattern)
+{
+    yas_gil_enter();
+    yas_io_sandbox_allow_path_impl(pattern);
+    yas_gil_leave();
+}
+
+
+static void yas_io_sandbox_deny_path_impl(const char *pattern)
 {
     if (denied_count < MAX_PATTERNS) {
         denied_patterns[denied_count++] = strdup(pattern);
     }
 }
 
-void yas_io_sandbox_set_default(int allow)
+void yas_io_sandbox_deny_path(const char *pattern)
+{
+    yas_gil_enter();
+    yas_io_sandbox_deny_path_impl(pattern);
+    yas_gil_leave();
+}
+
+
+static void yas_io_sandbox_set_default_impl(int allow)
 {
     sandbox_default_allow = allow;
 }
 
-int yas_io_sandbox_get_default(void)
+void yas_io_sandbox_set_default(int allow)
+{
+    yas_gil_enter();
+    yas_io_sandbox_set_default_impl(allow);
+    yas_gil_leave();
+}
+
+
+static int yas_io_sandbox_get_default_impl(void)
 {
     return sandbox_default_allow;
 }
 
-void yas_io_sandbox_clear(void)
+int yas_io_sandbox_get_default(void)
+{
+    yas_gil_enter();
+    int r = yas_io_sandbox_get_default_impl();
+    yas_gil_leave();
+    return r;
+}
+
+
+static void yas_io_sandbox_clear_impl(void)
 {
     for (int i = 0; i < allowed_count; i++) {
         free(allowed_patterns[i]);
@@ -92,6 +151,14 @@ void yas_io_sandbox_clear(void)
     denied_count = 0;
 }
 
+void yas_io_sandbox_clear(void)
+{
+    yas_gil_enter();
+    yas_io_sandbox_clear_impl();
+    yas_gil_leave();
+}
+
+
 /* Check if path matches any pattern using glob */
 static int matches_any(const char *path, char **patterns, int count)
 {
@@ -103,7 +170,7 @@ static int matches_any(const char *path, char **patterns, int count)
     return 0;
 }
 
-int yas_io_sandbox_check_path(const char *path, int writing)
+static int yas_io_sandbox_check_path_impl(const char *path, int writing)
 {
     (void)writing; /* May be used for finer control later */
 
@@ -129,7 +196,16 @@ int yas_io_sandbox_check_path(const char *path, int writing)
     return 0;
 }
 
-int yas_io_register_provider(YasIOProvider *provider)
+int yas_io_sandbox_check_path(const char *path, int writing)
+{
+    yas_gil_enter();
+    int r = yas_io_sandbox_check_path_impl(path, writing);
+    yas_gil_leave();
+    return r;
+}
+
+
+static int yas_io_register_provider_impl(YasIOProvider *provider)
 {
     if (provider_count >= MAX_PROVIDERS)
         return -1;
@@ -137,7 +213,16 @@ int yas_io_register_provider(YasIOProvider *provider)
     return provider_count; /* Provider ID (1-based) */
 }
 
-void yas_io_unregister_provider(const char *prefix)
+int yas_io_register_provider(YasIOProvider *provider)
+{
+    yas_gil_enter();
+    int r = yas_io_register_provider_impl(provider);
+    yas_gil_leave();
+    return r;
+}
+
+
+static void yas_io_unregister_provider_impl(const char *prefix)
 {
     for (int i = 0; i < provider_count; i++) {
         if (strcmp(providers[i]->prefix, prefix) == 0) {
@@ -150,6 +235,14 @@ void yas_io_unregister_provider(const char *prefix)
         }
     }
 }
+
+void yas_io_unregister_provider(const char *prefix)
+{
+    yas_gil_enter();
+    yas_io_unregister_provider_impl(prefix);
+    yas_gil_leave();
+}
+
 
 /* Find provider for a path, return provider ID (0 = stdio) */
 static int find_provider(const char *path, const char **subpath)
@@ -165,7 +258,7 @@ static int find_provider(const char *path, const char **subpath)
     return 0; /* stdio provider */
 }
 
-void yas_port_close(YasAtom port)
+static void yas_port_close_impl(YasAtom port)
 {
     if (port.type != YAS_ATOM_TYPE_PORT)
         return;
@@ -186,7 +279,15 @@ void yas_port_close(YasAtom port)
     p->is_open = 0;
 }
 
-YasAtom yas_io_open_file(const char *path, int is_input, int is_binary)
+void yas_port_close(YasAtom port)
+{
+    yas_gil_enter();
+    yas_port_close_impl(port);
+    yas_gil_leave();
+}
+
+
+static YasAtom yas_io_open_file_impl(const char *path, int is_input, int is_binary)
 {
     const char *subpath;
     int provider_id = find_provider(path, &subpath);
@@ -217,7 +318,16 @@ YasAtom yas_io_open_file(const char *path, int is_input, int is_binary)
     return yas_make_port(handle, path, is_input, is_binary, provider_id);
 }
 
-long yas_port_read(struct YasPort *p, void *buf, size_t n)
+YasAtom yas_io_open_file(const char *path, int is_input, int is_binary)
+{
+    yas_gil_enter();
+    YasAtom r = yas_io_open_file_impl(path, is_input, is_binary);
+    yas_gil_leave();
+    return r;
+}
+
+
+static long yas_port_read_impl(struct YasPort *p, void *buf, size_t n)
 {
     if (!p->is_open)
         return -1;
@@ -230,7 +340,16 @@ long yas_port_read(struct YasPort *p, void *buf, size_t n)
     }
 }
 
-int yas_port_getc(struct YasPort *p)
+long yas_port_read(struct YasPort *p, void *buf, size_t n)
+{
+    yas_gil_enter();
+    long r = yas_port_read_impl(p, buf, n);
+    yas_gil_leave();
+    return r;
+}
+
+
+static int yas_port_getc_impl(struct YasPort *p)
 {
     if (!p->is_open)
         return EOF;
@@ -245,7 +364,16 @@ int yas_port_getc(struct YasPort *p)
     }
 }
 
-long yas_port_write(struct YasPort *p, const void *buf, size_t n)
+int yas_port_getc(struct YasPort *p)
+{
+    yas_gil_enter();
+    int r = yas_port_getc_impl(p);
+    yas_gil_leave();
+    return r;
+}
+
+
+static long yas_port_write_impl(struct YasPort *p, const void *buf, size_t n)
 {
     if (!p->is_open)
         return -1;
@@ -258,14 +386,31 @@ long yas_port_write(struct YasPort *p, const void *buf, size_t n)
     }
 }
 
-void yas_port_flush(struct YasPort *p)
+long yas_port_write(struct YasPort *p, const void *buf, size_t n)
+{
+    yas_gil_enter();
+    long r = yas_port_write_impl(p, buf, n);
+    yas_gil_leave();
+    return r;
+}
+
+
+static void yas_port_flush_impl(struct YasPort *p)
 {
     if (p->provider_id == 0 && p->is_open) {
         fflush((FILE *)p->handle);
     }
 }
 
-int yas_io_file_exists(const char *path)
+void yas_port_flush(struct YasPort *p)
+{
+    yas_gil_enter();
+    yas_port_flush_impl(p);
+    yas_gil_leave();
+}
+
+
+static int yas_io_file_exists_impl(const char *path)
 {
     const char *subpath;
     int provider_id = find_provider(path, &subpath);
@@ -292,3 +437,12 @@ int yas_io_file_exists(const char *path)
         }
     }
 }
+
+int yas_io_file_exists(const char *path)
+{
+    yas_gil_enter();
+    int r = yas_io_file_exists_impl(path);
+    yas_gil_leave();
+    return r;
+}
+

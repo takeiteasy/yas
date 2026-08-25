@@ -34,7 +34,7 @@ static void set_error(YasErrorContext *err, YasError code, const char *source, c
 }
 
 /* Print error with position and context */
-void yas_error_print(YasErrorContext *err)
+static void yas_error_print_impl(YasErrorContext *err)
 {
     if (!err || err->code == YAS_ERROR_OK)
         return;
@@ -78,6 +78,14 @@ void yas_error_print(YasErrorContext *err)
         printf("^\n");
     }
 }
+
+void yas_error_print(YasErrorContext *err)
+{
+    yas_gil_enter();
+    yas_error_print_impl(err);
+    yas_gil_leave();
+}
+
 
 static int lex(const char *str, const char **start, const char **end, const char *source, const char *filename,
                YasErrorContext *err)
@@ -854,9 +862,18 @@ static int read_expr_internal(const char *input, const char **end, YasAtom *resu
 }
 
 /* Public interface - source is the input itself */
-int yas_read_expr(const char *input, const char **end, YasAtom *result, YasErrorContext *err)
+static int yas_read_expr_impl(const char *input, const char **end, YasAtom *result, YasErrorContext *err)
 {
     const char *filename = err && err->pos.filename ? err->pos.filename : "<stdin>";
     const char *source = err && err->pos.source ? err->pos.source : input;
     return read_expr_internal(input, end, result, source, filename, err);
 }
+
+int yas_read_expr(const char *input, const char **end, YasAtom *result, YasErrorContext *err)
+{
+    yas_gil_enter();
+    int r = yas_read_expr_impl(input, end, result, err);
+    yas_gil_leave();
+    return r;
+}
+

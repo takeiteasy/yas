@@ -4,6 +4,27 @@
 #include <stddef.h>
 #include <stdint.h>
 
+/* Thread-local storage qualifier: C11 _Thread_local where available,
+ * the GCC/clang __thread extension otherwise (the build compiles as
+ * C99 - see the Makefile). Windows/MSVC maps to __declspec(thread) in
+ * ticket #49's portability pass. */
+#if defined(__STDC_VERSION__) && __STDC_VERSION__ >= 201112L
+#define YAS_TLS _Thread_local
+#else
+#define YAS_TLS __thread
+#endif
+
+/* ── Interpreter lock (ticket #47, milestone 1) ───────────────────────
+ * Interpreter state is process-global until milestone 2's per-context
+ * isolation, so every public entry that touches it brackets its body
+ * with these. Nesting is the common case (eval -> builtin ->
+ * yas_cons()); the outermost enter() takes the mutex and nested calls
+ * only bump a thread-local depth counter (src/thread.c). INTERNAL:
+ * embedder code should never call these directly - just call the
+ * ordinary API from any thread. */
+void yas_gil_enter(void);
+void yas_gil_leave(void);
+
 typedef enum {
     YAS_ERROR_OK = 0,
     YAS_ERROR_SYNTAX,

@@ -2,7 +2,7 @@
 #include <string.h>
 
 /* (io-sandbox-allow! pattern) */
-int yas_builtin_io_sandbox_allow(YasAtom args, YasAtom *result)
+static int yas_builtin_io_sandbox_allow_impl(YasAtom args, YasAtom *result)
 {
     if (yas_nilp(args) || yas_car(args).type != YAS_ATOM_TYPE_STRING) {
         return yas_raise_error("type-error", "io-sandbox-allow! expects a string pattern");
@@ -12,8 +12,17 @@ int yas_builtin_io_sandbox_allow(YasAtom args, YasAtom *result)
     return YAS_ERROR_OK;
 }
 
+int yas_builtin_io_sandbox_allow(YasAtom args, YasAtom *result)
+{
+    yas_gil_enter();
+    int r = yas_builtin_io_sandbox_allow_impl(args, result);
+    yas_gil_leave();
+    return r;
+}
+
+
 /* (io-sandbox-deny! pattern) */
-int yas_builtin_io_sandbox_deny(YasAtom args, YasAtom *result)
+static int yas_builtin_io_sandbox_deny_impl(YasAtom args, YasAtom *result)
 {
     if (yas_nilp(args) || yas_car(args).type != YAS_ATOM_TYPE_STRING) {
         return yas_raise_error("type-error", "io-sandbox-deny! expects a string pattern");
@@ -23,8 +32,17 @@ int yas_builtin_io_sandbox_deny(YasAtom args, YasAtom *result)
     return YAS_ERROR_OK;
 }
 
+int yas_builtin_io_sandbox_deny(YasAtom args, YasAtom *result)
+{
+    yas_gil_enter();
+    int r = yas_builtin_io_sandbox_deny_impl(args, result);
+    yas_gil_leave();
+    return r;
+}
+
+
 /* (io-sandbox-mode [mode]) - get or set mode */
-int yas_builtin_io_sandbox_mode(YasAtom args, YasAtom *result)
+static int yas_builtin_io_sandbox_mode_impl(YasAtom args, YasAtom *result)
 {
     if (yas_nilp(args)) {
         /* Get mode */
@@ -70,3 +88,12 @@ int yas_builtin_io_sandbox_mode(YasAtom args, YasAtom *result)
     }
     return YAS_ERROR_OK;
 }
+
+int yas_builtin_io_sandbox_mode(YasAtom args, YasAtom *result)
+{
+    yas_gil_enter();
+    int r = yas_builtin_io_sandbox_mode_impl(args, result);
+    yas_gil_leave();
+    return r;
+}
+

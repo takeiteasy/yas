@@ -248,6 +248,24 @@ routes hash `~get`/`~set` and `~call`/`~missing` for operator-overloaded
 hashes. **Any code path that calls a `YasBuiltin` function pointer directly
 bypasses this.**
 
+## Interpreter lock
+
+All mutable interpreter state (GC heap and pacing counters, intern
+tables, both root sources, the exception slot, module registry, search
+paths, sandbox config) is process-global, so `src/thread.c` provides one
+recursive interpreter lock - the milestone-1 GIL from ticket #47. Every
+public entry point that touches that state wraps its body in
+`yas_gil_enter()`/`yas_gil_leave()` via the uniform
+`static ..._impl` + thin-locking-wrapper shape used across `src/*.c`;
+nesting (eval -> builtin -> `yas_cons()`) costs a thread-local depth
+counter bump, and the outermost enter holds the mutex. There is no
+parallelism yet: calls serialize completely. The GC root stack is
+**per-thread** (`data.c`) so interleaved embedder push/pop windows can't
+strip each other's entries; see docs/GC.md's "Root-registration API" and
+docs/EMBEDDING.md's "Threads" for the contracts. Milestone 2 replaces
+all of this with per-context heaps, at which point the lock demotes to
+context create/teardown bookkeeping.
+
 ## GC
 
 Unified incremental tricolor mark-sweep - one `struct YasGCHeader`

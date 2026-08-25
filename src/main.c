@@ -7,7 +7,7 @@
 /* Returns 0 if every top-level form in the file read and evaluated
  * cleanly, non-zero if a syntax or eval error occurred anywhere - callers
  * use this to set the process exit code. */
-int yas_load_file(YasAtom env, const char *path)
+static int yas_load_file_impl(YasAtom env, const char *path)
 {
     char *text;
     int had_error = 0;
@@ -102,6 +102,15 @@ int yas_load_file(YasAtom env, const char *path)
 
     return had_error;
 }
+
+int yas_load_file(YasAtom env, const char *path)
+{
+    yas_gil_enter();
+    int r = yas_load_file_impl(env, path);
+    yas_gil_leave();
+    return r;
+}
+
 
 int main(int argc, char **argv)
 {

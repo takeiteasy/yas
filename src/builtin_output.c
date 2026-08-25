@@ -24,7 +24,7 @@ int yas_builtin_print(YasAtom args, YasAtom *result)
 }
 
 /* (->string value) - convert any value to string */
-int yas_builtin_tostring(YasAtom args, YasAtom *result)
+static int yas_builtin_tostring_impl(YasAtom args, YasAtom *result)
 {
     if (yas_nilp(args) || !yas_nilp(yas_cdr(args)))
         return yas_raise_error("args-error", "->string: expected 1 argument");
@@ -34,3 +34,12 @@ int yas_builtin_tostring(YasAtom args, YasAtom *result)
     free(str);
     return YAS_ERROR_OK;
 }
+
+int yas_builtin_tostring(YasAtom args, YasAtom *result)
+{
+    yas_gil_enter();
+    int r = yas_builtin_tostring_impl(args, result);
+    yas_gil_leave();
+    return r;
+}
+

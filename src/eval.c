@@ -645,6 +645,27 @@ int eval_do_apply(YasAtom *stack, YasAtom *expr, YasAtom *env, YasAtom *result)
 
     if (op.type == YAS_ATOM_TYPE_SYMBOL) {
         if (strcmp(op.value.symbol, "APPLY") == 0) {
+            /* A runtime-computed APPLY (e.g. ((quote apply) f x)) lands
+             * here without passing the source form's arity_ok() gate -
+             * validate before indexing, or fewer-than-2-argument forms
+             * read wild memory below. Exactly two evaluated arguments:
+             * the procedure and its argument list. FRAME_ARGS is the
+             * evaluator's own arg spine - proper by construction - so a
+             * plain pair walk counts it safely. */
+            {
+                size_t argc = 0;
+                YasAtom a = args;
+                while (!yas_nilp(a)) {
+                    if (a.type != YAS_ATOM_TYPE_PAIR) {
+                        argc = (size_t)-1;
+                        break;
+                    }
+                    argc++;
+                    a = yas_cdr(a);
+                }
+                if (argc != 2)
+                    return YAS_ERROR_ARGS;
+            }
             /* Replace the current frame */
             *stack = frame_get(*stack, FRAME_PARENT);
             *stack = make_frame(*stack, *env, yas_nil);
@@ -929,6 +950,14 @@ int eval_do_return(YasAtom *stack, YasAtom *expr, YasAtom *env, YasAtom *result)
             YasAtom fn = *result;
             YasAtom cont;
 
+            /* Only procedures may be called with the continuation:
+             * eval_do_bind() below dereferences FRAME_OP as a closure,
+             * so a runtime value of any other type here (a fuzzed
+             * `(call/cc 1)`, say) would read its payload as an env/
+             * lambda-list pair. Builtins take the form-rebuild path. */
+            if (fn.type != YAS_ATOM_TYPE_CLOSURE && fn.type != YAS_ATOM_TYPE_BUILTIN)
+                return YAS_ERROR_TYPE;
+
             /* Pop CALL/CC frame and capture the remaining stack as the
              * continuation - a *snapshot*: clone_frame_chain() copies
              * every frame, so positions frozen here can't be perturbed
@@ -950,6 +979,18 @@ int eval_do_return(YasAtom *stack, YasAtom *expr, YasAtom *env, YasAtom *result)
              * stack - so root it until yas_cons() links it into the new
              * frame's args. */
             yas_gc_push_root(&cont);
+            if (fn.type == YAS_ATOM_TYPE_BUILTIN) {
+                /* Rebuild as a plain call form for the VM loop - the
+                 * same shape eval_do_apply()'s builtin tail produces -
+                 * instead of pushing a closure frame eval_do_bind()
+                 * would misread. */
+                YasAtom call_args = yas_cons(cont, yas_nil);
+                yas_gc_pop_roots(1); /* cont */
+                yas_gc_push_root(&call_args);
+                *expr = yas_cons(fn, call_args);
+                yas_gc_pop_roots(1); /* call_args */
+                return YAS_ERROR_OK;
+            }
             *stack = make_frame(*stack, *env, yas_nil);
             frame_set(*stack, FRAME_OP, fn);
             frame_set(*stack, FRAME_ARGS, yas_cons(cont, yas_nil));

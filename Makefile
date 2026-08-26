@@ -109,8 +109,9 @@ test-gc: $(libyas)
 # aux/ holds slow stress/benchmark/fuzz scripts (plus gc_test.c above)
 # that aren't part of the regular `make test` gate. Naming convention
 # (docs/BENCHMARKING.md, ticket #29): `*_stress.ys` here, `bench_*.ys` +
-# `bench/` for benchmarks (see `bench` target below), `fuzz_*.ys` reserved
-# for future fuzzing. Only `*_stress.ys` is filtered by this target (and
+# `bench/` for benchmarks (see `bench` target below), and `fuzz_*.ys` +
+# `aux/fuzz/` for reader/evaluator fuzzing (see `fuzz` target below,
+# docs/FUZZING.md). Only `*_stress.ys` is filtered by this target (and
 # test-gc-stress's YAS_GC_STRESS=1 loop below) - deliberately, not just a
 # glob-tightening: a `bench_*.ys` timing script under YAS_GC_STRESS=1's
 # 1-byte step quantum would be meaningless, and stress-test's job is
@@ -166,6 +167,25 @@ test-gc-stress: yas $(libyas)
 	$(CC) -std=c99 -Wall -D_GNU_SOURCE -iquote src -o build/gc_test aux/gc_test.c -L. -lyas -Wl,-rpath,.
 	@YAS_GC_STRESS=1 ./build/gc_test || exit 1
 	@echo "make test-gc-stress: PASSED"
+
+# Reader/evaluator fuzzing (docs/FUZZING.md) - aux/fuzz/fuzz.py generates
+# seeded cases, build/fuzz_harness runs them in-process against libyas.
+# Informational gate like `bench`: NOT part of `make check` (a hang in
+# fuzzed code is correct semantics, so "pass" just means no crashes).
+# Overrides: make fuzz FUZZ_CASES=50000 FUZZ_SEED=42 FUZZ_MODE=grammar.
+# Pair with the GC stress runtime for deeper sessions:
+#   make clean && make YAS_GC_STRESS=1 && make fuzz
+# and with YAS_ASAN=1 likewise (both need `make clean` between flag
+# changes - see the comment at the top). Crash artifacts land in
+# gitignored fuzz-findings/.
+.PHONY: fuzz
+fuzz: yas $(libyas)
+	@mkdir -p build
+	$(CC) -std=c99 -Wall -D_GNU_SOURCE -iquote src -o build/fuzz_harness aux/fuzz_harness.c -L. -lyas -Wl,-rpath,.
+	python3 aux/fuzz/fuzz.py \
+		$(if $(FUZZ_CASES),--cases $(FUZZ_CASES)) \
+		$(if $(FUZZ_SEED),--seed $(FUZZ_SEED)) \
+		$(if $(FUZZ_MODE),--mode $(FUZZ_MODE))
 
 .PHONY: check
 check: test test-gc

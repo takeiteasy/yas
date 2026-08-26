@@ -1,0 +1,17 @@
+; Numeric literal forms - parse_simple()'s branches
+0
+42
+-17
++123
+3.14159
+-2.5e10
+1.5E-4
+.5
+0xdeadbeef
+0XFF
+0b101010
+0B11
+100000000000000000000
+-0
+0.0
+1e3

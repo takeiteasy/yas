@@ -92,12 +92,28 @@ static int lex(const char *str, const char **start, const char **end, const char
     const char *delim = "();[] \t\n\"";
     const char *prefix = "()[]'`";
 
-    str += strspn(str, ws);
+    /* Comments are skipped iteratively rather than recursively so a run
+     * of N consecutive comment lines costs O(1) stack - a fuzzed input
+     * of thousands of ';' lines would otherwise blow the C stack here,
+     * independent of read_expr_internal()'s own depth cap below. */
+    for (;;) {
+        str += strspn(str, ws);
 
-    if (str[0] == '\0') {
-        *start = *end = NULL;
-        /* Don't set error message here - caller provides context */
-        return YAS_ERROR_SYNTAX;
+        if (str[0] == '\0') {
+            *start = *end = NULL;
+            /* Don't set error message here - caller provides context */
+            return YAS_ERROR_SYNTAX;
+        }
+
+        if (str[0] != ';')
+            break;
+
+        str = strchr(str, '\n');
+        if (!str) {
+            *start = *end = NULL;
+            set_error(err, YAS_ERROR_SYNTAX, source, str, filename, "Unexpected end of input after comment");
+            return YAS_ERROR_SYNTAX;
+        }
     }
 
     *start = str;
@@ -135,15 +151,7 @@ static int lex(const char *str, const char **start, const char **end, const char
         *end = p;
     } else if (str[0] == ',')
         *end = str + (str[1] == '@' ? 2 : 1);
-    else if (str[0] == ';') {
-        str = strchr(str, '\n');
-        if (!str) {
-            *start = *end = NULL;
-            set_error(err, YAS_ERROR_SYNTAX, source, str, filename, "Unexpected end of input after comment");
-            return YAS_ERROR_SYNTAX;
-        }
-        return lex(str, start, end, source, filename, err);
-    } else
+    else
         *end = str + strcspn(str, delim);
 
     return YAS_ERROR_OK;
@@ -339,9 +347,61 @@ static int read_list(const char *start, const char **end, char closer, YasAtom *
     }
 }
 
-/* Internal implementation with source tracking */
+/* Validate one step of a freshly-read structured literal's element list
+ * (#(, #vec(, #mat(, #hash(). read_list() legitimately returns an
+ * IMPROPER list ("(a b . c)") for a dotted tail, and walking one with
+ * raw yas_cdr()/yas_car() reinterprets a non-pair atom's payload (e.g.
+ * an integer) as a struct YasPair* - a wild-pointer read. Found by
+ * aux/fuzz (docs/FUZZING.md): "#hash(:k v . 2)" was a plain SEGV. */
+static int literal_step(YasAtom p, const char *what, const char *source, const char *token,
+                        const char *filename, YasErrorContext *err)
+{
+    if (p.type == YAS_ATOM_TYPE_PAIR || p.type == YAS_ATOM_TYPE_NIL)
+        return YAS_ERROR_OK;
+    set_error(err, YAS_ERROR_SYNTAX, source, token, filename, what);
+    return YAS_ERROR_SYNTAX;
+}
+
+/* Nesting-depth cap for the recursive descent below. read_expr_internal()
+ * recurses once per nested list/quote/quasiquote/unquote/interpolation/
+ * reader-conditional level (read_list() re-enters it per element), so an
+ * input of thousands of '(' would otherwise smash the C stack before any
+ * error could be reported - exactly the shape a fuzzer generates in its
+ * first minutes. 1000 levels is far beyond any hand-written form (the
+ * suite peaks well under 20) while staying a few hundred KB of worst-case
+ * stack; past it the reader reports clean syntax errors instead. */
+#define YAS_MAX_READER_DEPTH 1000
+
+/* Thread-local, not plain static: contexts are per-thread (yas.h), and two
+ * threads may read concurrently - a shared counter would let one thread's
+ * depth leak into another's budget. */
+static YAS_TLS int read_depth;
+
+static int read_expr_unchecked(const char *input, const char **end, YasAtom *result, const char *source,
+                               const char *filename, YasErrorContext *err);
+
+/* Every recursive entry (list elements, quotes/quasiquote/unquote,
+ * string interpolation, reader conditionals) funnels through here so the
+ * depth budget is enforced once, in one place. */
 static int read_expr_internal(const char *input, const char **end, YasAtom *result, const char *source,
                               const char *filename, YasErrorContext *err)
+{
+    YasError e;
+
+    if (read_depth >= YAS_MAX_READER_DEPTH) {
+        set_error(err, YAS_ERROR_SYNTAX, source, input, filename, "Expression nesting too deep");
+        return YAS_ERROR_SYNTAX;
+    }
+
+    read_depth++;
+    e = read_expr_unchecked(input, end, result, source, filename, err);
+    read_depth--;
+    return e;
+}
+
+/* Internal implementation with source tracking */
+static int read_expr_unchecked(const char *input, const char **end, YasAtom *result, const char *source,
+                               const char *filename, YasErrorContext *err)
 {
     const char *token;
     YasError e;
@@ -640,10 +700,16 @@ static int read_expr_internal(const char *input, const char **end, YasAtom *resu
          * root it until every element has been copied out. */
         yas_gc_push_root(&list_result);
 
-        /* Count list length */
+        /* Count list length - guarded: a dotted tail yields an improper
+         * list here, and yas_cdr() on its payload is a wild read */
         size_t len = 0;
         YasAtom p = list_result;
         while (!yas_nilp(p)) {
+            e = literal_step(p, "Improper list in vector literal", source, token, filename, err);
+            if (e) {
+                yas_gc_pop_roots(1);
+                return e;
+            }
             len++;
             p = yas_cdr(p);
         }
@@ -664,10 +730,14 @@ static int read_expr_internal(const char *input, const char **end, YasAtom *resu
         if (e)
             return e;
 
-        /* Count list length and collect floats */
+        /* Count list length and collect floats - guarded against an
+         * improper (dotted-tail) element list, see literal_step() */
         size_t len = 0;
         YasAtom p = list_result;
         while (!yas_nilp(p)) {
+            e = literal_step(p, "Improper list in #vec literal", source, token, filename, err);
+            if (e)
+                return e;
             len++;
             p = yas_cdr(p);
         }
@@ -707,10 +777,14 @@ static int read_expr_internal(const char *input, const char **end, YasAtom *resu
         if (e)
             return e;
 
-        /* Count list length */
+        /* Count list length - guarded against an improper (dotted-tail)
+         * element list, see literal_step() */
         size_t len = 0;
         YasAtom p = list_result;
         while (!yas_nilp(p)) {
+            e = literal_step(p, "Improper list in #mat literal", source, token, filename, err);
+            if (e)
+                return e;
             len++;
             p = yas_cdr(p);
         }
@@ -753,7 +827,25 @@ static int read_expr_internal(const char *input, const char **end, YasAtom *resu
         yas_gc_push_root(&list_result);
         *result = yas_make_hash();
         YasAtom p = list_result;
-        while (!yas_nilp(p) && !yas_nilp(yas_cdr(p))) {
+        for (;;) {
+            /* Guarded walk: both the key cell and the value cell must be
+             * real pairs (a dotted tail makes cdr a bare atom; see
+             * literal_step()). An odd trailing element is tolerated, as
+             * before - there's no value to pair it with. */
+            e = literal_step(p, "Improper list in #hash literal", source, token, filename, err);
+            if (e) {
+                yas_gc_pop_roots(1);
+                return e;
+            }
+            if (yas_nilp(p))
+                break;
+            e = literal_step(yas_cdr(p), "Improper list in #hash literal", source, token, filename, err);
+            if (e) {
+                yas_gc_pop_roots(1);
+                return e;
+            }
+            if (yas_nilp(yas_cdr(p)))
+                break;
             YasAtom key = yas_car(p);
             YasAtom val = yas_car(yas_cdr(p));
             /* Convert keywords to symbols for hash keys */

@@ -1,0 +1,13 @@
+; call/cc - continuation capture, escape and re-entry shapes
+(call/cc (lambda (k) (k 42)))
+(+ 1 (call/cc (lambda (k) (+ 2 (k 3)))))
+(call/cc (lambda (k) 7))
+(define saved nil)
+(define r (+ 100 (call/cc (lambda (c) (set! saved c) 1))))
+(* 2 (apply + '(1 2 3)))
+(apply cons '(a b))
+(eval '(+ 2 2))
+(error 'test-error "expected noise")
+(try (throw :oops "thrown") (catch e 'caught))
+(gensym "fuzz")
+(gc)

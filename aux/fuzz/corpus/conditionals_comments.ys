@@ -1,0 +1,12 @@
+; Reader conditionals and comment shapes - lex()'s skip paths
+#+macos 'on-macos
+#-macos 'not-on-macos
+#+unix 'on-unix
+#-(or windows plan9) 'no-plan9
+; a line comment
+   ; indented comment
+42 ; trailing comment
+#+arm64 (quote arm)
+#+ffi 'has-ffi
+#-ffi 'no-ffi
+'done

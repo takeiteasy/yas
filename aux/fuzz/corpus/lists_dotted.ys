@@ -1,0 +1,17 @@
+; Proper and improper lists - read_list()'s core paths
+(1 2 3)
+(a b (c d) (e (f g)))
+()
+(())
+(1 . 2)
+(a b . c)
+((a . b) . (c . d))
+[1 2 3]
+[(a b) [c d]]
+'(quoted list)
+''(double quote)
+`(quasi (a ,x ,@rest))
+(car '(a b c))
+(cdr '(a . tail))
+(cons 1 (cons 2 nil))
+(list->vector '(1 2 3))

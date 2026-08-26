@@ -23,6 +23,7 @@ make && make test    # build the interpreter, run the test suite
 - [GC](docs/GC.md) - the incremental tricolor collector and root API
 - [Building](docs/BUILDING.md) - build targets, FFI
 - [Benchmarking](docs/BENCHMARKING.md) - the `aux/` bench/stress/fuzz convention
+- [Fuzzing](docs/FUZZING.md) - reader/evaluator fuzz harness, seeds and triage
 - [Embedding](docs/EMBEDDING.md) - the C API for host programs
 
 ## License

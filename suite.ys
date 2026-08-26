@@ -120,6 +120,44 @@
   (check (try (read-string "(a . b ]") (catch e t)) t)
   (check (try (read-string "]") (catch e t)) t))
 
+;; Dotted tails inside structured literals must raise, not walk the
+;; tail payload as a pair - a wild-pointer read before the literal
+;; walkers learned to check (found by the reader fuzzer).
+(test "Improper structured literals"
+  (check (try (read-string "#(1 2 . 3)") (catch e t)) t)
+  (check (try (read-string "#hash(:k v . 2)") (catch e t)) t)
+  (check (try (read-string "#vec(1 2 . 3)") (catch e t)) t)
+  (check (try (read-string "#mat(1 0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 . 2)") (catch e t)) t)
+  ;; Proper literals still parse; odd trailing hash element tolerated
+  ;; (:kw keys are interned as symbols - look up with the symbol)
+  (check (vector-ref '#(1 2 3) 1) 2)
+  (check (hash-ref '#hash(:k v) 'k) 'v)
+  (check (hash-ref '#hash(:a 1 :b) 'a) 1)
+  ;; Deep nesting raises cleanly instead of exhausting the C stack
+  (check (try (read-string (string-append (make-string 5000 #\() (make-string 5000 #\))))
+              (catch e t)) t))
+
+;; A runtime-computed APPLY skips the source form's arity check, so the
+;; application path itself must validate - it read wild memory before
+;; (found by the reader/evaluator fuzzer).
+(test "Runtime-computed apply"
+  (check (try ((quote apply) 1) (catch e t)) t)
+  (check (try ((quote apply) car) (catch e t)) t)
+  (check (try ((quote apply) + 1 2) (catch e t)) t)
+  (check ((quote apply) + (quote (1 2))) 3)
+  (check (apply + (quote (1 2))) 3))
+
+;; CALL/CC must reject non-procedure receivers instead of binding them
+;; as closure frames - same fuzzer lineage as runtime apply above.
+(test "Call/cc receiver validation"
+  (check (try (call/cc 1) (catch e t)) t)
+  (check (try (call/cc "x") (catch e t)) t)
+  (check (try (call/cc (quote sym)) (catch e t)) t)
+  ;; Builtins are valid receivers; closures keep escaping/re-entry
+  (check (pair? (call/cc list)) t)
+  (check (call/cc (lambda (k) (k 42))) 42)
+  (check (+ 1 (call/cc (lambda (k) (+ 2 (k 3))))) 4))
+
 (test "Metatables"
   (let ((h (make-hash))
         (mt (make-hash)))

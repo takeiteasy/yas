@@ -1,0 +1,20 @@
+; String and character literals - escapes, interpolation, char names
+"plain string"
+""
+"with \"escaped\" quotes"
+"tab\there\nnewline\\slash"
+:string-keyword
+#\a
+#\Z
+#\space
+#\newline
+#\tab
+#\return
+#\x41
+#\u00e9
+#\U0001F600
+#\(
+"interpolate {{(+ 1 2)}} here"
+"a{{x}}b{{(car '(p q))}}c"
+(string-append "foo" "bar")
+(substring "hello world" 0 5)

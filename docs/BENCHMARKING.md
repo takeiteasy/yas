@@ -11,8 +11,12 @@ This document covers the benchmark half of that convention.
 | `aux/*_stress.ys` | slow stress/regression scripts | `make stress-test`, `make test-gc-stress` |
 | `aux/bench_*.ys` | self-timed in-language micro-benchmarks | `make bench` |
 | `aux/bench/` | cross-language benchmark harness + workloads | `make bench` |
-| `aux/fuzz_*.ys` | **reserved** - no fuzzing harness exists yet | - |
+| `aux/fuzz/` + `aux/fuzz_harness.c` | reader/evaluator fuzzing harness, corpus, driver | `make fuzz` (see [FUZZING.md](FUZZING.md)) |
 | `aux/*.c` | C-level tests | `make test-gc` |
+
+The `fuzz_*.ys` name from the original convention is claimed by the
+fuzzing half: generated cases land under `build/fuzz/cases/`, and the
+hand-written seed corpus lives in `aux/fuzz/corpus/*.ys`.
 
 `make bench` is informational, not a regression gate: it isn't part of
 `make check`, and only fails if a *present* runtime produces the wrong
@@ -154,10 +158,7 @@ For benchmarks that don't need cross-language comparison, use
 script - see `aux/bench_alloc.ys`. `make bench` runs every
 `aux/bench_*.ys` after the cross-language harness.
 
-## Fuzzing (reserved, not implemented)
+## Fuzzing
 
-`aux/fuzz_*.ys` is reserved for future reader/evaluator fuzzing (random or
-property-based input generation against `read_expr()`/the evaluator - see
-`src/read.c`/`src/eval.c`, which have no fuzz coverage today). Deciding a
-randomness source and corpus/seed strategy is tracked separately; nothing
-under that name exists yet.
+Reader/evaluator fuzzing lives in `aux/fuzz/` with its own driver and
+seed corpus - run via `make fuzz`. See [FUZZING.md](FUZZING.md).

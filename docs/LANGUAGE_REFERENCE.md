@@ -85,6 +85,12 @@ Richer than plain Scheme:
 Call keyword arguments as `(f 1 :kw 2)`. `procedure-doc` retrieves a
 function's docstring (`nil` if none).
 
+Keywords themselves are data, never procedures: a form whose operator
+is a keyword - `(:string ...)` - raises `type-error`
+("cannot apply keyword :STRING - quote lists of keywords as data")
+rather than the generic type error. If you mean a list of keywords as
+data, quote it: `'(:string :int32)`.
+
 The reader treats `[` and `]` as matched-pair synonyms of `(` and `)`:
 `[b 10]` reads exactly as `(b 10)`, which is what gives optional-param
 specs their shape. Brackets are legal anywhere a list is (Racket-style

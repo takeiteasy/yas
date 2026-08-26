@@ -158,6 +158,29 @@
   (check (call/cc (lambda (k) (k 42))) 42)
   (check (+ 1 (call/cc (lambda (k) (+ 2 (k 3))))) 4))
 
+;; A keyword-headed form is a bug, not an application: keywords are
+;; data (lambda-list markers, ffi type tags), never applicable values.
+;; The diagnosis names the keyword and says to quote keyword lists as
+;; data - the classic trip-up is passing (:a :b) to something unquoted.
+(test "Keyword-headed form diagnostic"
+  ;; Raised messages carry a trailing " (in <file>)", so match the
+  ;; stable message prefix instead of the whole string.
+  (check (try (:string 1)
+              (catch e (string-prefix?
+                        "cannot apply keyword :STRING -" (cadr e))))
+         t)
+  ;; Same diagnosis when the application is built at runtime rather
+  ;; than written in source.
+  (check (try (apply :kw (quote (1 2)))
+              (catch e (string-prefix?
+                        "cannot apply keyword :KW -" (cadr e))))
+         t)
+  ;; Keywords remain perfectly fine in operand/data positions...
+  (check (car (quote (:a :b))) :a)
+  (check (list :a 1) (quote (:a 1)))
+  ;; ...and the diagnostic is catchable like any raised error.
+  (check (try (:kw) (catch e t)) t))
+
 (test "Metatables"
   (let ((h (make-hash))
         (mt (make-hash)))

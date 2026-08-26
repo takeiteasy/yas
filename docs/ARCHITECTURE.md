@@ -257,7 +257,14 @@ function is an ordinary procedure (`(strlen "hello")`, `apply` included).
 The call happens while the frame is still linked on the stack, keeping
 the arg spine GC-reachable through `FRAME_ARGS` across the result
 conversions inside the marshaling path (plain C locals are not roots -
-docs/GC.md's hazard shape).
+docs/GC.md's hazard shape). And a form whose operator evaluates to a
+keyword never reaches application at all: `eval_vm()` diagnoses it up
+front ("cannot apply keyword :FOO - quote lists of keywords as data")
+instead of the generic type error every other non-applicable operator
+gets, with `eval_do_apply()`'s fallback covering runtime-built
+applications (`(apply :kw ...)`). Keywords are data; before this, an
+unquoted keyword list passed where data was expected failed with the
+same bare error as any other operator misuse.
 
 ## Contexts
 

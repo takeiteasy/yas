@@ -881,6 +881,17 @@ int eval_do_apply(YasAtom *stack, YasAtom *expr, YasAtom *env, YasAtom *result)
             return YAS_ERROR_TYPE;
         }
     } else if (op.type != YAS_ATOM_TYPE_CLOSURE) {
+        /* Same diagnosis as the form-level check in eval_vm(), for
+         * applications reached at runtime rather than from source -
+         * (apply :kw (list 1 2)) lands here with op already evaluated. */
+        if (op.type == YAS_ATOM_TYPE_KEYWORD) {
+            char msg[192];
+            snprintf(msg, sizeof(msg),
+                     "cannot apply keyword :%s - quote lists of "
+                     "keywords as data",
+                     op.value.keyword);
+            return yas_raise_error("type-error", msg);
+        }
         return YAS_ERROR_TYPE;
     }
 
@@ -1151,6 +1162,24 @@ static int eval_vm(YasAtom expr, YasAtom env, YasAtom *result, struct EvalRoot *
              * docs/ARCHITECTURE.md's "Evaluator" section. */
             YasAtom op = yas_car(expr);
             YasAtom args = yas_cdr(expr);
+
+            /* A keyword-headed form (:kw ...) is always a bug: keywords
+             * are data (lambda-list markers, ffi type tags), never
+             * applicable values. Diagnose that specifically instead of
+             * letting application fall through to the bare "Type error"
+             * eval_do_apply() raises for every other non-procedure
+             * operator - the classic trip-up is passing a keyword list
+             * to a macro/builtin unquoted (define-foreign's arg-types
+             * list did exactly that for its entire life). Fails fast,
+             * before any operand is evaluated. */
+            if (op.type == YAS_ATOM_TYPE_KEYWORD) {
+                char msg[192];
+                snprintf(msg, sizeof(msg),
+                         "cannot apply keyword :%s - quote lists of "
+                         "keywords as data",
+                         op.value.keyword);
+                return yas_raise_error("type-error", msg);
+            }
 
             if (op.type == YAS_ATOM_TYPE_SYMBOL) {
                 /* Handle special forms */

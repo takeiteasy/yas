@@ -352,7 +352,23 @@ depending on platform), not built from lists or vectors:
 
 ## Serialization
 
-`yas/hash` exports `serialize`/`deserialize` for a yas-native binary
-format; `yas/text`/`yas/io` cover string/byte-level I/O. See
-`std/yas/hash.ys` for the wire format if you need to interoperate with it
-from outside yas.
+`yas/hash` exports `serialize`/`deserialize`, a textual value codec:
+
+- `serialize` renders a value as yas-readable text - lists *and* vectors
+  as `#(...)`, hashes as `(key value ...)` pairs, strings quoted with
+  `"\"` escapes, keywords with their leading colon, everything else in
+  its printed form.
+- `deserialize` parses that text back with the reader, then converts:
+  every list in the result becomes a hash table (keys/values from
+  alternating elements), while vectors are rebuilt as vectors. A
+  round-trip is therefore **not** identity: lists serialize as vectors
+  and deserialize back as hashes.
+- Limitations: floats pass through `%g` formatting, so precision beyond
+  roughly six significant digits is lost; cyclic or self-referential
+  structure hangs or mis-emits; non-data types (procedures, ports, ...)
+  render nothing.
+
+A lossless binary transfer format is tracked separately on the issue
+tracker; [CONCURRENCY.md](CONCURRENCY.md)'s marshaler will provide
+cross-context value movement independently of this tool.
+`yas/text`/`yas/io` cover general string/byte-level I/O.

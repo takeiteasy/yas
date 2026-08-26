@@ -860,6 +860,10 @@ struct YasFFIFunction {
     void **ffi_arg_types; /* ffi_type** for each arg (needed for structs) */
     void *ffi_ret_type;   /* ffi_type* for return (needed for structs) */
     int arg_count;
+    const char *name; /* C symbol the function was extracted with
+                       * (owned strdup copy, or NULL when prepared from
+                       * a bare pointer) - used in diagnostics and the
+                       * printed representation. */
     YasAtom library; /* Owning ffi-library atom (nil when prepared from a
                       * bare pointer). Traced by the GC so the library stays
                       * open (and its fn_ptr valid) for as long as any
@@ -886,8 +890,9 @@ YasFFILibrary *yas_gc_alloc_ffi_library(void);
 void *yas_ffi_load_library(const char *path);
 void yas_ffi_close_library(void *handle);
 void *yas_ffi_get_symbol(void *handle, const char *name);
-struct YasFFIFunction *yas_ffi_prepare(void *fn_ptr, YasAtom library, YasAtom ret_type, YasAtom arg_types);
-YasAtom yas_ffi_call_function(struct YasFFIFunction *fn, YasAtom args);
+struct YasFFIFunction *yas_ffi_prepare(void *fn_ptr, YasAtom library, YasAtom ret_type, YasAtom arg_types,
+                                       const char *name);
+int yas_ffi_call_function(struct YasFFIFunction *fn, YasAtom args, YasAtom *result);
 void yas_ffi_free_function(struct YasFFIFunction *fn);
 
 /* FFI builtins */

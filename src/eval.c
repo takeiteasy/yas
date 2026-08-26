@@ -836,7 +836,11 @@ int eval_do_apply(YasAtom *stack, YasAtom *expr, YasAtom *env, YasAtom *result)
          * yas string). Popping first would leave the arg spine
          * unrooted across that allocation, the docs/GC.md hazard shape
          * for locals held across allocating calls. */
-        *result = yas_ffi_call_function(op.value.ffi_fn, args);
+        {
+            int r = yas_ffi_call_function(op.value.ffi_fn, args, result);
+            if (r)
+                return r; /* Raised (arity/improper args) - abandon frame */
+        }
 
         *stack = frame_get(*stack, FRAME_PARENT);
         if (yas_nilp(*stack))

@@ -176,7 +176,8 @@ static ffi_type *resolve_type(const char *name, YasFFIType *out_type)
  * Function Preparation
  * ============================================================ */
 
-static struct YasFFIFunction * yas_ffi_prepare_impl(void *fn_ptr, YasAtom library, YasAtom ret_type, YasAtom arg_types)
+static struct YasFFIFunction * yas_ffi_prepare_impl(void *fn_ptr, YasAtom library, YasAtom ret_type, YasAtom arg_types,
+                                                    const char *name)
 {
     /* GC-tracked (data.c) like every other heap object - already linked
      * into the unified GC list before this function returns, so on the
@@ -185,6 +186,10 @@ static struct YasFFIFunction * yas_ffi_prepare_impl(void *fn_ptr, YasAtom librar
      * same as if this object had simply become unreachable. */
     struct YasFFIFunction *fn = yas_gc_alloc_ffi_function();
     fn->fn_ptr = fn_ptr;
+    /* Keep our own copy of the C symbol name: the caller's pointer
+     * usually points into a GC-managed yas string that can die while
+     * the function lives. strdup() is plain malloc - no stepping. */
+    fn->name = name ? strdup(name) : NULL;
     /* Retain the owning library (nil when prepared from a bare pointer):
      * storing it immediately after allocation - before any further
      * allocating call - means no GC step can observe the field unset.
@@ -255,9 +260,10 @@ static struct YasFFIFunction * yas_ffi_prepare_impl(void *fn_ptr, YasAtom librar
     return fn;
 }
 
-struct YasFFIFunction * yas_ffi_prepare(void *fn_ptr, YasAtom library, YasAtom ret_type, YasAtom arg_types)
+struct YasFFIFunction * yas_ffi_prepare(void *fn_ptr, YasAtom library, YasAtom ret_type, YasAtom arg_types,
+                                        const char *name)
 {
-    struct YasFFIFunction * r = yas_ffi_prepare_impl(fn_ptr, library, ret_type, arg_types);
+    struct YasFFIFunction * r = yas_ffi_prepare_impl(fn_ptr, library, ret_type, arg_types, name);
     return r;
 }
 
@@ -279,6 +285,8 @@ static void yas_ffi_free_function_impl(struct YasFFIFunction *fn)
         free(fn->arg_types);
     if (fn->ffi_arg_types)
         free(fn->ffi_arg_types);
+    if (fn->name)
+        free((void *)fn->name);
     free(fn);
 }
 
@@ -292,10 +300,39 @@ void yas_ffi_free_function(struct YasFFIFunction *fn)
  * Function Calling
  * ============================================================ */
 
-static YasAtom yas_ffi_call_function_impl(struct YasFFIFunction *fn, YasAtom args)
+static int yas_ffi_call_function_impl(struct YasFFIFunction *fn, YasAtom args, YasAtom *result)
 {
-    if (!fn || !fn->cif)
-        return yas_nil;
+    if (!fn || !fn->cif) {
+        *result = yas_nil;
+        return YAS_ERROR_OK;
+    }
+
+    /* Exact arity: the ffi_cif was prepared for exactly arg_count
+     * arguments, so anything else is either silently-zero marshaling
+     * (too few) or unmarshalable extras. Counted here - not in the
+     * ffi-call builtin - so direct application (the evaluator routes
+     * through this same path) gets the identical check. */
+    size_t argc = 0;
+    {
+        YasAtom p = args;
+        while (p.type == YAS_ATOM_TYPE_PAIR) {
+            argc++;
+            p = yas_cdr(p);
+        }
+        if (!yas_nilp(p)) {
+            return yas_raise_error("args-error", "foreign call: argument list must be proper");
+        }
+    }
+    if (argc != (size_t)fn->arg_count) {
+        char msg[192];
+        snprintf(msg, sizeof(msg),
+                 "%s expects %d argument%s, got %zu",
+                 fn->name ? fn->name : "foreign function",
+                 fn->arg_count,
+                 fn->arg_count == 1 ? "" : "s",
+                 argc);
+        return yas_raise_error("args-error", msg);
+    }
 
     ffi_cif *cif = (ffi_cif *)fn->cif;
 
@@ -410,57 +447,55 @@ static YasAtom yas_ffi_call_function_impl(struct YasFFIFunction *fn, YasAtom arg
         free(arg_storage);
 
     /* Convert return value to Atom */
-    YasAtom result;
     switch (fn->ret_type) {
         case YAS_FFI_TYPE_VOID:
-            result = yas_nil;
+            *result = yas_nil;
             break;
         case YAS_FFI_TYPE_INT8:
         case YAS_FFI_TYPE_UINT8:
-            result = yas_make_int(ret_value.i8);
+            *result = yas_make_int(ret_value.i8);
             break;
         case YAS_FFI_TYPE_INT16:
         case YAS_FFI_TYPE_UINT16:
-            result = yas_make_int(ret_value.i16);
+            *result = yas_make_int(ret_value.i16);
             break;
         case YAS_FFI_TYPE_INT32:
         case YAS_FFI_TYPE_UINT32:
-            result = yas_make_int(ret_value.i32);
+            *result = yas_make_int(ret_value.i32);
             break;
         case YAS_FFI_TYPE_INT64:
         case YAS_FFI_TYPE_UINT64:
-            result = yas_make_int(ret_value.i64);
+            *result = yas_make_int(ret_value.i64);
             break;
         case YAS_FFI_TYPE_FLOAT:
-            result = yas_make_float(ret_value.f);
+            *result = yas_make_float(ret_value.f);
             break;
         case YAS_FFI_TYPE_DOUBLE:
-            result = yas_make_float(ret_value.d);
+            *result = yas_make_float(ret_value.d);
             break;
         case YAS_FFI_TYPE_POINTER:
-            result.type = YAS_ATOM_TYPE_FFI_POINTER;
-            result.value.ffi_pointer = ret_value.ptr;
+            result->type = YAS_ATOM_TYPE_FFI_POINTER;
+            result->value.ffi_pointer = ret_value.ptr;
             break;
         case YAS_FFI_TYPE_STRING:
             if (ret_value.ptr) {
-                result = yas_make_string((char *)ret_value.ptr);
+                *result = yas_make_string((char *)ret_value.ptr);
             } else {
-                result = yas_nil;
+                *result = yas_nil;
             }
             break;
         case YAS_FFI_TYPE_STRUCT:
             /* Struct by-value return not supported; fail like the nil guard above */
-            result = yas_nil;
+            *result = yas_nil;
             break;
     }
 
-    return result;
+    return YAS_ERROR_OK;
 }
 
-YasAtom yas_ffi_call_function(struct YasFFIFunction *fn, YasAtom args)
+int yas_ffi_call_function(struct YasFFIFunction *fn, YasAtom args, YasAtom *result)
 {
-    YasAtom r = yas_ffi_call_function_impl(fn, args);
-    return r;
+    return yas_ffi_call_function_impl(fn, args, result);
 }
 
 
@@ -583,6 +618,7 @@ static int yas_builtin_ffi_define_impl(YasAtom args, YasAtom *result)
     YasAtom first = yas_car(args);
     void *fn_ptr;
     YasAtom library = yas_nil;
+    const char *c_name = NULL; /* Symbol name, when extracted from a library */
     int ret_index;
 
     if (first.type == YAS_ATOM_TYPE_FFI_LIBRARY) {
@@ -595,7 +631,8 @@ static int yas_builtin_ffi_define_impl(YasAtom args, YasAtom *result)
                                    "ffi-define with an ffi-library requires a string symbol name");
         }
 
-        fn_ptr = yas_ffi_get_symbol(lib->handle, yas_car(yas_cdr(args)).value.string);
+        c_name = yas_car(yas_cdr(args)).value.string;
+        fn_ptr = yas_ffi_get_symbol(lib->handle, c_name);
         if (!fn_ptr) {
             return yas_raise_error("ffi-error", dlerror());
         }
@@ -622,7 +659,7 @@ static int yas_builtin_ffi_define_impl(YasAtom args, YasAtom *result)
     YasAtom tail = yas_cdr(rest);
     YasAtom arg_types = yas_nilp(tail) ? yas_nil : yas_car(tail);
 
-    struct YasFFIFunction *fn = yas_ffi_prepare(fn_ptr, library, ret_type, arg_types);
+    struct YasFFIFunction *fn = yas_ffi_prepare(fn_ptr, library, ret_type, arg_types, c_name);
     if (!fn) {
         return yas_raise_error("ffi-error", "Failed to prepare FFI function");
     }
@@ -647,8 +684,7 @@ static int yas_builtin_ffi_call_impl(YasAtom args, YasAtom *result)
     }
 
     struct YasFFIFunction *fn = yas_car(args).value.ffi_fn;
-    *result = yas_ffi_call_function(fn, yas_cdr(args));
-    return YAS_ERROR_OK;
+    return yas_ffi_call_function(fn, yas_cdr(args), result);
 }
 
 int yas_builtin_ffi_call(YasAtom args, YasAtom *result)

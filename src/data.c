@@ -1081,6 +1081,8 @@ static void gc_free_object(struct YasGCHeader *obj, size_t *freed)
                 free(fn->arg_types);
             if (fn->ffi_arg_types)
                 free(fn->ffi_arg_types);
+            if (fn->name)
+                free((void *)fn->name);
             break;
         }
         case YAS_GC_OBJ_FFI_STRUCT: {

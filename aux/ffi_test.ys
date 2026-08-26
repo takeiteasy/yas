@@ -37,6 +37,23 @@
   ;; FFI_FUNCTION dispatch.
   (check (u8-length "yas") 3))
 
+(test "Foreign call arity"
+  (define lib (ffi-open "./libyas.dylib"))
+  (define u8-len (ffi-define lib "yas_utf8_strlen" :uint64 '(:string)))
+  ;; Exact arity on both invocation paths: too few marshaled as 0/NULL
+  ;; before, extras silently dropped.
+  (check (try (u8-len) (catch e t)) t)
+  (check (try (u8-len "a" "b") (catch e t)) t)
+  (check (try (ffi-call u8-len) (catch e t)) t)
+  (check (try (ffi-call u8-len "a" "b") (catch e t)) t)
+  ;; The message names the extracted symbol and both counts.
+  (check (try (u8-len)
+              (catch e (string-prefix? "yas_utf8_strlen expects 1 argument, got 0" (cadr e))))
+         t)
+  ;; Correct arity still fine everywhere; zero-arg functions callable
+  ;; as bare (f).
+  (check (u8-len "ok") 2))
+
 (test "Library retention across GC"
   ;; The library binding dies when the let returns; only the prepared
   ;; function retains it. Churn garbage + explicit collections so any

@@ -186,7 +186,10 @@ static void yas_print_expr_impl(YasAtom atom)
             printf("#<FFI-POINTER:%p>", atom.value.ffi_pointer);
             break;
         case YAS_ATOM_TYPE_FFI_FUNCTION:
-            printf("#<FFI-FUNCTION:%p>", atom.value.ffi_fn);
+            if (atom.value.ffi_fn && atom.value.ffi_fn->name)
+                printf("#<FFI-FUNCTION:%s>", atom.value.ffi_fn->name);
+            else
+                printf("#<FFI-FUNCTION:%p>", atom.value.ffi_fn);
             break;
         case YAS_ATOM_TYPE_FFI_STRUCT:
             if (atom.value.ffi_struct && atom.value.ffi_struct->type) {

@@ -165,9 +165,10 @@ The isolation wall makes the collector story small:
   send/recv round-trips, full-buffer and close semantics via
   `channel-select` polling, marshal round-trip equality (including
   cycles, shared substructure, bit-exact floats, re-interned symbols).
-- **aux/channel_test.c**: C-level multi-threaded gate (producers and
-  consumers across contexts asserting exact checksums, in the spirit of
-  `aux/thread_test.c`), wired into `make test` and `make test-gc-stress`.
+- **aux/marshal_test.c**: C-level round-trip and multi-threaded gate,
+  wired into `make test` and `make test-gc-stress`, covering the neutral
+  tree's type matrix, cycles, DAG sharing, context destruction, and
+  concurrent rebuilds.
 - **aux/concurrency_stress.ys**: N-producer/M-consumer and ping-pong
   workloads run through the interpreter, following the `*_stress.ys`
   convention (picked up automatically by `make stress-test` and the

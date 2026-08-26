@@ -118,8 +118,10 @@ to `YasContext`. Consequences for embedders:
   need no locks and really run in parallel.
 - **Never share a context between threads**, and never pass atoms
   between contexts: a context's heap, interning and identity are its
-  own. There is no cross-context value transfer yet (that is #48,
-  with explicit owned/moved semantics).
+  own. Use the neutral marshaler (`src/marshal.h`) to transfer supported
+  data values: it deep-copies through a context-independent tree and
+  re-interns symbols in the receiving context. Procedures, environments
+  and other runtime-owned values remain context-local.
 - The old process-global spellings (`yas_ctx_exception`,
   `yas_current_file_path`, `yas_library_registry`,
   `yas_global_search_paths`, `yas_global_features`) still compile, but
@@ -128,9 +130,11 @@ to `YasContext`. Consequences for embedders:
 - Root stacks are per-context (see [GC.md](GC.md)): push/pop in LIFO
   order; a context's destroy reclaims its stack.
 
-`aux/thread_test.c` (run by `make test` and `make test-gc-stress`) is
-the regression gate: workers create/import/run/destroy their own
-contexts concurrently and assert exact results plus the interning-
+`aux/thread_test.c` and `aux/marshal_test.c` (run by `make test` and
+`make test-gc-stress`) are the regression gates: workers create/import/
+run/destroy their own contexts concurrently, while the marshaler test
+also checks context-independent round trips, DAG/cycle preservation,
+bit-exact values, and rejected runtime-owned types.
 isolation fact.
 
 ## I/O sandbox

@@ -28,6 +28,7 @@ not tracked in git.
 | `builtin_io.c` | Port and file builtins: `open-*-file`, `read-*`/`write-*`, `close-port`, `file-exists?`, `delete-file`, `rename-file`. |
 | `builtin_sandbox.c` | The `io-sandbox-*` builtins (thin wrappers over `io.c`'s sandbox API). |
 | `builtin_serialize.c` | `serialize`/`deserialize`/`read-string` and their helpers. |
+| `marshal.c` / `marshal.h` | Context-independent neutral value tree used for cross-context transfer. |
 | `builtin_output.c` | `print` and `->string`. |
 | `builtin_searchpath.c` | `get-search-paths`, `set-search-paths!`, `add-search-path!`. |
 | `module.c` | Module registry, native module registration, `import` handling, stdlib loading. |
@@ -305,8 +306,9 @@ locks anywhere on their hot paths. The only remaining lock
 (`src/thread.c`) guards nothing at runtime - create/destroy take it as
 belt-and-braces around process-wide bookkeeping (ticket #47 milestone
 2; milestone 1's entry-point GIL was removed once the state stopped
-being shared). See docs/EMBEDDING.md's "Threads" for the embedding
-contract and #48 for cross-context value transfer.
+ being shared). See docs/EMBEDDING.md's "Threads" for the embedding
+ contract and docs/CONCURRENCY.md's "Value transfer" for the neutral
+ marshaler.
 
 ## GC
 

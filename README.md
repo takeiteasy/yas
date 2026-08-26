@@ -21,6 +21,8 @@ make && make test    # build the interpreter, run the test suite
 - [Architecture](docs/ARCHITECTURE.md) - value representation, evaluator,
   GC, module system
 - [GC](docs/GC.md) - the incremental tricolor collector and root API
+- [Concurrency](docs/CONCURRENCY.md) - threads, channels and cross-context
+  value transfer (design spec)
 - [Building](docs/BUILDING.md) - build targets, FFI
 - [Benchmarking](docs/BENCHMARKING.md) - the `aux/` bench/stress/fuzz convention
 - [Fuzzing](docs/FUZZING.md) - reader/evaluator fuzz harness, seeds and triage

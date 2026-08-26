@@ -92,6 +92,31 @@ static int lex(const char *str, const char **start, const char **end, const char
     const char *delim = "();[] \t\n\"";
     const char *prefix = "()[]'`";
 
+#ifdef YAS_SRCPOS
+    /* Advance the running line/column count up to this token's start.
+     * Parsing is forward-only within one source, and top-level callers
+     * build a fresh YasErrorContext per form (or per file), so a
+     * backward or uninitialized cursor simply restarts the count. */
+    if (err) {
+        const char *s = err->pos.scan;
+        if (!s || s > str) {
+            err->pos.line = 1;
+            err->pos.column = 1;
+            s = str;
+        }
+        while (s < str) {
+            if (*s == '\n') {
+                err->pos.line++;
+                err->pos.column = 1;
+            } else {
+                err->pos.column++;
+            }
+            s++;
+        }
+        err->pos.scan = str;
+    }
+#endif
+
     /* Comments are skipped iteratively rather than recursively so a run
      * of N consecutive comment lines costs O(1) stack - a fuzzed input
      * of thousands of ';' lines would otherwise blow the C stack here,
@@ -241,6 +266,21 @@ static int parse_simple(const char *start, const char *end, YasAtom *result, con
     return YAS_ERROR_OK;
 }
 
+#ifdef YAS_SRCPOS
+/* Record the source position of the element held by a freshly consed
+ * cell (1-indexed line/column of its first token). Only pair atoms are
+ * stamped; unstamped cells (0/0) fall back to the file-only suffix. */
+static void stamp_pos(YasAtom a, int line, int col)
+{
+    if (a.type == YAS_ATOM_TYPE_PAIR && line > 0) {
+        a.value.pair->srcpos_line = (unsigned int)line;
+        a.value.pair->srcpos_col = (unsigned int)col;
+    }
+}
+#else
+#define stamp_pos(a, line, col) ((void)0)
+#endif
+
 static int read_list(const char *start, const char **end, char closer, YasAtom *result, const char *source,
                      const char *filename, YasErrorContext *err)
 {
@@ -320,6 +360,20 @@ static int read_list(const char *start, const char **end, char closer, YasAtom *
             return YAS_ERROR_OK;
         }
 
+        /* Element start position: err->pos currently points at this
+         * token (lex() just advanced there); capture it before the
+         * recursive read walks deeper into the element. */
+        int eline = 0, ecol = 0;
+#ifdef YAS_SRCPOS
+        if (err) {
+            eline = err->pos.line;
+            ecol = err->pos.column;
+        }
+#else
+        (void)eline;
+        (void)ecol;
+#endif
+
         e = yas_read_expr(token, end, &item, err);
         if (e == YAS_ERROR_SKIP) {
             /* Feature conditional excluded this expression, continue reading */
@@ -343,6 +397,7 @@ static int read_list(const char *start, const char **end, char closer, YasAtom *
             yas_set_cdr(p, node);
             p = node;
         }
+        stamp_pos(p, eline, ecol);
         yas_gc_pop_roots(1); /* item */
     }
 }
@@ -427,6 +482,7 @@ static int read_expr_unchecked(const char *input, const char **end, YasAtom *res
          * assignment would; apply it explicitly once the recursive read
          * succeeds. */
         *result = yas_cons(yas_make_sym("QUOTE"), yas_cons(yas_nil, yas_nil));
+        stamp_pos(*result, err ? err->pos.line : 0, err ? err->pos.column : 0);
         yas_gc_push_root(result);
         e = read_expr_internal(*end, end, &yas_car(yas_cdr(*result)), source, filename, err);
         if (!e)
@@ -439,6 +495,7 @@ static int read_expr_unchecked(const char *input, const char **end, YasAtom *res
     } else if (token[0] == '`') {
         /* Same rationale as the quote branch above. */
         *result = yas_cons(yas_make_sym("QUASIQUOTE"), yas_cons(yas_nil, yas_nil));
+        stamp_pos(*result, err ? err->pos.line : 0, err ? err->pos.column : 0);
         yas_gc_push_root(result);
         e = read_expr_internal(*end, end, &yas_car(yas_cdr(*result)), source, filename, err);
         if (!e)
@@ -451,6 +508,7 @@ static int read_expr_unchecked(const char *input, const char **end, YasAtom *res
     } else if (token[0] == ',') {
         /* Same rationale as the quote branch above. */
         *result = yas_cons(yas_make_sym(token[1] == '@' ? "UNQUOTE-SPLICING" : "UNQUOTE"), yas_cons(yas_nil, yas_nil));
+        stamp_pos(*result, err ? err->pos.line : 0, err ? err->pos.column : 0);
         yas_gc_push_root(result);
         e = read_expr_internal(*end, end, &yas_car(yas_cdr(*result)), source, filename, err);
         if (!e)

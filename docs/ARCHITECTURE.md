@@ -103,6 +103,18 @@ correctly (`if (read_err == YAS_ERROR_SKIP) continue;`), so a top-level
 `#+`/`#-` form that excludes an expression does not truncate the rest of
 the file, whichever entry point loaded it.
 
+**Source-position stamping is opt-in** (`YAS_SRCPOS=1`, docs/BUILDING.md).
+In those builds every pair gets two extra `unsigned int` fields (+8 bytes),
+and `lex()` maintains a running line/column count in the read's
+`YasErrorContext` (fresh per top-level form, so no cross-file state);
+`read_list()` captures each element's token start before recursing into it
+and stamps the cell holding that element. Quote wrappers are stamped with
+the quote character's position; interpolation-generated code is not
+stamped at all. The evaluator then keeps the current form's position in a
+context register (see the Evaluator section) and `yas_raise_error()`
+formats it as `(in file:line:col)`. In default builds none of this exists:
+pairs stay 8 bytes smaller and errors carry only the file name.
+
 ## Evaluator
 
 `yas_eval_expr()` (`eval.c`) pushes an `EvalRoot` and calls `eval_vm()`, a
@@ -265,6 +277,14 @@ gets, with `eval_do_apply()`'s fallback covering runtime-built
 applications (`(apply :kw ...)`). Keywords are data; before this, an
 unquoted keyword list passed where data was expected failed with the
 same bare error as any other operator misuse.
+
+In `YAS_SRCPOS` builds, `eval_vm()`'s form dispatch also copies the
+current pair's stamped line/column into context slots that
+`yas_raise_error()` reads when formatting `(in file:line:col)` suffixes.
+The store is guarded on `srcpos_line > 0`: unstamped cells - builtins'
+rebuilt call forms, macro expansions, interpolation output - leave the
+register alone and so inherit the position that led into them, i.e.
+their call site. Default builds compile the store out entirely.
 
 ## Contexts
 

@@ -1,0 +1,55 @@
+;; Source-position tests - require a YAS_SRCPOS=1 build (`make
+;; test-srcpos`). Raised errors carry "file:line:col" for the form
+;; being evaluated; default builds keep pairs unstamped (+8 bytes
+;; each) and append the file name only.
+;;
+;; LINE NUMBERS BELOW ARE LOAD-BEARING: assertions cite the ":line:"
+;; of specific forms. Re-check them after any edit to this file.
+
+(import yas/test)
+(import yas/text)
+
+(print "Running YAS SRCPOS Tests...")
+
+;; Location matcher: plain substring search - the location sits after
+;; the error text ("... (in file:line:col)"), not at either end.
+(define (contains? hay needle)
+  (let ((lh (string-length hay)) (ln (string-length needle)))
+    (let loop ((i 0))
+      (cond ((> i (- lh ln)) nil)
+            ((string=? (substring hay i (+ i ln)) needle) t)
+            (t (loop (+ i 1)))))))
+
+(define (cites-line? e n)
+  (contains? (cadr e)
+             (string-append "(in aux/srcpos_test.ys:"
+                            (number->string n)
+                            ":")))
+
+(test "Keyword application carries position"
+  (check (try (:string 1)
+              (catch e (string-prefix?
+                        "cannot apply keyword :STRING - quote lists of keywords as data (in aux/srcpos_test.ys:30:"
+                        (cadr e))))
+         t))
+
+(test "Builtin errors carry calling-form position"
+  ;; The raise happens inside car's builtin, but the reported position
+  ;; is the (car 5) form's own cell - the register tracks evaluation,
+  ;; not the raise site.
+  (define (deep)
+    (car 5))
+  (check (try (deep)
+              (catch e (cites-line? e 41)))
+         t))
+
+(test "Multi-line forms report their own start"
+  ;; The failing call spans lines; the innermost list's own start is
+  ;; reported, not the enclosing top-level form's.
+  (check (try (+ 1
+                 (* 2
+                    (car "not-a-pair")))
+              (catch e (cites-line? e 51)))
+         t))
+
+(run-tests)

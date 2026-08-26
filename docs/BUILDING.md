@@ -9,6 +9,7 @@ make YAS_DEBUG=1 # build unoptimized (-O0 -g) for stepping through a crash
 make test       # runs suite.ys, gates on its process exit code
 make test-gc    # C-level GC regression tests (aux/gc_test.c) - see GC.md
 make test-ffi   # FFI tests (aux/ffi_test.ys), rebuilds with YAS_FFI=1
+make test-srcpos # source-position tests (aux/srcpos_test.ys), YAS_SRCPOS=1
 make stress-test    # runs the slow stress/regression scripts in aux/*_stress.ys
 make test-gc-stress # allocation-triggered GC stepping audit gate - see GC.md
 make bench          # cross-language + self-timed benchmarks - see BENCHMARKING.md
@@ -84,6 +85,23 @@ FFI build; `make clean && make` afterwards to go back):
 
 ```sh
 make test-ffi     # clean rebuild with YAS_FFI=1, then aux/ffi_test.ys
+```
+
+### Source-position diagnostics
+
+```sh
+make YAS_SRCPOS=1
+```
+
+Off by default. When enabled, the reader stamps every pair it reads
+with its source line/column (+8 bytes per pair), and raised errors
+append `file:line:col` for the form being evaluated instead of just the
+file name. Unstamped cells (macro expansions, synthesized code) inherit
+the position that led into them - their call site. Same clean-rebuild
+caveat as the FFI flag; its tests get their own target:
+
+```sh
+make test-srcpos  # clean rebuild with YAS_SRCPOS=1, then aux/srcpos_test.ys
 ```
 
 ## Directory layout

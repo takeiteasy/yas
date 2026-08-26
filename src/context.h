@@ -106,6 +106,9 @@ struct YasContext {
     struct EvalRoot *eval_roots;
     YasAtom exception;        /* yas_ctx_exception */
     const char *current_file_path; /* yas_current_file_path */
+    int error_line, error_col; /* Position of the form being evaluated
+                                * (yas_ctx_error_line/col; written only
+                                * in YAS_SRCPOS builds) */
 
     /* ── Modules / features / search paths ── */
     YasAtom library_registry;      /* yas_library_registry */

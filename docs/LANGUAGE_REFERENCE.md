@@ -120,7 +120,10 @@ failure. Explicit raises (`throw`, `error`, builtin errors) deliver the
 raised object verbatim (builtins use `(type-error "message")`-shaped
 lists); runtime failures with no explicit exception object - malformed
 spines, arity problems - synthesize a message string such as
-`"Syntax error"` or `"Argument error"`. A handled exception never leaks:
+`"Syntax error"` or `"Argument error"`. Messages from explicit raises
+end in `(in file)` for the file being evaluated, or `(in file:line:col)`
+in `YAS_SRCPOS=1` builds (see [BUILDING.md](BUILDING.md)) when the form's
+source position is known. A handled exception never leaks:
 once a clause matches, the value is delivered to that clause alone, so a
 later, unrelated failure can't inherit it, while an uncaught throw still
 carries its value outward through nested `try`s to whichever handler (or

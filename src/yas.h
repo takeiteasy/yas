@@ -51,6 +51,10 @@ YasContext *yas_context_current(void);     /* NULL before first bind */
  * error). Still lvalues, so existing reads AND writes compile. */
 YasAtom *yas_context_exception(void);
 const char **yas_context_current_file_path_slot(void);
+#ifdef YAS_SRCPOS
+int *yas_context_error_line_slot(void);
+int *yas_context_error_col_slot(void);
+#endif
 YasAtom *yas_context_library_registry_slot(void);
 YasAtom *yas_context_search_paths_slot(void);
 YasAtom *yas_context_features_slot(void);
@@ -62,6 +66,10 @@ struct YasFFIStructType **yas_context_ffi_registry_slot(void);
 
 #define yas_ctx_exception (*yas_context_exception())
 #define yas_current_file_path (*yas_context_current_file_path_slot())
+#ifdef YAS_SRCPOS
+#define yas_ctx_error_line (*yas_context_error_line_slot())
+#define yas_ctx_error_col (*yas_context_error_col_slot())
+#endif
 #define yas_library_registry (*yas_context_library_registry_slot())
 #define yas_global_search_paths (*yas_context_search_paths_slot())
 #define yas_global_features (*yas_context_features_slot())
@@ -82,6 +90,11 @@ typedef struct {
     const char *source;   /* Original source string start */
     int line;             /* Current line (1-indexed) */
     int column;           /* Current column (1-indexed) */
+#ifdef YAS_SRCPOS
+    const char *scan; /* Lex cursor up to which line/column have been
+                       * counted (NULL = not started; fresh per top-level
+                       * form because callers build a fresh context). */
+#endif
 } YasReaderPos;
 
 /* Error context for detailed messages */
@@ -257,6 +270,13 @@ struct YasGCHeader {
 
 struct YasPair {
     struct YasAtom atom[2];
+#ifdef YAS_SRCPOS
+    /* Source position of the element this cell holds (1-indexed; 0/0
+     * when unstamped - synthesized cells, macro expansions). Opt-in via
+     * YAS_SRCPOS=1: +8 bytes per pair, paid only in builds that want
+     * file:line:col in raised diagnostics. */
+    unsigned int srcpos_line, srcpos_col;
+#endif
 };
 
 /* Vector/Hash/Port/Bytevector: the atom points directly at the allocation

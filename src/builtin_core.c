@@ -11,10 +11,20 @@ static int yas_raise_error_impl(const char *type, const char *msg)
     YasAtom t = yas_make_sym(type);
     YasAtom m = yas_make_string(msg);
 
-    /* Include file path in error message if available */
+    /* Include file path in error message if available; YAS_SRCPOS
+     * builds append :line:col for the form being evaluated when known
+     * (unstamped forms - synthesized code, macro expansions - keep the
+     * file-only suffix). */
     if (yas_current_file_path) {
-        char *full_msg = malloc(strlen(msg) + strlen(yas_current_file_path) + 50);
-        snprintf(full_msg, strlen(msg) + strlen(yas_current_file_path) + 50, "%s (in %s)", msg, yas_current_file_path);
+        size_t need = strlen(msg) + strlen(yas_current_file_path) + 72;
+        char *full_msg = malloc(need);
+#ifdef YAS_SRCPOS
+        if (yas_ctx_error_line > 0)
+            snprintf(full_msg, need, "%s (in %s:%d:%d)", msg, yas_current_file_path,
+                     yas_ctx_error_line, yas_ctx_error_col);
+        else
+#endif
+            snprintf(full_msg, need, "%s (in %s)", msg, yas_current_file_path);
         m = yas_make_string(full_msg);
         free(full_msg);
     }

@@ -1167,6 +1167,22 @@ static int eval_vm(YasAtom expr, YasAtom env, YasAtom *result, struct EvalRoot *
             YasAtom op = yas_car(expr);
             YasAtom args = yas_cdr(expr);
 
+#ifdef YAS_SRCPOS
+            /* Remember where this form came from so raises deep inside
+             * builtins/closures can report it. One store per form, and
+             * only in YAS_SRCPOS builds; body/argument forms re-enter
+             * here via the main loop, so the register tracks descent
+             * exactly. Unstamped cells (0/0 - synthesized forms like
+             * eval_do_apply()'s builtin-tail rebuild or macro
+             * expansions) leave the register alone: they inherit the
+             * position that led into them, which is the call site -
+             * exactly what a diagnostic wants to point at. */
+            if (expr.value.pair && expr.value.pair->srcpos_line > 0) {
+                yas_ctx_error_line = (int)expr.value.pair->srcpos_line;
+                yas_ctx_error_col = (int)expr.value.pair->srcpos_col;
+            }
+#endif
+
             /* A keyword-headed form (:kw ...) is always a bug: keywords
              * are data (lambda-list markers, ffi type tags), never
              * applicable values. Diagnose that specifically instead of

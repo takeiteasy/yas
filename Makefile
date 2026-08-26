@@ -34,6 +34,15 @@ endif
 LDFLAGS += -lffi
 endif
 
+# Optional source-position diagnostics: make YAS_SRCPOS=1. Stamps every
+# pair read from source with its line/column (+8 bytes per pair) so
+# raised errors can report "file.ys:line:col" instead of just the file.
+# Opt-in because of the per-pair memory cost; see docs/BUILDING.md and
+# the `test-srcpos` target below.
+ifdef YAS_SRCPOS
+CFLAGS += -DYAS_SRCPOS
+endif
+
 # Optional AddressSanitizer build: make YAS_ASAN=1. Paired with
 # YAS_GC_STRESS (see data.c) as the audit tool for allocation-triggered
 # GC stepping - see docs/GC.md "Testing" and `test-gc-stress` below.
@@ -115,6 +124,17 @@ test-ffi:
 	make clean
 	make YAS_FFI=1 yas $(libyas)
 	@./yas aux/ffi_test.ys
+
+# Source-position tests (aux/srcpos_test.ys) - need YAS_SRCPOS=1 (the
+# flag stamps pairs at read time; default builds keep pairs small and
+# report file-only positions), so like test-ffi this flips the flag on
+# a clean rebuild. Leaves the tree in a SRCPOS build; `make` again to
+# go back. Line numbers inside srcpos_test.ys are load-bearing.
+.PHONY: test-srcpos
+test-srcpos:
+	make clean
+	make YAS_SRCPOS=1 yas
+	@./yas aux/srcpos_test.ys
 
 # aux/ holds slow stress/benchmark/fuzz scripts (plus gc_test.c above)
 # that aren't part of the regular `make test` gate. Naming convention

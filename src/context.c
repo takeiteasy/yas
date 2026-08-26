@@ -31,6 +31,18 @@ const char **yas_context_current_file_path_slot(void)
     return &yas_ctx->current_file_path;
 }
 
+#ifdef YAS_SRCPOS
+int *yas_context_error_line_slot(void)
+{
+    return &yas_ctx->error_line;
+}
+
+int *yas_context_error_col_slot(void)
+{
+    return &yas_ctx->error_col;
+}
+#endif
+
 YasAtom *yas_context_library_registry_slot(void)
 {
     return &yas_ctx->library_registry;

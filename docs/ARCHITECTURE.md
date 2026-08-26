@@ -276,7 +276,7 @@ contract and #48 for cross-context value transfer.
 Unified incremental tricolor mark-sweep - one `struct YasGCHeader`
 (color/next/type) embedded in every heap type (Pair, Vector, Hash, Env,
 Frame, String, Port, Bytevector, Vec2/3/4, Mat4, and - under `YAS_FFI` -
-the two FFI types), one intrusive list, one generic mark/sweep, instead
+the FFI types), one intrusive list, one generic mark/sweep, instead
 of ten near-identical per-type copies. `gc_alloc()` paces steps itself in
 bounded slices, driven by a live-byte debt counter rather than a cons
 counter - allocation is what advances the collector, not `eval_vm()`'s
@@ -301,13 +301,16 @@ that holds `YasAtom`s across allocation points:
   bug this fixed during development. `eval_roots` itself stays internal
   to `eval.c`, rooting only `eval_vm()`'s own locals; the two root
   sources are walked together.
-- **FFILibrary and FFIPointer are deliberately not GC-managed.** A raw
-  `void*` has no recoverable ownership: it may be a `dlsym` result, an
-  interior pointer into a `YasFFIStructInstance`, or a genuinely owned
-  `ffi-malloc` block, and closing a library when its atom becomes
-  unreachable could invalidate a still-live `YasFFIFunction` extracted
-  from it (it doesn't hold a reference back to its library). Both stay
-  explicitly managed via `ffi-close`/`ffi-free`.
+- **FFILibrary, FFIFunction, and FFIStructInstance are GC-managed;
+  FFIPointer deliberately is not.** Sweeping an unreachable library
+  dlcloses its handle, and every `YasFFIFunction` retains a traced
+  reference to its owning library (`struct YasFFIFunction.library`), so a
+  live function can never outlive its library into a dangling call while
+  unreachable-but-unreferenced libraries are reclaimed automatically.
+  A raw pointer (FFIPointer) still has no recoverable ownership - it may
+  be a `dlsym` result, an interior pointer into a `YasFFIStructInstance`,
+  or a genuinely owned `ffi-malloc` block - so it stays explicitly
+  managed via `ffi-free`.
 - `yas_gc_mark()` traces `YAS_ATOM_TYPE_CONTINUATION` the same way as a
   control-stack frame (`YAS_GC_OBJ_FRAME` - it shares the same underlying
   `struct YasFrame` allocation shape, just retagged), so a continuation

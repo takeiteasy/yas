@@ -176,7 +176,7 @@ static ffi_type *resolve_type(const char *name, YasFFIType *out_type)
  * Function Preparation
  * ============================================================ */
 
-static struct YasFFIFunction * yas_ffi_prepare_impl(void *fn_ptr, YasAtom ret_type, YasAtom arg_types)
+static struct YasFFIFunction * yas_ffi_prepare_impl(void *fn_ptr, YasAtom library, YasAtom ret_type, YasAtom arg_types)
 {
     /* GC-tracked (data.c) like every other heap object - already linked
      * into the unified GC list before this function returns, so on the
@@ -185,6 +185,19 @@ static struct YasFFIFunction * yas_ffi_prepare_impl(void *fn_ptr, YasAtom ret_ty
      * same as if this object had simply become unreachable. */
     struct YasFFIFunction *fn = yas_gc_alloc_ffi_function();
     fn->fn_ptr = fn_ptr;
+    /* Retain the owning library (nil when prepared from a bare pointer):
+     * storing it immediately after allocation - before any further
+     * allocating call - means no GC step can observe the field unset.
+     * The write barrier keeps the tricolor invariant if a cycle is
+     * mid-flight (fresh objects are BLACK mid-cycle, but the stored
+     * library atom may still be WHITE), same as yas_cons() et al. */
+    fn->library = library;
+    {
+        YasAtom self;
+        self.type = YAS_ATOM_TYPE_FFI_FUNCTION;
+        self.value.ffi_fn = fn;
+        yas_gc_write_barrier(self, library);
+    }
 
     /* Parse return type (keyword or symbol for structs) */
     fn->ret_type = YAS_FFI_TYPE_VOID;
@@ -242,9 +255,9 @@ static struct YasFFIFunction * yas_ffi_prepare_impl(void *fn_ptr, YasAtom ret_ty
     return fn;
 }
 
-struct YasFFIFunction * yas_ffi_prepare(void *fn_ptr, YasAtom ret_type, YasAtom arg_types)
+struct YasFFIFunction * yas_ffi_prepare(void *fn_ptr, YasAtom library, YasAtom ret_type, YasAtom arg_types)
 {
-    struct YasFFIFunction * r = yas_ffi_prepare_impl(fn_ptr, ret_type, arg_types);
+    struct YasFFIFunction * r = yas_ffi_prepare_impl(fn_ptr, library, ret_type, arg_types);
     return r;
 }
 
@@ -469,8 +482,14 @@ static int yas_builtin_ffi_open_impl(YasAtom args, YasAtom *result)
         return yas_raise_error("ffi-error", dlerror());
     }
 
+    /* GC-tracked wrapper (data.c): the sweeper dlcloses the handle once
+     * no live FFIFunction traces this library and no reference to it
+     * remains - see gc_free_object()'s YAS_GC_OBJ_FFI_LIBRARY arm. */
+    YasFFILibrary *lib = yas_gc_alloc_ffi_library();
+    lib->handle = handle;
+
     result->type = YAS_ATOM_TYPE_FFI_LIBRARY;
-    result->value.ffi_library = handle;
+    result->value.ffi_library = lib;
     return YAS_ERROR_OK;
 }
 
@@ -481,14 +500,24 @@ int yas_builtin_ffi_open(YasAtom args, YasAtom *result)
 }
 
 
-/* (ffi-close lib) -> #t */
+/* (ffi-close lib) -> #t. Explicit early close - otherwise the GC reclaims
+ * an unreachable library on its own (see yas_builtin_ffi_open_impl). */
 static int yas_builtin_ffi_close_impl(YasAtom args, YasAtom *result)
 {
     if (yas_nilp(args) || yas_car(args).type != YAS_ATOM_TYPE_FFI_LIBRARY) {
         return yas_raise_error("type-error", "ffi-close requires an ffi-library");
     }
 
-    yas_ffi_close_library(yas_car(args).value.ffi_library);
+    YasFFILibrary *lib = yas_car(args).value.ffi_library;
+    if (!lib->handle) {
+        return yas_raise_error("ffi-error", "ffi-close: library already closed");
+    }
+
+    yas_ffi_close_library(lib->handle);
+    /* NULL the handle so the wrapper's eventual sweep is a no-op rather
+     * than a double-dlclose (mirrors gc_free_object()'s library arm). */
+    lib->handle = NULL;
+
     *result = yas_make_sym("T");
     return YAS_ERROR_OK;
 }
@@ -510,10 +539,13 @@ static int yas_builtin_ffi_lookup_impl(YasAtom args, YasAtom *result)
         return yas_raise_error("type-error", "ffi-lookup requires a string name");
     }
 
-    void *handle = yas_car(args).value.ffi_library;
+    YasFFILibrary *lib = yas_car(args).value.ffi_library;
+    if (!lib->handle) {
+        return yas_raise_error("ffi-error", "ffi-lookup: library already closed");
+    }
     const char *name = yas_car(yas_cdr(args)).value.string;
 
-    void *sym = yas_ffi_get_symbol(handle, name);
+    void *sym = yas_ffi_get_symbol(lib->handle, name);
     if (!sym) {
         return yas_raise_error("ffi-error", dlerror());
     }
@@ -530,22 +562,67 @@ int yas_builtin_ffi_lookup(YasAtom args, YasAtom *result)
 }
 
 
-/* (ffi-define ptr ret-type (arg-types...)) -> ffi-function */
+/* (ffi-define target ret-type (arg-types...)) -> ffi-function
+ *
+ * Two forms, dispatched on the first argument's atom type:
+ *   (ffi-define lib "c-name" ret-type (arg-types...))
+ *     lib is an ffi-library; c-name is looked up in it and the prepared
+ *     function RETAINS the library atom (struct YasFFIFunction.library,
+ *     traced by the GC) so the library can never be dlclosed out from
+ *     under a still-live function. The arg-types list is literal data -
+ *     quote it at call sites (the define-foreign macro does).
+ *   (ffi-define ptr ret-type (arg-types...))
+ *     ptr is a bare ffi-pointer (e.g. a function pointer read out of a
+ *     struct field via ffi-pointer-ref); nothing is retained. */
 static int yas_builtin_ffi_define_impl(YasAtom args, YasAtom *result)
 {
-    if (yas_nilp(args) || yas_car(args).type != YAS_ATOM_TYPE_FFI_POINTER) {
-        return yas_raise_error("type-error", "ffi-define requires an ffi-pointer");
+    if (yas_nilp(args)) {
+        return yas_raise_error("type-error", "ffi-define requires an ffi-library or ffi-pointer");
     }
-    if (yas_nilp(yas_cdr(args)) ||
-        (yas_car(yas_cdr(args)).type != YAS_ATOM_TYPE_KEYWORD && yas_car(yas_cdr(args)).type != YAS_ATOM_TYPE_SYMBOL)) {
+
+    YasAtom first = yas_car(args);
+    void *fn_ptr;
+    YasAtom library = yas_nil;
+    int ret_index;
+
+    if (first.type == YAS_ATOM_TYPE_FFI_LIBRARY) {
+        YasFFILibrary *lib = first.value.ffi_library;
+        if (!lib->handle) {
+            return yas_raise_error("ffi-error", "ffi-define: library already closed");
+        }
+        if (yas_nilp(yas_cdr(args)) || yas_car(yas_cdr(args)).type != YAS_ATOM_TYPE_STRING) {
+            return yas_raise_error("type-error",
+                                   "ffi-define with an ffi-library requires a string symbol name");
+        }
+
+        fn_ptr = yas_ffi_get_symbol(lib->handle, yas_car(yas_cdr(args)).value.string);
+        if (!fn_ptr) {
+            return yas_raise_error("ffi-error", dlerror());
+        }
+
+        library = first;
+        ret_index = 2;
+    } else if (first.type == YAS_ATOM_TYPE_FFI_POINTER) {
+        fn_ptr = first.value.ffi_pointer;
+        ret_index = 1;
+    } else {
+        return yas_raise_error("type-error", "ffi-define requires an ffi-library or ffi-pointer");
+    }
+
+    /* Walk to the return-type argument (position differs per form). */
+    YasAtom rest = args;
+    for (int i = 0; i < ret_index; i++)
+        rest = yas_cdr(rest);
+    if (yas_nilp(rest) ||
+        (yas_car(rest).type != YAS_ATOM_TYPE_KEYWORD && yas_car(rest).type != YAS_ATOM_TYPE_SYMBOL)) {
         return yas_raise_error("type-error", "ffi-define requires a return type keyword or struct name");
     }
 
-    void *fn_ptr = yas_car(args).value.ffi_pointer;
-    YasAtom ret_type = yas_car(yas_cdr(args));
-    YasAtom arg_types = yas_nilp(yas_cdr(yas_cdr(args))) ? yas_nil : yas_car(yas_cdr(yas_cdr(args)));
+    YasAtom ret_type = yas_car(rest);
+    YasAtom tail = yas_cdr(rest);
+    YasAtom arg_types = yas_nilp(tail) ? yas_nil : yas_car(tail);
 
-    struct YasFFIFunction *fn = yas_ffi_prepare(fn_ptr, ret_type, arg_types);
+    struct YasFFIFunction *fn = yas_ffi_prepare(fn_ptr, library, ret_type, arg_types);
     if (!fn) {
         return yas_raise_error("ffi-error", "Failed to prepare FFI function");
     }

@@ -1,0 +1,68 @@
+;; FFI tests - require a YAS_FFI=1 build (`make test-ffi`). The
+;; interpreter's own shared library is the fixture library: it exports
+;; the yas_* C API, so the pure yas_utf8_strlen() (const char* -> size_t)
+;; serves as a known callable foreign symbol without shipping a dedicated
+;; dylib or depending on interpreter state (the dylib has its own
+;; never-initialized TLS copy of the interpreter globals, so only
+;; state-free functions are safe to call this way).
+;;
+;; Covers the library-retention semantics (#25): an ffi-function retains
+;; its owning library, so the library stays mapped - and its symbols
+;; callable - even after every direct reference to it becomes unreachable
+;; and GC churn would sweep-close an unretained one.
+
+(import yas/test)
+(import yas/ffi)
+
+(print "Running YAS FFI Tests...")
+
+(test "FFI open / lookup / define / call"
+  (define lib (ffi-open "./libyas.dylib"))
+  (check (ffi-null? (ffi-lookup lib "yas_utf8_strlen")) nil)
+  (define u8-len (ffi-define lib "yas_utf8_strlen" :uint64 '(:string)))
+  ;; ffi-functions are invoked through ffi-call, not applied directly.
+  (check (ffi-call u8-len "hello") 5)
+  ;; Multi-byte codepoints count once per codepoint, not per byte.
+  (check (ffi-call u8-len "héllo") 5))
+
+(test "define-foreign macro"
+  (define lib (ffi-open "./libyas.dylib"))
+  (define-foreign u8-length lib "yas_utf8_strlen" :uint64 (:string))
+  (check (u8-length "yas") 3))
+
+(test "Library retention across GC"
+  ;; The library binding dies when the let returns; only the prepared
+  ;; function retains it. Churn garbage + explicit collections so any
+  ;; unretained library would be swept (dlclosed) out from under fn.
+  (define fn
+    (let ((lib (ffi-open "./libyas.dylib")))
+      (ffi-define lib "yas_utf8_strlen" :uint64 '(:string))))
+  (gc)
+  (dotimes (i 10000)
+    (cons i nil))
+  (gc)
+  ;; Still callable => its library survived the sweeps.
+  (check (ffi-call fn "retained") 8))
+
+(test "Unretained library is swept closed"
+  ;; Open a library, keep no references at all, force collection. The
+  ;; wrapper and its dlopen handle are reclaimed (dlclose). Nothing here
+  ;; can observe the close directly - the assertion is that this neither
+  ;; crashes nor disturbs later tests.
+  (ffi-open "./libyas.dylib")
+  (gc)
+  (dotimes (i 10000)
+    (cons i nil))
+  (gc)
+  (check t t))
+
+(test "Explicit close semantics"
+  (define lib (ffi-open "./libyas.dylib"))
+  (check (ffi-close lib) t)
+  ;; Double close raises instead of double-dlclosing.
+  (check (try (ffi-close lib) (catch e t)) t)
+  ;; Lookup through a closed library raises rather than silently
+  ;; searching global scope.
+  (check (try (ffi-lookup lib "yas_utf8_strlen") (catch e t)) t))
+
+(run-tests)

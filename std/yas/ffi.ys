@@ -53,12 +53,18 @@
 ;; Macro: define a foreign function as a Scheme procedure
 ;; Usage: (define-foreign name lib "c_symbol" :ret-type (:arg-types...))
 ;;
+;; The prepared function retains its owning library (the GC never
+;; dlcloses a library while one of its extracted functions is live), so
+;; the lib binding may be dropped freely after define-foreign.
+;; Note the arg-types list is quoted: it is passed to ffi-define as
+;; literal data, not evaluated.
+;;
 ;; Example:
 ;;   (define libc (ffi-open "libc.dylib"))
 ;;   (define-foreign strlen libc "strlen" :uint64 (:pointer))
 ;;   (strlen "hello")  ; => 5
 (defmacro (define-foreign name lib c-name ret-type arg-types)
   `(define ,name
-     (let ((fn (ffi-define (ffi-lookup ,lib ,c-name) ,ret-type ,arg-types)))
+     (let ((fn (ffi-define ,lib ,c-name ,ret-type ',arg-types)))
        (lambda args
          (apply ffi-call (cons fn args))))))

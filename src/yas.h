@@ -168,7 +168,7 @@ struct YasAtom {
         YAS_ATOM_TYPE_ENV,   /* environment frame (see struct YasEnv below) */
         YAS_ATOM_TYPE_FRAME, /* eval.c control-stack frame (see struct YasFrame below) */
 #ifdef YAS_FFI
-        YAS_ATOM_TYPE_FFI_LIBRARY,  /* dlopen handle */
+        YAS_ATOM_TYPE_FFI_LIBRARY,  /* dlopen handle (GC-tracked wrapper) */
         YAS_ATOM_TYPE_FFI_POINTER,  /* Raw C pointer */
         YAS_ATOM_TYPE_FFI_FUNCTION, /* Prepared ffi function */
         YAS_ATOM_TYPE_FFI_STRUCT    /* Struct instance (packed bytes) */
@@ -195,7 +195,7 @@ struct YasAtom {
                                  * YAS_ATOM_TYPE_CONTINUATION (a captured
                                  * frame chain retagged - see struct YasFrame) */
 #ifdef YAS_FFI
-        void *ffi_library;                       /* dlopen handle */
+        struct YasFFILibrary *ffi_library;       /* dlopen handle wrapper (GC-tracked) */
         void *ffi_pointer;                       /* raw C pointer */
         struct YasFFIFunction *ffi_fn;           /* prepared ffi function */
         struct YasFFIStructInstance *ffi_struct; /* struct instance */
@@ -229,6 +229,7 @@ typedef enum {
 #ifdef YAS_FFI
     YAS_GC_OBJ_FFI_FUNCTION,
     YAS_GC_OBJ_FFI_STRUCT,
+    YAS_GC_OBJ_FFI_LIBRARY,
 #endif
     YAS_GC_OBJ_COUNT /* sentinel - not a real type, sizes the pool arrays
                       * (data.c) in both YAS_FFI build configurations */
@@ -841,6 +842,13 @@ typedef struct YasFFIStructInstance {
 /* Struct type lookup */
 YasFFIStructType *yas_ffi_lookup_struct_type(const char *name);
 
+/* Library handle (created via ffi-open). Atom points at the allocation
+ * directly, so `gc` goes first (see YasVector et al above). */
+typedef struct YasFFILibrary {
+    struct YasGCHeader gc;
+    void *handle; /* dlopen handle; NULL once explicitly closed via ffi-close */
+} YasFFILibrary;
+
 /* Forward declaration for ffi_cif. Atom points at the allocation
  * directly, so `gc` goes first (see YasVector et al above). */
 struct YasFFIFunction {
@@ -852,26 +860,33 @@ struct YasFFIFunction {
     void **ffi_arg_types; /* ffi_type** for each arg (needed for structs) */
     void *ffi_ret_type;   /* ffi_type* for return (needed for structs) */
     int arg_count;
+    YasAtom library; /* Owning ffi-library atom (nil when prepared from a
+                      * bare pointer). Traced by the GC so the library stays
+                      * open (and its fn_ptr valid) for as long as any
+                      * function extracted from it is reachable. */
 };
 
-/* FFIFunction/FFIStructInstance are tracked in the single unified GC list
- * (data.c) like every other heap object. FFILibrary (dlopen handle) and
- * FFIPointer (raw void*) are deliberately NOT GC-tracked: ownership of a
- * raw pointer can't be inferred (it may be a dlsym result, an interior
- * pointer into a struct, or a genuinely owned ffi-malloc block), and
- * closing a library when its atom becomes unreachable could invalidate a
- * still-live FFIFunction extracted from it. Both remain explicitly
- * managed via ffi-close / ffi-free. */
+/* FFILibrary, FFIFunction, and FFIStructInstance are tracked in the single
+ * unified GC list (data.c) like every other heap object; sweeping an
+ * unreachable FFILibrary dlcloses its handle, so an unreachable library is
+ * reclaimed automatically - no ffi-close required (it remains available as
+ * an explicit early close; functions retain their owning library, so a
+ * live FFIFunction can never outlive it into a dangling call). FFIPointer
+ * (a raw void*) is still deliberately NOT GC-tracked: ownership of a bare
+ * pointer can't be inferred (it may be a dlsym result, an interior pointer
+ * into a struct, or a genuinely owned ffi-malloc block) and stays
+ * explicitly managed via ffi-free. */
 
-/* GC allocation (data.c) for the two GC-tracked FFI types above. */
+/* GC allocation (data.c) for the three GC-tracked FFI types above. */
 struct YasFFIFunction *yas_gc_alloc_ffi_function(void);
 YasFFIStructInstance *yas_gc_alloc_ffi_struct(void);
+YasFFILibrary *yas_gc_alloc_ffi_library(void);
 
 /* FFI core functions (ffi.c) */
 void *yas_ffi_load_library(const char *path);
 void yas_ffi_close_library(void *handle);
 void *yas_ffi_get_symbol(void *handle, const char *name);
-struct YasFFIFunction *yas_ffi_prepare(void *fn_ptr, YasAtom ret_type, YasAtom arg_types);
+struct YasFFIFunction *yas_ffi_prepare(void *fn_ptr, YasAtom library, YasAtom ret_type, YasAtom arg_types);
 YasAtom yas_ffi_call_function(struct YasFFIFunction *fn, YasAtom args);
 void yas_ffi_free_function(struct YasFFIFunction *fn);
 

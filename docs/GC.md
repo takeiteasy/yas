@@ -9,7 +9,7 @@ root API.
 
 Every heap-allocated object type (Pair, Vector, Hash, Env, Frame, String,
 Port, Bytevector, Vec2/3/4, Mat4, and - under `YAS_FFI` - `YasFFIFunction`/
-`YasFFIStructInstance`) embeds a `struct YasGCHeader`:
+`YasFFIStructInstance`/`YasFFILibrary`) embeds a `struct YasGCHeader`:
 
 ```c
 struct YasGCHeader {
@@ -28,7 +28,7 @@ sweep loops (one per type). `gc_alloc()`/`gc_scan_object()`/
 **Header recovery differs by type**, because the `YasAtom` union doesn't
 always point at the allocation's start:
 
-- Vector, Hash, Env, Frame, Port, Bytevector, and the two FFI types: the
+- Vector, Hash, Env, Frame, Port, Bytevector, and the FFI types: the
   atom's pointer *is* the allocation's address, so `gc` is the struct's
   first member and a plain cast recovers it. `Continuation` shares this
   path: a captured continuation *is* a `struct YasFrame` allocation, just
@@ -211,8 +211,8 @@ right size - no rounding, and no change to `backing_size`/`gc_allocated`
 accounting (a recycled block is the same size it always was). `String`
 is excluded: `struct YasStringAlloc`'s trailing flexible array member
 means its allocation size varies with string length, so a block sized
-for one string is generally wrong for the next. The two `YAS_FFI` types
-are excluded too - rare enough not to be worth a bucket.
+for one string is generally wrong for the next. The `YAS_FFI` types are
+excluded too - rare enough not to be worth a bucket.
 
 **Memory isn't held forever**: each bucket is capped
 (`YAS_GC_POOL_CAP`, 1024 blocks) - `gc_free_object()` falls back to a
@@ -549,16 +549,28 @@ alongside, but separate from, the ordinary GC heap:
   This showed up directly in `aux/gc_test.c`'s pool test (see "Testing"
   below) as a shift in a stable live-byte baseline, not a leak.
 
-## FFI exclusions
+## FFI ownership
 
-`YasFFIFunction` and `YasFFIStructInstance` are GC-tracked like everything
-else. `FFILibrary` (a `dlopen` handle) and `FFIPointer` (a raw `void*`)
-deliberately are **not**: ownership of a bare pointer can't be inferred
-(it may be a `dlsym` result, an interior pointer into a struct, or a
-genuinely owned `ffi-malloc` block), and closing a library when its atom
-becomes unreachable could invalidate a still-live `YasFFIFunction`
-extracted from it (it holds no back-reference to its library). Both stay
-explicitly managed via `ffi-close`/`ffi-free`.
+`YasFFILibrary`, `YasFFIFunction`, and `YasFFIStructInstance` are GC-tracked
+like everything else. Sweeping an unreachable `YasFFILibrary` dlcloses its
+handle, so a library opened with `ffi-open` and then dropped is reclaimed
+automatically - `ffi-close` remains available as an explicit early close
+(it NULLs the handle, so the later sweep of that wrapper is a no-op rather
+than a double-dlclose; closing twice raises).
+
+The dangling-call hazard this could otherwise create is closed by
+retention: every `YasFFIFunction` stores its owning library atom
+(`struct YasFFIFunction.library`, nil when prepared from a bare pointer)
+and `gc_scan_object()` traces it, so the library stays mapped for as long
+as any function extracted from it is reachable - a live function can never
+outlive its library into a dangling call. Note that each `ffi-open` of the
+same path yields a distinct wrapper object (dlopen refcounts underneath),
+so two opens are no longer `eq?`/`equal?`.
+
+`FFIPointer` (a raw `void*`) deliberately stays **not** GC-tracked:
+ownership of a bare pointer can't be inferred (it may be a `dlsym` result,
+an interior pointer into a struct, or a genuinely owned `ffi-malloc`
+block), so it remains explicitly managed via `ffi-free`.
 
 ## Testing
 

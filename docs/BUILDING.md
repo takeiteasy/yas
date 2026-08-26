@@ -8,6 +8,7 @@ make OPT=-O3    # build at a different optimization level
 make YAS_DEBUG=1 # build unoptimized (-O0 -g) for stepping through a crash
 make test       # runs suite.ys, gates on its process exit code
 make test-gc    # C-level GC regression tests (aux/gc_test.c) - see GC.md
+make test-ffi   # FFI tests (aux/ffi_test.ys), rebuilds with YAS_FFI=1
 make stress-test    # runs the slow stress/regression scripts in aux/*_stress.ys
 make test-gc-stress # allocation-triggered GC stepping audit gate - see GC.md
 make bench          # cross-language + self-timed benchmarks - see BENCHMARKING.md
@@ -76,7 +77,14 @@ make YAS_FFI=1
 ```
 
 Links `libffi` (on macOS, auto-detected via `brew --prefix libffi`).
-Off by default.
+Off by default. The FFI tests live in `aux/ffi_test.ys` and need an FFI
+build, which requires a clean rebuild when the tree was last built
+without the flag - so they get their own target (leaves the tree in an
+FFI build; `make clean && make` afterwards to go back):
+
+```sh
+make test-ffi     # clean rebuild with YAS_FFI=1, then aux/ffi_test.ys
+```
 
 ## Directory layout
 

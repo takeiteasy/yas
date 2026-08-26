@@ -180,7 +180,7 @@ static void yas_print_expr_impl(YasAtom atom)
         }
 #ifdef YAS_FFI
         case YAS_ATOM_TYPE_FFI_LIBRARY:
-            printf("#<FFI-LIBRARY:%p>", atom.value.ffi_library);
+            printf("#<FFI-LIBRARY:%p>", atom.value.ffi_library ? atom.value.ffi_library->handle : NULL);
             break;
         case YAS_ATOM_TYPE_FFI_POINTER:
             printf("#<FFI-POINTER:%p>", atom.value.ffi_pointer);

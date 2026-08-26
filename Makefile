@@ -106,6 +106,16 @@ test-gc: $(libyas)
 	$(CC) -std=c99 -Wall -D_GNU_SOURCE -iquote src -o build/gc_test aux/gc_test.c -L. -lyas -Wl,-rpath,.
 	./build/gc_test
 
+# FFI tests (aux/ffi_test.ys) - need YAS_FFI=1, which requires a clean
+# rebuild when the default build has no FFI (see the comment at the top),
+# so this is its own target that flips the flag and runs the script.
+# Leaves the tree in an FFI build; `make` again afterwards to go back.
+.PHONY: test-ffi
+test-ffi:
+	make clean
+	make YAS_FFI=1 yas $(libyas)
+	@./yas aux/ffi_test.ys
+
 # aux/ holds slow stress/benchmark/fuzz scripts (plus gc_test.c above)
 # that aren't part of the regular `make test` gate. Naming convention
 # (docs/BENCHMARKING.md, ticket #29): `*_stress.ys` here, `bench_*.ys` +

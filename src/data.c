@@ -421,6 +421,8 @@ static struct YasGCHeader *atom_to_header(YasAtom a)
             return a.value.ffi_fn ? &a.value.ffi_fn->gc : NULL;
         case YAS_ATOM_TYPE_FFI_STRUCT:
             return a.value.ffi_struct ? &a.value.ffi_struct->gc : NULL;
+        case YAS_ATOM_TYPE_FFI_LIBRARY:
+            return a.value.ffi_library ? &a.value.ffi_library->gc : NULL;
 #endif
         default:
             return NULL; /* nil, symbol, integer, float, char, keyword, builtin: not heap-tracked */
@@ -962,8 +964,18 @@ static void gc_scan_object(struct YasGCHeader *obj)
         case YAS_GC_OBJ_VEC:
         case YAS_GC_OBJ_MAT4:
 #ifdef YAS_FFI
-        case YAS_GC_OBJ_FFI_FUNCTION:
+            /* Leaves: no YasAtom children. */
+            break;
+        case YAS_GC_OBJ_FFI_FUNCTION: {
+            /* The one FFI type with an Atom child: its owning library,
+             * retained so the library can't be dlclosed out from under a
+             * still-live function (see struct YasFFIFunction.library). */
+            struct YasFFIFunction *fn = (struct YasFFIFunction *)obj;
+            yas_gc_mark(fn->library);
+            break;
+        }
         case YAS_GC_OBJ_FFI_STRUCT:
+        case YAS_GC_OBJ_FFI_LIBRARY:
 #endif
             /* Leaves: no YasAtom children. */
             break;
@@ -1074,6 +1086,21 @@ static void gc_free_object(struct YasGCHeader *obj, size_t *freed)
         case YAS_GC_OBJ_FFI_STRUCT: {
             YasFFIStructInstance *inst = (YasFFIStructInstance *)obj;
             free(inst->data);
+            break;
+        }
+        case YAS_GC_OBJ_FFI_LIBRARY: {
+            /* An unreachable library's last close: dlclose the dlopen
+             * handle so the shared object can actually be reclaimed. Safe
+             * against dangling calls because every FFIFunction traces its
+             * owning library atom (gc_scan_object above), so this arm only
+             * ever runs once no live function references it. NULLing here
+             * (and after an explicit ffi-close) makes a later sweep of the
+             * same wrapper a no-op rather than a double-dlclose. */
+            YasFFILibrary *lib = (YasFFILibrary *)obj;
+            if (lib->handle) {
+                yas_ffi_close_library(lib->handle);
+                lib->handle = NULL;
+            }
             break;
         }
 #endif
@@ -2222,10 +2249,10 @@ YasAtom yas_make_port(void *handle, const char *path, int is_input, int is_binar
 
 
 #ifdef YAS_FFI
-/* FFIFunction/FFIStructInstance allocation, for ffi.c - these two types
- * are tracked in the same unified GC list as everything else rather than
- * their own global lists (see yas.h). ffi.c fills in the fields; these
- * just get a zeroed, GC-tracked block of the right size. */
+/* FFIFunction/FFIStructInstance/FFILibrary allocation, for ffi.c - these
+ * types are tracked in the same unified GC list as everything else rather
+ * than their own global lists (see yas.h). ffi.c fills in the fields;
+ * these just get a zeroed, GC-tracked block of the right size. */
 static struct YasFFIFunction * yas_gc_alloc_ffi_function_impl(void)
 {
     return gc_alloc(sizeof(struct YasFFIFunction), YAS_GC_OBJ_FFI_FUNCTION);
@@ -2246,6 +2273,18 @@ static YasFFIStructInstance * yas_gc_alloc_ffi_struct_impl(void)
 YasFFIStructInstance * yas_gc_alloc_ffi_struct(void)
 {
     YasFFIStructInstance * r = yas_gc_alloc_ffi_struct_impl();
+    return r;
+}
+
+
+static YasFFILibrary * yas_gc_alloc_ffi_library_impl(void)
+{
+    return gc_alloc(sizeof(YasFFILibrary), YAS_GC_OBJ_FFI_LIBRARY);
+}
+
+YasFFILibrary * yas_gc_alloc_ffi_library(void)
+{
+    YasFFILibrary * r = yas_gc_alloc_ffi_library_impl();
     return r;
 }
 

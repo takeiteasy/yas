@@ -20,14 +20,21 @@
   (define lib (ffi-open "./libyas.dylib"))
   (check (ffi-null? (ffi-lookup lib "yas_utf8_strlen")) nil)
   (define u8-len (ffi-define lib "yas_utf8_strlen" :uint64 '(:string)))
-  ;; ffi-functions are invoked through ffi-call, not applied directly.
+  ;; An extracted function is directly applicable...
+  (check (u8-len "hello") 5)
+  ;; ...and reaches the call through apply like any procedure.
+  (check (apply u8-len (list "yas")) 3)
+  ;; ffi-call keeps working unchanged on the same value.
   (check (ffi-call u8-len "hello") 5)
   ;; Multi-byte codepoints count once per codepoint, not per byte.
-  (check (ffi-call u8-len "héllo") 5))
+  (check (u8-len "héllo") 5))
 
 (test "define-foreign macro"
   (define lib (ffi-open "./libyas.dylib"))
   (define-foreign u8-length lib "yas_utf8_strlen" :uint64 (:string))
+  ;; define-foreign now yields the bare prepared function - no wrapper
+  ;; closure - so direct application exercises the evaluator's own
+  ;; FFI_FUNCTION dispatch.
   (check (u8-length "yas") 3))
 
 (test "Library retention across GC"

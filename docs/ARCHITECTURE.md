@@ -249,6 +249,16 @@ routes hash `~get`/`~set` and `~call`/`~missing` for operator-overloaded
 hashes. **Any code path that calls a `YasBuiltin` function pointer directly
 bypasses this.**
 
+Two more dispatch behaviors share these paths. Under `YAS_FFI`, an
+operator that evaluates to an `FFI_FUNCTION` atom is applied by calling
+`yas_ffi_call_function()` straight from `eval_do_apply()` - the exact
+marshaling the `ffi-call` builtin performs - so an extracted foreign
+function is an ordinary procedure (`(strlen "hello")`, `apply` included).
+The call happens while the frame is still linked on the stack, keeping
+the arg spine GC-reachable through `FRAME_ARGS` across the result
+conversions inside the marshaling path (plain C locals are not roots -
+docs/GC.md's hazard shape).
+
 ## Contexts
 
 All mutable interpreter state - the GC heap and its pacing counters,

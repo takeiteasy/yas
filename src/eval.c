@@ -819,7 +819,32 @@ int eval_do_apply(YasAtom *stack, YasAtom *expr, YasAtom *env, YasAtom *result)
         if (yas_nilp(*stack))
             return YAS_ERROR_OK; /* Will exit main loop */
         return eval_do_return(stack, expr, env, result);
-    } else if (op.type == YAS_ATOM_TYPE_HASH && yas_has_metamethod(op, "call")) {
+    }
+#ifdef YAS_FFI
+    else if (op.type == YAS_ATOM_TYPE_FFI_FUNCTION) {
+        /* Direct application of a prepared foreign function: route it
+         * through the exact marshaling path the ffi-call builtin uses,
+         * so an extracted function behaves like any other procedure
+         * ((strlen "hello"), not just (ffi-call strlen "hello")). The
+         * APPLY replacement above lands here too.
+         *
+         * The call happens BEFORE popping this frame: until
+         * yas_ffi_call_function() returns, args/op are reachable only
+         * through FRAME_ARGS/FRAME_OP of the frame still linked on
+         * *stack - plain C locals are not roots, and the impl allocates
+         * while converting its result (a returned C string becomes a
+         * yas string). Popping first would leave the arg spine
+         * unrooted across that allocation, the docs/GC.md hazard shape
+         * for locals held across allocating calls. */
+        *result = yas_ffi_call_function(op.value.ffi_fn, args);
+
+        *stack = frame_get(*stack, FRAME_PARENT);
+        if (yas_nilp(*stack))
+            return YAS_ERROR_OK; /* Will exit main loop */
+        return eval_do_return(stack, expr, env, result);
+    }
+#endif
+    else if (op.type == YAS_ATOM_TYPE_HASH && yas_has_metamethod(op, "call")) {
         /* Hash has ~call metamethod - invoke it with (self . args) */
         YasAtom call_fn = yas_get_metamethod(op, "call");
         args = yas_cons(op, args); /* Prepend hash as first arg (self) */

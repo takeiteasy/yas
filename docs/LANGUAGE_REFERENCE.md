@@ -282,6 +282,9 @@ is resolved by whichever import ran last; use `prefix`, `rename`, or
 - **`yas/test`** - `check test run-tests` and supporting state; see
   [Testing](GETTING_STARTED.md#testing).
 - **`yas/ffi`** - only under `YAS_FFI=1`; see [BUILDING.md](BUILDING.md).
+  Foreign functions extracted with `ffi-define`/`define-foreign` are
+  ordinary procedures: apply them directly (`(strlen "hello")`) or via
+  `ffi-call`; usage examples live in `std/yas/ffi.ys` and `aux/ffi_test.ys`.
 
 ### Format directives
 

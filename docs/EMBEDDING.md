@@ -2,8 +2,7 @@
 
 All interpreter state lives in a `YasContext` (symbol/keyword tables,
 the allocation lists the GC sweeps, the module registry, search paths,
-the current exception) - created with `yas_context_create()` (ticket
-#47). A context owns its heap outright: atoms never cross contexts, and
+the current exception) - created with `yas_context_create()`. A context owns its heap outright: atoms never cross contexts, and
 interning, `eq?` identity and equality are context-local facts. Each
 thread binds its own context; different contexts run fully in parallel.
 Embedding is a small, fixed sequence, taken from `src/main.c`:
@@ -109,7 +108,7 @@ returns it.
 
 ## Threads
 
-Milestone 2 of the thread-safety work (#47) scopes all interpreter state
+Milestone 2 of the thread-safety work scopes all interpreter state
 to `YasContext`. Consequences for embedders:
 
 - **Create and bind one context per thread** (`yas_context_create()`

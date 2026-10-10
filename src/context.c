@@ -4,7 +4,7 @@
 #include <string.h>
 
 /* ══════════════════════════════════════════════════════════════════
-   Context lifecycle (ticket #47 milestone 2). See context.h for the
+   Context lifecycle. See context.h for the
    ownership rules and yas.h for the public contract.
    ══════════════════════════════════════════════════════════════════ */
 
@@ -88,7 +88,7 @@ YasContext *yas_context_create(void)
     yas_ctx = prev ? prev : ctx; /* keep new context bound if none was */
     /* The lock now only guards process-wide bookkeeping around context
      * creation/teardown - there is no shared interpreter state left to
-     * protect (ticket #47 milestone 2). */
+     * protect. */
     yas_gil_leave();
 
     return ctx;

@@ -354,7 +354,7 @@ static void test_env_chain_survives_gc(void)
 	yas_gc_pop_roots(1);
 }
 
-/* 11. Control-stack frames (struct YasFrame, yas.h - ticket #40) are a GC
+/* 11. Control-stack frames (struct YasFrame, yas.h) are a GC
  * heap type - this is the C-level check that YAS_GC_OBJ_FRAME's
  * gc_scan_object() arm (data.c) actually marks a frame's fields, mirroring
  * test_env_chain_survives_gc() above. yas_make_frame() (data.c) is the
@@ -421,7 +421,7 @@ static void test_frame_chain_survives_gc(void)
 	yas_gc_pop_roots(1);
 }
 
-/* 12. Pool allocator (ticket #44): recycling a swept object through the
+/* 12. Pool allocator: recycling a swept object through the
  * free list must not inflate the live-byte counter gc_alloc()/
  * gc_free_object() maintain (gc_allocated, exposed via
  * yas_gc_allocated()) - a pooled block is unlinked from gc_all and
@@ -471,7 +471,7 @@ static void test_pool_does_not_inflate_live_bytes(void)
 		 * IDLE)` guard), it doesn't restart one. A second yas_gc()
 		 * call settles it: nothing keeps that leftover BLACK batch
 		 * reachable, so the immediately next cycle reclaims it for
-		 * real. (#64's macro-expansion memo raised this test's
+		 * real. (the macro-expansion memo raised this test's
 		 * baseline - std/yas/base.ys's own top-level macro calls
 		 * during module load are cached, same as any other call
 		 * site - which was enough to shift exactly when the
@@ -488,7 +488,7 @@ static void test_pool_does_not_inflate_live_bytes(void)
 
 int main(void)
 {
-	/* Embedding contract since per-context isolation (#47 milestone 2):
+	/* Embedding contract since per-context isolation:
 	 * create (and bind) a context before touching ANY other API. */
 	if (!yas_context_create()) {
 		fprintf(stderr, "failed to create context\n");

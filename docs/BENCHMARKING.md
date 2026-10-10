@@ -115,19 +115,19 @@ other interpreted languages; `alloc` and `fib` are the narrowest.
 
 The `yas` column below has three sub-columns tracking two follow-up
 optimizations to the GC/allocation machinery that `sample` profiling
-showed dominating every workload here (see tickets #40/#44): **base**
-(before either change), **+#40** (control-stack frames collapsed from
+showed dominating every workload here: **base**
+(before either change), **+frames** (control-stack frames collapsed from
 6 cons cells per push to 1 GC object, `src/eval.c`/`struct YasFrame`),
-and **+#44** (the free-list pool on top of that, `gc_alloc()`/
-`gc_sweep_step()` in `src/data.c`). #40 is the dominant lever (~45-50%
+and **+pool** (the free-list pool on top of that, `gc_alloc()`/
+`gc_sweep_step()` in `src/data.c`). The frame change is the dominant lever (~45-50%
 wall-time reduction on its own, since it cuts allocations-per-push
-6-to-1); #44's *additional* win on top of #40 is smaller than it would
+6-to-1); The pool's *additional* win on top of the frame change is smaller than it would
 have measured in isolation (~10-15% further on most workloads, roughly
-noise on `alloc`/`closure`) precisely because #40 already removed five
-of every six frame allocations #44 would otherwise be making cheaper -
-expected, not a sign #44 underperforms.
+noise on `alloc`/`closure`) precisely because the frame change already removed five
+of every six frame allocations the pool would otherwise be making cheaper -
+expected, not a sign the pool underperforms.
 
-| workload | yas (base) | yas (+#40) | yas (+#44) | python3 | ruby | lua | c |
+| workload | yas (base) | yas (+frames) | yas (+pool) | python3 | ruby | lua | c |
 |---|---|---|---|---|---|---|---|
 | `fib` (n=24) | 1.174s | 0.612s | 0.531s | 0.017s | 0.057s | 0.006s | 0.002s |
 | `alloc` (n=50000) | 0.728s | 0.417s | 0.393s | 0.018s | 0.059s | 0.008s | 0.003s |
@@ -138,12 +138,12 @@ expected, not a sign #44 underperforms.
 | `array` (n=3000) | 3.585s | 1.875s | 1.654s | 0.013s | 0.060s | 0.004s | 0.002s |
 | `startup` | 0.004s | 0.003s | 0.003s | 0.011s | 0.052s | 0.003s | - |
 
-`closure`'s `+#44` column landing slightly above `+#40` is within the
+`closure`'s `+pool` column landing slightly above `+frames` is within the
 noise of a single best-of-3 run, not a regression - the pool changes
 nothing about closure/env allocation shape, only where the backing bytes
 come from.
 
-**Ticket #58 note**: faithful (snapshot-per-invocation) continuations add
+**Continuation note**: faithful (snapshot-per-invocation) continuations add
 one cons per argument to every application - `eval_do_apply()` now
 reverses a copy of the evaluated-args list instead of rewiring the shared
 spine in place, so continuation snapshots can't be scrambled mid-spine -

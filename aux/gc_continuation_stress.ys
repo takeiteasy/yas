@@ -1,7 +1,7 @@
 ;; Stress/regression test for continuation GC-tracing and snapshotting.
 ;;
 ;; yas_gc_mark() (src/data.c) must trace a continuation's captured stack -
-;; a chain of struct YasFrame objects since ticket #40 (previously a chain
+;; a chain of struct YasFrame objects (previously a chain
 ;; of ordinary cons pairs) - the same way it traces the other GC-tracked
 ;; frame-family types. Before the original fix, gc_mark() returned
 ;; immediately for a continuation without marking its backing allocation,
@@ -21,7 +21,7 @@
 ;; only then invokes it from an unrelated later form. On unfixed code this
 ;; segfaults.
 ;;
-;; Ticket #58: continuations are snapshots cloned per invocation, so these
+;; Continuations are snapshots cloned per invocation, so these
 ;; invocations also assert exact resumed values - the resumed computation
 ;; re-enters its capture-point expression (e.g. the value being defined)
 ;; with the supplied argument and updates that binding. Each repro sits at
@@ -57,7 +57,7 @@
 (test "a second continuation stays valid after further GC pressure and prior continuation use"
   (check *v2* 15))
 
-;; Churn loop (ticket #40): capture, drop, and re-invoke a fresh
+;; Churn loop: capture, drop, and re-invoke a fresh
 ;; continuation many times across forced GC cycles, so
 ;; YAS_GC_OBJ_FRAME's gc_scan_object() arm (data.c) - which must mark
 ;; every captured frame's parent/env/op/tail/args/body field - gets
@@ -66,7 +66,7 @@
 ;; (dropping it), and immediately becomes garbage; a missed mark in the
 ;; frame scan arm would show up here as a crash or a wrong sum under
 ;; YAS_GC_STRESS=1, since every iteration's frames become collectible
-;; almost immediately. Under ticket #58 semantics each invocation also
+;; almost immediately. Under the snapshot semantics each invocation also
 ;; runs on a fresh clone of the captured chain.
 (define (churn-continuations n)
   (let ((total 0))

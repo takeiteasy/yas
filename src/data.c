@@ -34,7 +34,7 @@ typedef YasGCPhase GCPhase;
 #define YAS_GC_INIT_THRESHOLD (256 * 1024) /* bytes */
 #define YAS_GC_STEP_LIMIT 512              /* objects per bounded step */
 
-/* ── Per-context state (ticket #47 milestone 2) ─────────────────────
+/* ── Per-context state ─────────────────────
  * Everything below used to be file-scope statics; it now lives in
  * struct YasContext (context.h), reached through the thread-local
  * `yas_ctx` binding. These shorthands keep the function bodies
@@ -177,7 +177,7 @@ static void gc_pace(size_t size)
  * since `name`'s address is exactly what a plain interned `char *` used to
  * be. `sym_rec()` recovers the enclosing record from that pointer via
  * `offsetof`. The extra fields (`cache_env`/`cache_slot`/`shadowed`) back
- * the root-frame lookup cache in yas_env_get()/yas_env_set() (ticket #45)
+ * the root-frame lookup cache in yas_env_get()/yas_env_set()
  * - `kw_intern` entries never populate them. */
 static struct YasSymbol *sym_rec(const char *name)
 {
@@ -429,7 +429,7 @@ static struct YasGCHeader *atom_to_header(YasAtom a)
     }
 }
 
-/* ── Macro expansion memo (#64) ──────────────────────────────────────
+/* ── Macro expansion memo ──────────────────────────────────────
  * A source macro call site's expansion is a deterministic function of
  * its argument forms and its binding, but eval.c used to re-run the
  * macro's closure and rebuild the expansion from scratch on every single
@@ -622,7 +622,7 @@ static void macro_memo_mark_roots(void)
     }
 }
 
-/* ── Free-list pool (ticket #44) ─────────────────────────────────────
+/* ── Free-list pool ─────────────────────────────────────
  * gc_alloc() calls calloc()/gc_free_object() calls free() per object -
  * general-purpose malloc bookkeeping/locking overhead that's wasted on
  * fixed-size, high-frequency allocations like cons cells and frames. A
@@ -677,7 +677,7 @@ static int gc_obj_type_poolable(YasGCObjType type)
 /* Cycle-end trim: the cap alone only bounds a single allocation burst, not
  * long-term idle memory - a bucket that merely stays *capped* at the
  * high-water mark forever (rather than draining) would not actually solve
- * the allocate-then-stop case the ticket asks for, since gc_pool_count[]
+ * the allocate-then-stop case, since gc_pool_count[]
  * is a LIFO stack (gc_free_object() pushes the head, gc_alloc() pops the
  * head) and repeatedly trimming from that same head only ever removes the
  * *newest* arrivals, never touching the oldest ones sitting at the tail -
@@ -1007,7 +1007,7 @@ static void gc_free_object(struct YasGCHeader *obj, size_t *freed)
             /* car/cdr are YasAtoms, not owned pointers - nothing extra to free. */
             if (obj->flags & YAS_GC_FLAG_MACRO_MEMO_KEY) {
                 /* This pair is a live key in the macro expansion memo
-                 * (#64) - drop its entry now, before the free-list pool
+                 * - drop its entry now, before the free-list pool
                  * (or a bare free()) can hand this same address out
                  * again under a fresh identity. gc_alloc()'s memset()
                  * on reuse already clears `flags`, so a recycled pair
@@ -1318,7 +1318,7 @@ YasAtom yas_cons(YasAtom car_val, YasAtom cdr_val)
 }
 
 
-/* eval.c's control-stack frame constructor (ticket #40) - one gc_alloc()
+/* eval.c's control-stack frame constructor - one gc_alloc()
  * instead of make_frame()'s former six yas_cons() calls. `op`/`args`/`body`
  * start NIL: gc_alloc() calloc()s (or, once pooled, memset()s - see
  * gc_alloc()) the backing storage, and YAS_ATOM_TYPE_NIL is 0, so a
@@ -1635,7 +1635,7 @@ static int yas_env_define_impl(YasAtom env, YasAtom symbol, YasAtom value)
     size_t slot = env_probe(e, symbol);
 
     /* Any insert into a non-root frame permanently disqualifies this
-     * symbol from the fast path below (ticket #45) - set before the
+     * symbol from the fast path below - set before the
      * insert so the flag is live before the frame's body runs. Monotone,
      * never cleared: a false "shadowed" just means an extra parent-chain
      * walk, never a wrong value. */
@@ -1671,13 +1671,13 @@ int yas_env_define(YasAtom env, YasAtom symbol, YasAtom value)
 
 static int yas_env_get_impl(YasAtom env, YasAtom symbol, YasAtom *result)
 {
-    /* Root-frame fast path (ticket #45): a symbol never yas_env_define()'d
+    /* Root-frame fast path: a symbol never yas_env_define()'d
      * into a non-root frame always resolves at the chain's root, so cache
      * (root, slot) behind the interned symbol and skip both the
      * frame-by-frame walk and the per-frame probe on a hit. The cached
      * slot is re-validated against the live table on every use - this is
      * what makes env_grow()'s rehash (which moves every slot) and the
-     * free-list pool's env-address recycling (ticket #44) safe without a
+     * free-list pool's env-address recycling safe without a
      * generation counter: a stale/foreign slot either fails the symbol
      * check or the `cache_slot < capacity` bounds check, and falls back
      * to a fresh probe. */
@@ -1723,7 +1723,7 @@ static int yas_env_set_impl(YasAtom env, YasAtom symbol, YasAtom value)
     struct YasSymbol *s = sym_rec(symbol.value.symbol);
     struct YasEnv *start = env.value.env;
 
-    /* Root-frame fast path (ticket #45), gated for module boundaries:
+    /* Root-frame fast path, gated for module boundaries:
      * an unshadowed symbol lives at the chain's root alone - but for a
      * module env that root is the ONE SHARED yas/base frame, and a
      * plain write-through would publish the mutation to every module in

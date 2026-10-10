@@ -15,7 +15,7 @@ ifdef YAS_DEBUG
 OPT = -O0
 endif
 CFLAGS = -Wall $(OPT) -g --std=c99 -D_GNU_SOURCE -iquote src
-# -lpthread: the interpreter lock (src/thread.c, ticket #47 milestone 1).
+# -lpthread: the interpreter lock (src/thread.c).
 # A no-op link stub on Darwin (pthread lives in libSystem) but required
 # on Linux/glibc.
 LDFLAGS=-lreadline -lpthread
@@ -141,7 +141,7 @@ test-srcpos:
 
 # aux/ holds slow stress/benchmark/fuzz scripts (plus gc_test.c above)
 # that aren't part of the regular `make test` gate. Naming convention
-# (docs/BENCHMARKING.md, ticket #29): `*_stress.ys` here, `bench_*.ys` +
+# (docs/BENCHMARKING.md): `*_stress.ys` here, `bench_*.ys` +
 # `bench/` for benchmarks (see `bench` target below), and `fuzz_*.ys` +
 # `aux/fuzz/` for reader/evaluator fuzzing (see `fuzz` target below,
 # docs/FUZZING.md). Only `*_stress.ys` is filtered by this target (and

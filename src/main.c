@@ -82,7 +82,7 @@ static int yas_load_file_impl(YasAtom env, const char *path)
                     default:
                         printf("Unknown error %d\n", eval_err);
                 }
-                /* Reported = consumed (#65): drop the exception object so a
+                /* Reported = consumed: drop the exception object so a
                  * later form's handler can't pick up this one as stale
                  * state. */
                 yas_clear_exception();
@@ -117,7 +117,7 @@ int main(int argc, char **argv)
 
     /* Create the process's root context and bind it to this thread -
      * this builds the feature list, the module registry plumbing and
-     * every other per-context structure (ticket #47 milestone 2). */
+     * every other per-context structure. */
     yas_context_create();
 
     env = yas_env_create(yas_nil);
@@ -213,7 +213,7 @@ int main(int argc, char **argv)
                 /* Should not reach here - handled earlier */
                 break;
         }
-        /* Same consumed-at-report rule as yas_load_file above (#65). */
+        /* Same consumed-at-report rule as yas_load_file above. */
         if (eval_err)
             yas_clear_exception();
 

@@ -196,7 +196,7 @@ static int make_closure(YasAtom env, YasAtom args, YasAtom body, YasAtom *result
 {
     YasAtom p;
 
-    /* No more up-front yas_listp(body) here (#63) - that walked the
+    /* No more up-front yas_listp(body) here - that walked the
      * whole body spine on every LAMBDA/DEFMACRO/closure-shape DEFINE
      * evaluation, directly in the `closure` bench workload. `body` is
      * yas_cdr(args) at every call site below, and the caller's
@@ -252,7 +252,7 @@ static YasAtom make_frame(YasAtom parent, YasAtom env, YasAtom tail)
     return yas_make_frame(parent, env, tail);
 }
 
-/* Control-frame field access (ticket #40 - see struct YasFrame, yas.h).
+/* Control-frame field access (see struct YasFrame, yas.h).
  * Named slots replace make_frame()'s former cons-list indices 0-5, so the
  * diff at every call site below is a mechanical rename:
  * yas_list_get(*stack, k) -> frame_get(*stack, FRAME_*),
@@ -315,7 +315,7 @@ static inline void frame_set(YasAtom f, int slot, YasAtom v)
     yas_gc_write_barrier(f, v);
 }
 
-/* Deep-copy a control-stack frame chain (ticket #58). Each link becomes a
+/* Deep-copy a control-stack frame chain. Each link becomes a
  * fresh struct YasFrame whose six fields are copied verbatim through
  * frame_get()/frame_set() - so every barriered-store and GC-scan contract
  * the live stack relies on applies to the copy automatically. The lists
@@ -373,7 +373,7 @@ static YasAtom clone_frame_chain(YasAtom src)
 
 /* Bounded arity + spine-properness check for a special form's argument
  * list `args` (e.g. yas_cdr(expr)), replacing the O(len) yas_listp(expr)
- * that used to guard every call node up front (#63). Verifies the first
+ * that used to guard every call node up front. Verifies the first
  * `min` cells are pairs (so `args` has at least `min` elements); when
  * `max < 0` that's all it checks - a special form whose tail is an
  * unbounded body (LAMBDA, DEFMACRO, TRY, INCLUDE) relies on a separate,
@@ -415,7 +415,7 @@ int eval_do_exec(YasAtom *stack, YasAtom *expr, YasAtom *env)
     body = frame_get(*stack, FRAME_BODY);
     /* Walks one body form per call, across many calls as the closure's
      * body drains - this is where an improper body spine (formerly
-     * rejected up front by make_closure()'s yas_listp(body), #63) now
+     * rejected up front by make_closure()'s yas_listp(body)) now
      * gets caught, one cell at a time, instead of all at once on every
      * `lambda` evaluation. */
     if (body.type != YAS_ATOM_TYPE_PAIR)
@@ -459,9 +459,9 @@ int eval_do_bind(YasAtom *stack, YasAtom *expr, YasAtom *env)
      */
     int in_keywords = 0;
     /* Keyword matching splices matched :keyword/value pairs out of
-     * `args`, but `args` is not always owned by this frame (#66): a
+     * `args`, but `args` is not always owned by this frame: a
      * macro call's FRAME_ARGS is the source form's own argument spine
-     * (aliased by FRAME_TAIL, and the #64 expansion-memo key), a
+     * (aliased by FRAME_TAIL, and the expansion-memo key), a
      * MACROEXPAND-1 call binds yas_cdr(form) of arbitrary evaluated
      * data, and APPLY binds the caller's raw argument list. Splicing
      * any of those corrupts user-visible structure. So the first time
@@ -483,9 +483,9 @@ int eval_do_bind(YasAtom *stack, YasAtom *expr, YasAtom *env)
         /* `args` is proper-by-construction for an ordinary closure call
          * (eval_do_apply()'s yas_list_reverse() output), but for a macro
          * call it's the raw source argument spine (eval_do_return()'s
-         * MACRO branch sets FRAME_ARGS straight from FRAME_TAIL, #63/#64)
+         * MACRO branch sets FRAME_ARGS straight from FRAME_TAIL)
          * - guard it here instead of relying on the up-front whole-spine
-         * check this ticket removes. */
+         * check. */
         if (!yas_nilp(args) && args.type != YAS_ATOM_TYPE_PAIR)
             return YAS_ERROR_SYNTAX;
 
@@ -514,11 +514,11 @@ int eval_do_bind(YasAtom *stack, YasAtom *expr, YasAtom *env)
 
             /* Search for keyword in call args */
             /* First keyword spec to run against a non-empty args list?
-             * Take one private copy (COW, #66): the search/splice below
+             * Take one private copy (copy-on-write): the search/splice below
              * removes matched :keyword/value pairs via yas_set_cdr(),
              * but `args` is not always owned by this frame - a macro
              * call's FRAME_ARGS is the source form's own argument spine
-             * (aliased by FRAME_TAIL and used as the #64 expansion-memo
+             * (aliased by FRAME_TAIL and used as the expansion-memo
              * key), MACROEXPAND-1 binds yas_cdr(form) of arbitrary
              * evaluated data, and APPLY binds the caller's raw argument
              * list. Splicing any of those corrupts user-visible
@@ -635,7 +635,7 @@ int eval_do_apply(YasAtom *stack, YasAtom *expr, YasAtom *env, YasAtom *result)
         /* Copy, then reverse the copy: yas_list_reverse() rewires cdrs
          * in place, which would scramble the shared arg spine of any
          * continuation snapshot whose frames were captured while this
-         * application was mid-argument-evaluation (ticket #58; see
+         * application was mid-argument-evaluation (see
          * clone_frame_chain() for why frame-held spines must be
          * immutable once linked). */
         args = yas_copy_list(args);
@@ -671,12 +671,12 @@ int eval_do_apply(YasAtom *stack, YasAtom *expr, YasAtom *env, YasAtom *result)
             *stack = make_frame(*stack, *env, yas_nil);
             op = yas_car(args);
             args = yas_car(yas_cdr(args));
-            /* Unlike a source call form's argument spine (#63), this is
+            /* Unlike a source call form's argument spine, this is
              * a genuine runtime value - the second argument to `apply`,
              * arbitrary user data that has never been validated as a
              * proper list. yas_listp() stays here; there's no later
              * per-cell consumption point to push this check down to,
-             * and `apply` isn't the hot path #63 targets. */
+             * and `apply` isn't the hot path. */
             if (!yas_listp(args))
                 return YAS_ERROR_SYNTAX;
 
@@ -792,8 +792,7 @@ int eval_do_apply(YasAtom *stack, YasAtom *expr, YasAtom *env, YasAtom *result)
         if (yas_nilp(args) || !yas_nilp(yas_cdr(args)))
             return YAS_ERROR_ARGS;
 
-        /* Restore a per-invocation clone of the captured stack (ticket
-         * #58): the continuation holds a private capture-time snapshot,
+        /* Restore a per-invocation clone of the captured stack: the continuation holds a private capture-time snapshot,
          * and each invocation gets its own copy, so a resumed run
          * advancing frame positions in place can never perturb any
          * other invocation - or the snapshot itself - making repeated
@@ -924,7 +923,7 @@ int eval_do_return(YasAtom *stack, YasAtom *expr, YasAtom *env, YasAtom *result)
             /* Don't evaluate macro arguments */
             args = frame_get(*stack, FRAME_TAIL);
 
-            /* #64: this call site may already have an expansion cached
+            /* This call site may already have an expansion cached
              * from a previous evaluation - `args` (yas_cdr(call-form))
              * is a stable identity per call site, so a hit here skips
              * running the macro's closure entirely. See
@@ -1002,8 +1001,7 @@ int eval_do_return(YasAtom *stack, YasAtom *expr, YasAtom *env, YasAtom *result)
              * continuation - a *snapshot*: clone_frame_chain() copies
              * every frame, so positions frozen here can't be perturbed
              * by the ordinary (non-continuation) execution path going on
-             * to advance or pop the live frames after this point (ticket
-             * #58). NULL when nothing is left on the stack (see the
+             * to advance or pop the live frames after this point. NULL when nothing is left on the stack (see the
              * CONTINUATION-apply case in eval_do_apply() for how that's
              * handled on invoke). */
             *stack = frame_get(*stack, FRAME_PARENT);
@@ -1015,7 +1013,7 @@ int eval_do_return(YasAtom *stack, YasAtom *expr, YasAtom *env, YasAtom *result)
 
             /* Apply fn to the continuation. `cont` is otherwise
              * unreachable across the allocations below - unlike the
-             * pre-#58 alias it shares no structure with the rooted live
+             * former alias it shares no structure with the rooted live
              * stack - so root it until yas_cons() links it into the new
              * frame's args. */
             yas_gc_push_root(&cont);
@@ -1049,7 +1047,7 @@ int eval_do_return(YasAtom *stack, YasAtom *expr, YasAtom *env, YasAtom *result)
          * on this frame is therefore the exact same cell used as the
          * memo key on the lookup side above - it's only ever reassigned
          * by the store_arg path below, which this branch never takes.
-         * #64: record the expansion for future evaluations of this call
+         * Record the expansion for future evaluations of this call
          * site before discarding it. */
         YasAtom call_args = frame_get(*stack, FRAME_TAIL);
         if (!yas_nilp(call_args))
@@ -1072,7 +1070,7 @@ int eval_do_return(YasAtom *stack, YasAtom *expr, YasAtom *env, YasAtom *result)
     /* `args` is the source call form's own argument spine (FRAME_TAIL was
      * seeded straight from yas_cdr(expr) at push-time), walked one cell
      * per evaluated argument - this is exactly the invariant the old
-     * up-front yas_listp(expr) check (#63) used to guarantee. Catch an
+     * up-front yas_listp(expr) check used to guarantee. Catch an
      * improper spine here instead, at the point it's actually consumed. */
     if (args.type != YAS_ATOM_TYPE_PAIR)
         return YAS_ERROR_SYNTAX;
@@ -1151,7 +1149,7 @@ static int eval_vm(YasAtom expr, YasAtom env, YasAtom *result, struct EvalRoot *
         } else if (expr.type != YAS_ATOM_TYPE_PAIR) {
             *result = expr;
         } else {
-            /* No more up-front yas_listp(expr) here (#63): that used to
+            /* No more up-front yas_listp(expr) here: that used to
              * walk the whole spine to prove it terminates in NIL before
              * anything else happened, on every call/special-form node.
              * Properness is now checked incrementally, at each site that
@@ -1261,7 +1259,7 @@ static int eval_vm(YasAtom expr, YasAtom env, YasAtom *result, struct EvalRoot *
                     if (err != YAS_ERROR_OK) {
                         /* Exception thrown or runtime error.
                          *
-                         * Dispatch model (#65/#69): detach the pending
+                         * Dispatch model: detach the pending
                          * exception from the global for the whole clause
                          * walk. Clauses bind from the local `pending`
                          * snapshot and the global stays nil throughout, so
@@ -1269,7 +1267,7 @@ static int eval_vm(YasAtom expr, YasAtom env, YasAtom *result, struct EvalRoot *
                          * catch body installs itself unambiguously as the
                          * global's new content - it can neither be confused
                          * with the value being dispatched nor leave that
-                         * value stale behind a code-only failure (#69's
+                         * value stale behind a code-only failure (in the
                          * pred_err corner). The snapshot goes back to the
                          * global only if this TRY finishes without any
                          * clause handling the error: uncaught errors must
@@ -1307,7 +1305,7 @@ static int eval_vm(YasAtom expr, YasAtom env, YasAtom *result, struct EvalRoot *
                         YasAtom p = rest;
                         /* `p` walks the same top-level spine `expr`'s
                          * yas_listp() check used to guarantee proper
-                         * (#63) - check the cell type explicitly instead
+                         * - check the cell type explicitly instead
                          * of trusting yas_nilp() alone to signal the
                          * end. */
                         while (p.type == YAS_ATOM_TYPE_PAIR) {
@@ -1320,7 +1318,7 @@ static int eval_vm(YasAtom expr, YasAtom env, YasAtom *result, struct EvalRoot *
                                 if (yas_nilp(catch_args)) {
                                     /* Malformed clause: delivery of the
                                      * dispatched value failed structurally,
-                                     * so abandon it (#65) - the SYNTAX error
+                                     * so abandon it - the SYNTAX error
                                      * leaving this TRY describes itself via
                                      * an outer synthesis instead of carrying
                                      * the abandoned value. */
@@ -1386,7 +1384,7 @@ static int eval_vm(YasAtom expr, YasAtom env, YasAtom *result, struct EvalRoot *
                                     if (pred_err) {
                                         /* Error evaluating predicate?
                                          * Propagate it - and abandon the
-                                         * dispatched value (#69): whatever
+                                         * dispatched value: whatever
                                          * went wrong inside the pred has
                                          * already installed its own exception
                                          * object if it raised explicitly (a
@@ -1578,7 +1576,7 @@ static int eval_vm(YasAtom expr, YasAtom env, YasAtom *result, struct EvalRoot *
                  * 1))` gives a BUILTIN car and a non-pair cdr. An O(1)
                  * nil-or-pair check catches that immediate case without
                  * reinstating a yas_listp() walk on every builtin call
-                 * (#63); a non-pair cell further down a hand-built args
+                 *; a non-pair cell further down a hand-built args
                  * spine - `(eval (cons car (cons 1 2)))` - stays
                  * undetected and is undefined behaviour, documented in
                  * docs/ARCHITECTURE.md. */

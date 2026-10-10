@@ -185,7 +185,7 @@ longer the only way a collection can start mid-builtin.
 `gc_alloc()` calling `calloc()` and `gc_free_object()` calling `free()`
 per object pays general-purpose malloc bookkeeping/locking overhead on
 every allocation - wasted cost on fixed-size, high-frequency objects like
-cons cells and control-stack frames (ticket #44). `data.c` adds a
+cons cells and control-stack frames. `data.c` adds a
 size-class free list bucketed by `obj_type` (`gc_pool`/`gc_pool_count`,
 one bucket per `YasGCObjType`):
 
@@ -373,7 +373,7 @@ void yas_gc_pop_roots(int n);           /* pop the last n roots (LIFO) */
 int  yas_gc_root_count(void);           /* for push/pop balance asserts */
 ```
 
-Roots live on the bound **context's** stack (`data.c`, ticket #47):
+Roots live on the bound **context's** stack (`data.c`):
 each context owns one private LIFO, and `gc_mark_roots()` walks exactly
 that stack (plus the evaluator's own chain). The stack used to be a
 single process-global LIFO, which is only correct when every push..pop
@@ -431,7 +431,7 @@ should account for the new, lazier contract.
 ### A worked example: the bug this API exists to prevent
 
 While porting this collector, `load_module()` (`module.c`) turned up
-a real instance of exactly the hazard #4 describes. It computes a lookup
+a real instance of exactly the hazard described above. It computes a lookup
 key:
 
 ```c
@@ -598,7 +598,7 @@ block), so it remains explicitly managed via `ffi-free`.
   actually hold. The same shape repeats for `YAS_GC_OBJ_FRAME` (a 200-deep
   `yas_make_frame()` chain, each frame's `env`/`tail` fields holding a
   distinct heap string/cons, surviving several full collections) and,
-  separately, a free-list pool check (ticket #44): several thousand
+  separately, a free-list pool check: several thousand
   throwaway conses churned across repeated full collections, confirming
   `yas_gc_allocated()` returns to the same pre-churn baseline every time -
   a pooled block must not inflate the live-byte counter, only change
@@ -632,8 +632,7 @@ block), so it remains explicitly managed via `ffi-free`.
   explicit `(gc)`/`(gc-start)` - exercises the mid-builtin collection
   window that could never occur before allocation-triggered stepping.
 - `aux/gc_continuation_stress.ys` - a continuation reachable only via a
-  binding (not the live evaluator stack) survives GC and, since ticket
-  #58's snapshot semantics, yields the exact resumed value on invocation -
+  binding (not the live evaluator stack) survives GC and, given snapshot semantics, yields the exact resumed value on invocation -
   exercising both that `YAS_ATOM_TYPE_CONTINUATION` is traced the same as
   Pair/Closure/Macro (they share the same underlying allocation) and that
   cloned chains stay coherent across collection.

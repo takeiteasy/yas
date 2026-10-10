@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
-"""Cross-language micro-benchmark driver for aux/bench/ (ticket #29,
-docs/BENCHMARKING.md).
+"""Cross-language micro-benchmark driver for aux/bench/ (see docs/BENCHMARKING.md).
 
 Times the same small workload across yas and a few reference languages.
 

@@ -606,7 +606,7 @@ static void make_module(const char *key_str, YasAtom key, const char *path, YasA
     yas_hash_set(lib, yas_make_sym("*PATH*"),
                  path ? yas_make_string(path) : yas_nil);
     *out_env = yas_env_create(parent_env);
-    /* Mark the boundary for yas_env_set() (#71): set! from inside this
+    /* Mark the boundary for yas_env_set(): set! from inside this
      * module shadows here instead of writing through to shared base. */
     (*out_env).value.env->module_boundary = 1;
     yas_hash_set(lib, yas_make_sym("*ENV*"), *out_env);

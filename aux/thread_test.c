@@ -1,4 +1,4 @@
-/* Thread-safety regression test for ticket #47 - milestone 2 (per-
+/* Thread-safety regression test (per-
  * context isolation).
  *
  * Each worker creates AND DESTROYS its own YasContext, imports the

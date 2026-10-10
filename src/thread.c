@@ -2,7 +2,7 @@
 #include <pthread.h>
 
 /* ══════════════════════════════════════════════════════════════════
-   Global interpreter lock ("GIL") - ticket #47, milestone 1.
+   Global interpreter lock ("GIL").
 
    Interpreter state (GC heap/intern tables/root stacks/evaluator
    globals/module registry/sandbox config) is still process-global, so

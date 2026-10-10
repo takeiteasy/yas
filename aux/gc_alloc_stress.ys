@@ -20,7 +20,7 @@
 ;; Deliberately broad: touches as many allocating builtins as practical in a
 ;; small amount of code - list/string/hash/vector/bytevector construction,
 ;; string ops that allocate, and a module import (which walks the raw
-;; struct YasHash* iteration loops fixed for ticket #33) - so the audit
+;; struct YasHash* iteration loops fixed - so the audit
 ;; isn't limited to one code path.
 
 (import yas/hash)

@@ -8,7 +8,7 @@
 ;; Self-contained: writes throwaway module files into the process CWD
 ;; (and one into this script's own directory, to prove importer-relative
 ;; resolution) and deletes them again at the end. No mkdir builtin
-;; exists (io tickets), so no nested-directory cases here - those follow
+;; exists (see https://github.com/takeiteasy/yas/issues/17), so no nested-directory cases here - those follow
 ;; from the same fopen-per-candidate path as these.
 ;;
 ;; Embedded/native-beats-disk shadowing is structural (the registry,

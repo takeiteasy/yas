@@ -6,7 +6,7 @@
 ;; never-initialized TLS copy of the interpreter globals, so only
 ;; state-free functions are safe to call this way).
 ;;
-;; Covers the library-retention semantics (#25): an ffi-function retains
+;; Covers the library-retention semantics: an ffi-function retains
 ;; its owning library, so the library stays mapped - and its symbols
 ;; callable - even after every direct reference to it becomes unreachable
 ;; and GC churn would sweep-close an unretained one.

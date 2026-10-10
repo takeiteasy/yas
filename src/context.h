@@ -1,7 +1,7 @@
 /* PRIVATE header - included by the interpreter sources only, never installed.
  *
  * struct YasContext: everything the interpreter mutates at runtime,
- * per context (ticket #47 milestone 2). Public code sees an opaque
+ * per context. Public code sees an opaque
  * handle (yas.h); this header exposes the layout so the interpreter
  * internals can reach their state through the thread-local
  * `yas_ctx` binding.
@@ -27,7 +27,7 @@
 typedef enum { YAS_GC_IDLE, YAS_GC_MARKING, YAS_GC_SWEEPING } YasGCPhase;
 
 /* Intern record (was file-private in data.c): interned name plus the
- * root-frame lookup cache backing yas_env_get/yas_env_set (#45).
+ * root-frame lookup cache backing yas_env_get/yas_env_set.
  * `name` is a flexible array member; atom.value.symbol points directly
  * at it. Records are immortal within their context. */
 struct YasSymbol {
@@ -60,7 +60,7 @@ struct EvalRoot {
     struct EvalRoot *prev;
 };
 
-/* Macro expansion memo entry (#64, was file-private in data.c). */
+/* Macro expansion memo entry (was file-private in data.c). */
 struct YasMacroMemoEntry {
     struct YasPair *key; /* NULL = empty, tombstone = removed (cast 1) */
     YasAtom macro;
@@ -84,7 +84,7 @@ struct YasContext {
     long gc_stress_bytes;     /* -1 = "not yet read from env"; 0 = unset */
 
 #ifndef YAS_NO_GC_POOL
-    /* Size-class free lists (#44), per context like everything else. */
+    /* Size-class free lists, per context like everything else. */
     struct YasGCHeader *gc_pool[YAS_GC_OBJ_COUNT];
     int gc_pool_count[YAS_GC_OBJ_COUNT];
     int gc_pool_puts_since_trim[YAS_GC_OBJ_COUNT];
@@ -97,7 +97,7 @@ struct YasContext {
     struct YasInternTable sym_intern;
     struct YasInternTable kw_intern;
 
-    /* ── Macro expansion memo (#64) ── */
+    /* ── Macro expansion memo ── */
     struct YasMacroMemoEntry *macro_memo_slots;
     size_t macro_memo_capacity;
     size_t macro_memo_used;

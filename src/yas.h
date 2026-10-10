@@ -7,14 +7,14 @@
 /* Thread-local storage qualifier: C11 _Thread_local where available,
  * the GCC/clang __thread extension otherwise (the build compiles as
  * C99 - see the Makefile). Windows/MSVC maps to __declspec(thread) in
- * ticket #49's portability pass. */
+ * ticket https://github.com/takeiteasy/yas/issues/6's portability pass. */
 #if defined(__STDC_VERSION__) && __STDC_VERSION__ >= 201112L
 #define YAS_TLS _Thread_local
 #else
 #define YAS_TLS __thread
 #endif
 
-/* ── Interpreter lock (ticket #47, milestone 1) ───────────────────────
+/* ── Interpreter lock ───────────────────────
  * Interpreter state is process-global until milestone 2's per-context
  * isolation, so every public entry that touches it brackets its body
  * with these. Nesting is the common case (eval -> builtin ->
@@ -25,7 +25,7 @@
 void yas_gil_enter(void);
 void yas_gil_leave(void);
 
-/* ── Contexts (ticket #47 milestone 2) ───────────────────────────────
+/* ── Contexts ───────────────────────────────
  * A context owns everything mutable: its heap and collector, intern
  * tables, root stack, evaluator state (exception, current file), the
  * module registry, search paths, feature list, sandbox config, and FFI
@@ -253,7 +253,7 @@ struct YasGCHeader {
     unsigned char color;    /* YasGCColor */
     unsigned char obj_type; /* YasGCObjType */
     unsigned char flags;    /* Per-object bits, currently only
-                             * YAS_GC_FLAG_MACRO_MEMO_KEY (#64, data.c) -
+                             * YAS_GC_FLAG_MACRO_MEMO_KEY (data.c) -
                              * set on a PAIR that is the live key of an
                              * entry in the macro-expansion memo, so
                              * gc_free_object() knows to drop that entry
@@ -319,8 +319,7 @@ struct YasHash {
  * `root` is the chain's top frame (self if `parent` is NIL), set once in
  * yas_env_create() and never mutated again - `parent` itself is written
  * only there, so a frame's root is fixed for its lifetime. It backs the
- * O(1) global-lookup fast path in yas_env_get()/yas_env_set() (ticket
- * #45, see the `struct YasSymbol` cache fields in data.c): a raw
+ * O(1) global-lookup fast path in yas_env_get()/yas_env_set() (see the `struct YasSymbol` cache fields in data.c): a raw
  * pointer, not a `YasAtom`, since the root frame is already reachable
  * through the ordinary `parent` chain and needs no separate GC root or
  * write barrier of its own. */
@@ -342,7 +341,7 @@ struct YasEnv {
 
 /* eval.c's explicit control-stack frame (see docs/ARCHITECTURE.md
  * "Evaluator"): one per push, replacing the former 6-cons-cell linked list
- * (ticket #40). `parent` chains to the frame below (NIL at the bottom of the
+ *. `parent` chains to the frame below (NIL at the bottom of the
  * stack), `tail`/`args`/`body` hold ordinary cons lists (or, for `args`, a
  * bare symbol in the DEFINE/SET! case - see eval.c). Direct pointer, header
  * first, same shape as YasEnv above - writes through eval.c's frame_set()
@@ -508,7 +507,7 @@ int yas_gc_root_count(void);
  * rather than a YasAtom field. No-op if either atom isn't heap-tracked. */
 void yas_gc_write_barrier(YasAtom container, YasAtom child);
 
-/* Macro expansion memo (#64, data.c): a source macro call site
+/* Macro expansion memo (data.c): a source macro call site
  * re-expands to the same result on every evaluation unless the macro is
  * redefined or the call site's argument forms change identity - memoise
  * it instead of re-running the macro's closure every time. `args_cell`

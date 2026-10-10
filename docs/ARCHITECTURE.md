@@ -242,7 +242,7 @@ never mutates an existing spine pair - argument accumulation prepends fresh
 cells (`store_arg`) and position advance only moves field pointers. The one
 historical exception, `eval_do_apply()`'s in-place `yas_list_reverse()` of
 the evaluated-args list, now reverses a `yas_copy_list()` copy instead so it
-cannot scramble an arg spine a snapshot is still referencing (#58).
+cannot scramble an arg spine a snapshot is still referencing.
 
 Cost model: capture and invoke are both O(live stack depth) allocations
 (one `YasFrame` per link), and every application pays one extra cons per
@@ -304,8 +304,8 @@ context-local facts by construction. One thread drives one bound
 context at a time; different contexts run fully in parallel with no
 locks anywhere on their hot paths. The only remaining lock
 (`src/thread.c`) guards nothing at runtime - create/destroy take it as
-belt-and-braces around process-wide bookkeeping (ticket #47 milestone
-2; milestone 1's entry-point GIL was removed once the state stopped
+belt-and-braces around process-wide bookkeeping (the thread-safety milestone
+2; the earlier entry-point GIL was removed once the state stopped
  being shared). See docs/EMBEDDING.md's "Threads" for the embedding
  contract and docs/CONCURRENCY.md's "Value transfer" for the neutral
  marshaler.
@@ -358,8 +358,7 @@ that holds `YasAtom`s across allocation points:
   regression-tests this: it captures continuations at top level, lets
   their `call/cc` unwind normally so they are reachable only via bindings
   (not the live evaluator stack), forces `(gc)` cycles, then invokes them
-  from later top-level forms and asserts the exact resumed values (ticket
-  #58 snapshot semantics) - on unfixed code this segfaults or corrupts.
+  from later top-level forms and asserts the exact resumed values (snapshot semantics) - on unfixed code this segfaults or corrupts.
   It also churns many short-lived continuations across forced cycles,
   exercising `gc_scan_object()`'s `YAS_GC_OBJ_FRAME` arm on many distinct
   frame chains, not just the two long-lived ones.
@@ -455,7 +454,7 @@ The cached slot is re-validated against the live table on every use
 `cache_slot < root->capacity` bounds check), which is what makes two
 hazards safe without a generation counter: `env_grow()` rehashing a
 frame (moves every slot - the validation catches the move and re-probes)
-and the free-list pool (ticket #44) recycling an env's address (the
+and the free-list pool recycling an env's address (the
 cache never dereferences `cache_env`, only compares it against the
 *current* chain's live root, so a collision either fails the symbol
 check or, courtesy of the bounds check, can't read past a freshly

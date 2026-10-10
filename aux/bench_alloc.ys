@@ -1,6 +1,6 @@
 ;; Self-timed in-language micro-benchmark (docs/BENCHMARKING.md,
 ;; aux/bench/ for the cross-language harness) - establishes the
-;; `bench_*.ys` half of the aux/ naming convention (ticket #29) and gives
+;; `bench_*.ys` half of the aux/ naming convention and gives
 ;; (current-time) a real user beyond suite.ys's smoke test.
 ;;
 ;; Builds and sums a 200000-element list (heavier than aux/bench/'s
